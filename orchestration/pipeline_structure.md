@@ -1,5 +1,3 @@
-Got it. Here’s a tight map of the **software structure**, focused on the processing classes, their I/O, and how the branches link up.
-
 # Preprocessor (`src/lake_dashboard/dineof_preprocessor/lswt_processing/…`)
 **Base & config**
 - `ProcessingStep` (abstract): contract for steps → `should_apply(cfg)`, `apply(ds, cfg)`, `name()`. Also validation + simple logging.
