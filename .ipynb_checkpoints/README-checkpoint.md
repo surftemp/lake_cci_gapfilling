@@ -42,7 +42,7 @@ lake_cci_gapfilling/
 │  │     │  ├─ interpolate_temporal_eofs.py
 │  │     │  └─ reconstruct_from_eofs.py
 │  │
-│  ├─ gapflow/                    # DINCAE adapters & runner
+│  ├─ dincae_arm/                    # DINCAE adapters & runner
 │  │  ├─ __init__.py
 │  │  ├─ contracts.py
 │  │  ├─ dincae_adapter_in.py     # prepared.nc → DINCAE tensors
