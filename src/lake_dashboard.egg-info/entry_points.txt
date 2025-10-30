@@ -1,0 +1,4 @@
+[console_scripts]
+dineof_postprocessor = lake_dashboard.dineof_postprocessor.post_process:main
+dineof_preprocessor = lake_dashboard.dineof_preprocessor.convert_data:main
+lake_dashboard = lake_dashboard.dashboard.app:main

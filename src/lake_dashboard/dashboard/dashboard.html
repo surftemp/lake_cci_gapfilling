@@ -1,0 +1,95 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Lake Surface Water Temperature Dashboard</title>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/dygraph/2.1.0/dygraph.min.js"></script>
+    <script src="http://dygraphs.com/src/extras/crosshair.js"></script>
+    <script src="http://dygraphs.com/src/extras/synchronizer.js"></script>
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/dygraph/2.1.0/dygraph.min.css" />
+    <script src="dashboard.js"></script>
+    <style>
+        table, td, th {
+            border: 1px solid black;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+    </style>
+</head>
+
+<body onload="start_status_loop();" style="font-family:Helvetica, Arial, sans-serif;">
+  <div>
+    <h3>Lake Surface Water Temperature Dashboard <span id="status">Loading - Please wait</span></h3>
+  </div>
+  <div id="main">
+      {{ script|safe }}
+      <div id="quality_legend" style="display:none;">
+          <table>
+              <tr>
+                  <td colspan="2">
+                      Quality band categories
+                  </td>
+              </tr>
+              <tr>
+                  <td>
+                      High (quality > 2)
+                  </td>
+                  <td>
+                      Medium (quality = 2)
+                  </td>
+              </tr>
+              <tr>
+                  <td>
+                      <canvas id="high_quality_canvas_legend" width="20", height="20"></canvas>
+                  </td>
+                  <td>
+                      <canvas id="medium_quality_canvas_legend" width="20", height="20"></canvas>
+                  </td>
+              </tr>
+          </table>
+      </div>
+      <div id="ts_value_controls" style="display:none;">
+          <br/><input type=checkbox id="o_toggle" checked onClick="toggleSeries('o_toggle')">
+          <label for="o_toggle">Original</label>
+          <input type=checkbox id="s1_toggle" checked onClick="toggleSeries('s1_toggle')">
+          <label for="s1_toggle">Series1</label>
+          <input type=checkbox id="s2_toggle" checked onClick="toggleSeries('s2_toggle')">
+          <label for="s2_toggle">Series2</label>
+      </div>
+      <div id="ts_value" style="width:100%; height:300px;"></div>
+      <div id="ts_diff_controls"style="display:none;">
+          <br/><input type=checkbox id="s1e_toggle" checked onClick="toggleSeries('s1e_toggle')">
+          <label for="s1e_toggle">Series1 Difference</label>
+          <input type=checkbox id="s2e_toggle" checked onClick="toggleSeries('s2e_toggle')">
+          <label for="s2e_toggle">Series2 Difference</label>
+          <input type=checkbox id="s1d_toggle" onClick="toggleSeries('s1d_toggle')">
+          <label for="s1d_toggle">Series1 - Series2</label>
+          <input type=checkbox id="s2d_toggle" onClick="toggleSeries('s2d_toggle')">
+          <label for="s2d_toggle">Series2 - Series1</label>
+      </div>
+      <div id="ts_diff" style="width:100%; height:300px;"></div>
+      <div>
+        <label for="eof_select">Select EOF variable:</label>
+            <select id="eof_select" onChange="selectEofChanged();">
+              <option value="temporal_eof0" selected>temporal_eof0</option>
+              <option value="temporal_eof1">temporal_eof1</option>
+              <option value="temporal_eof2">temporal_eof2</option>
+              <option value="temporal_eof3">temporal_eof3</option>
+              <option value="temporal_eof4">temporal_eof4</option>
+              <option value="temporal_eof5">temporal_eof5</option>
+              <option value="temporal_eof6">temporal_eof6</option>
+              <option value="temporal_eof7">temporal_eof7</option>
+              <option value="temporal_eof8">temporal_eof8</option>
+              <option value="temporal_eof9">temporal_eof9</option>
+              <option value="temporal_eof10">temporal_eof10</option>                
+            </select>
+        </div>             
+      <div id="eof" style="width:100%; height:300px;"></div>
+      <div id="eof_hist" style="width:100%; height:300px;"></div>
+  </div>
+</body>
+</html>
+
