@@ -49,7 +49,7 @@ lake_cci_gapfilling/
 │  │  ├─ dincae_runner.py         # launch DINCAE (SLURM/local)
 │  │  └─ dincae_adapter_out.py    # DINCAE → DINEOF-shaped output.nc(/merged.nc)
 │  │
-│  └─ post_analyzer/              # optional analysis tools
+│  └─ post_analyzer/              # post analysis tools
 │     ├─ __init__.py
 │     ├─ plots/
 │     └─ stats/
