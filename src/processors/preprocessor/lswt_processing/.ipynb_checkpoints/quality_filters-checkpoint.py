@@ -32,7 +32,7 @@ class QualityFilterStep(ProcessingStep):
             print(f"Before quality filter: {valid_before} valid pixels")
             print(f"Temperature range: {np.nanmin(lswt):.2f} to {np.nanmax(lswt):.2f}")
             
-            # Apply quality filter
+            # Apply quality level filter
             lswt_filtered = lswt.where(quality_level >= config.quality_threshold, np.nan)
             ds["lake_surface_water_temperature"] = lswt_filtered
             

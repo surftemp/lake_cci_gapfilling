@@ -4,23 +4,45 @@
   "mode": "anomaly",
   "note": "pilot1",
 
+  "run": {
+    "mode": "dineof",                 // "dineof" | "dincae" | "both"
+    "dry_run": false,
+    "fail_fast": true
+  },
+
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81, 84, 88, 91, 133, 146, 165, 170, 171, 174, 177, 198, 223, 227, 236, 257, 295, 298, 310, 311, 314, 318, 319, 321, 327, 335, 375, 380, 395, 423, 443, 463, 488, 492, 505, 513, 523, 546, 571, 586, 604, 648, 674, 679, 688, 829, 893, 905, 917, 920, 1046, 1115, 1146, 1196, 1204, 1241, 1307, 1437, 1555, 1771, 1774, 1801, 1902, 1951, 1955, 1975, 2099, 2965, 3007, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300000853, 300000918, 300001118, 300001141, 300001612, 300001625, 300001645, 300002883, 300004634, 300004816, 300004882, 300004974, 300009807, 300010187, 300010196, 300010537, 300010539, 300010540, 300010866, 300012284, 300012336, 300012341, 300015376, 300016649],
+    "custom_lake_ids": [2,5,6,8,9,11,12,13,15,16,17,20,21,25,26,35,44,51,52,81,84,88,91,133,146,165,170,171,174,177,198,223,227,236,257,295,298,310,311,314,318,319,321,327,335,375,380,395,423,443,463,488,492,505,513,523,546,571,586,604,648,674,679,688,829,893,905,917,920,1046,1115,1146,1196,1204,1241,1307,1437,1555,1771,1774,1801,1902,1951,1955,1975,2099,2965,3007,4503,6785,12471,13377,300000138,300000140,300000311,300000579,300000853,300000918,300001118,300001141,300001612,300001625,300001645,300002883,300004634,300004816,300004882,300004974,300009807,300010187,300010196,300010537,300010539,300010540,300010866,300012284,300012336,300012341,300015376,300016649],
     "versions_to_process": ["v2"]
   },
 
   "paths": {
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
-    "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
-    "post_dir_template": "{run_root}/post/{lake_id9}/{alpha_slug}",
-    "html_dir_template": "{run_root}/html/{lake_id9}/{alpha_slug}",
+
+    "dineof": {
+      "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}"
+    },
+    "dincae": {
+      "output_dir_template": "{run_root}/dincae/{lake_id9}/{profile_slug}",
+      "output_filename": "output.nc",        // must match DINEOF naming
+      "merged_filename": "merged.nc"         // optional, if your post uses it
+    },
+
+    "post_dir_template": "{run_root}/post/{lake_id9}/{model_slug}",  // model_slug = "dineof" | "dincae"
+    "html_dir_template": "{run_root}/html/{lake_id9}/{model_slug}",
     "logs_dir_template": "{run_root}/logs",
+
     "prepared_filename": "prepared.nc",
+    "final_filename": "final.nc",
+
     "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
-    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc"
+    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc",
+
+    "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",           // legacy (kept)
+    "post_dir_template_legacy": "{run_root}/post/{lake_id9}/{alpha_slug}",        // legacy (kept)
+    "html_dir_template_legacy": "{run_root}/html/{lake_id9}/{alpha_slug}"         // legacy (kept)
   },
 
   "variables": {
@@ -36,15 +58,10 @@
   },
 
   "env": {
-    "pre": {
-      "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard"
-    },
-    "dineof": {
-      "module_load": "module load jaspy"
-    },
-    "post": {
-      "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard"
-    }
+    "pre":    { "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard" },
+    "dineof": { "module_load": "module load jaspy" },
+    "post":   { "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard" },
+    "dincae": { "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard" }
   },
 
   "behavior": {
@@ -79,6 +96,68 @@
     "eof": 1,
     "norm": 0,
     "seed": 243435
+  },
+
+  "models": {
+    "dineof": {
+      "parameters": {
+        "alpha_values": [0.1],
+        "nev": 5,
+        "numit": 3,
+        "neini": 1,
+        "ncv": 7,
+        "tol": 1.0e-8,
+        "nitemax": 300,
+        "toliter": 1.0e-3,
+        "rec": 1,
+        "eof": 1,
+        "norm": 0,
+        "seed": 243435
+      }
+    },
+    "dincae": {
+      "data": {
+        "window": 32,
+        "stride": 1,
+        "context_days": 0,
+        "nan_fill_value": null,
+        "normalize": "zscore"
+      },
+      "model": {
+        "arch": "unet",
+        "in_channels": 1,
+        "hidden": 64,
+        "depth": 4,
+        "dropout": 0.0,
+        "activation": "relu"
+      },
+      "training": {
+        "epochs": 50,
+        "batch_size": 32,
+        "optimizer": "adam",
+        "lr": 0.001,
+        "weight_decay": 0.0,
+        "early_stopping_patience": 10,
+        "gradient_clip": 0.0,
+        "seed": 1337
+      },
+      "inference": {
+        "tta": false,
+        "window_aggregate": "mean"
+      },
+      "runner": {
+        "entry": "dincae_train_infer.sh",
+        "profile": "gpu",
+        "device": "cuda:0",
+        "num_workers": 4,
+        "log_interval": 50
+      },
+      "output": {
+        "var_name": "lake_surface_water_temperature",
+        "match_dineof_naming": true,                 // write 'output.nc' (and 'merged.nc' if needed)
+        "write_attrs_minimal": true
+      }
+    }
   },
 
   "submission": {
