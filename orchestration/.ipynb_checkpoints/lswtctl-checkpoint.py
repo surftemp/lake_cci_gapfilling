@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 # Unified LSWT controller with auto run_tag, manifest, and single-JSON control.
 # Modes:
-#  - submission.per_index_chain = true  -> one array; each index runs pre->dineof->post inline
-#  - submission.per_index_chain = false -> three arrays with stage-wide dependencies
+#  - submission.per_index_chain = true  -> one array; each index runs selected stages inline
+#  - submission.per_index_chain = false -> arrays with stage-wide dependencies
+#
+# Engines: engine_mode = "dineof" | "dincae" | "both"
 #
 # Usage:
 #   python lswtctl.py plan   configs/experiment_settings.json
 #   python lswtctl.py submit configs/experiment_settings.json
-#   python lswtctl.py exec --config <json> --row <i> --stage <pre|dineof|post>
-#   python lswtctl.py paths --config <json> --row <i>   (debug helper; prints key paths)
+#   python lswtctl.py exec --config <json> --row <i> --stage <pre|dineof|dincae|post_dineof|post_dincae|chain>
+#   python lswtctl.py paths --config <json> --row <i>
 
-import argparse, json, os, sys, subprocess, tempfile, pathlib, itertools, hashlib
+import argparse, json, os, sys, subprocess, tempfile, pathlib, itertools, hashlib, shutil
 from datetime import datetime, timezone
+from dincae_arm import PreparedNC, build_inputs as dincae_build_inputs
+from dincae_arm import run_dincae as dincae_run
+from dincae_arm import write_dineof_shaped_outputs as dincae_write_out
+
+
 
 # ---------- small utils ----------
 
@@ -70,27 +77,37 @@ def _resolve_paths(conf, lake_id:int, alpha:float):
         s = tpl.replace("{run_root}", run_root).replace("{alpha_slug}", alpha_slug)
         return _render(s, tag, lake_id)
 
-    prep_dir = subfmt(P["prepared_dir_template"])
-    out_dir  = subfmt(P["output_dir_template"])
-    post_dir = subfmt(P["post_dir_template"])
-    html_dir = subfmt(P["html_dir_template"])
-    logs_dir = subfmt(P.get("logs_dir_template", "{run_root}/logs"))
+    prep_dir   = subfmt(P["prepared_dir_template"])
+    dineof_dir = subfmt(P["output_dir_template"])  # legacy name = dineof
+    dincae_dir = subfmt(P.get("dincae_dir_template", "{run_root}/dincae/{lake_id9}/{alpha_slug}"))
+    post_dir   = subfmt(P["post_dir_template"])
+    html_dir   = subfmt(P["html_dir_template"])
+    logs_dir   = subfmt(P.get("logs_dir_template", "{run_root}/logs"))
 
     lake_ts  = _render(P["lake_ts_template"], tag, lake_id)
     clim_nc  = _render(P["climatology_template"], tag, lake_id)
 
     prepared_name = P.get("prepared_filename", "prepared.nc")
     prepared_nc   = os.path.join(prep_dir, prepared_name)
-    results_nc    = os.path.join(out_dir, "dineof_results.nc")
+
+    # engine-separated result files
+    results_nc_dineof = os.path.join(dineof_dir, "dineof_results.nc")
+    results_nc_dincae = os.path.join(dincae_dir, "dincae_results.nc")  # adaptor will copy/shape to here
 
     _, lake9 = _fmt_ids(lake_id)
-    post_nc  = os.path.join(post_dir, f"LAKE{lake9}-CCI-L3S-LSWT-CDR-4.5-filled_fine.nc")
+    front = f"LAKE{lake9}-CCI-L3S-LSWT-CDR-4.5-filled_fine"
+    post_dineof = os.path.join(post_dir, f"{front}_dineof.nc")
+    post_dincae = os.path.join(post_dir, f"{front}_dincae.nc")
 
     return {
         "run_root": run_root, "run_tag": tag, "logs_dir": logs_dir,
-        "prepared_dir": prep_dir, "output_dir": out_dir, "post_dir": post_dir, "html_dir": html_dir,
-        "prepared_nc": prepared_nc, "results_nc": results_nc, "lake_ts": lake_ts,
-        "clim_nc": clim_nc, "post_nc": post_nc, "alpha_slug": alpha_slug
+        "prepared_dir": prep_dir, "dineof_dir": dineof_dir, "dincae_dir": dincae_dir,
+        "post_dir": post_dir, "html_dir": html_dir,
+        "prepared_nc": prepared_nc,
+        "results_nc_dineof": results_nc_dineof, "results_nc_dincae": results_nc_dincae,
+        "lake_ts": lake_ts, "clim_nc": clim_nc,
+        "post_dineof": post_dineof, "post_dincae": post_dincae,
+        "alpha_slug": alpha_slug, "front": front
     }
 
 def _idempotent_skip(path:str, label:str):
@@ -102,7 +119,7 @@ def _idempotent_skip(path:str, label:str):
 # ---------- stage.slurm materializer ----------
 
 def _ensure_stage_slurm():
-    """Create minimal stage.slurm if missing or invalid. Supports STAGE in {pre,dineof,post,chain}."""
+    """Create minimal stage.slurm if missing/invalid. Supports extended STAGE set."""
     stage_path = pathlib.Path(__file__).parent / "stage.slurm"
     needs_create = True
     if stage_path.exists():
@@ -119,7 +136,6 @@ def _ensure_stage_slurm():
 set -euo pipefail
 module purge || true
 
-# Compute LAKE_ID for current array index (row)
 LAKE_ID=$(python - <<'PY'
 import json,itertools,os,sys
 with open(os.environ['CONF']) as f:
@@ -134,19 +150,16 @@ print(grid[i][0] if i < len(grid) else "UNKNOWN")
 PY
 )
 
-# Base log path stems
 OUTBASE="${LOGS_DIR}/${STAGE}_lake${LAKE_ID}_row${SLURM_ARRAY_TASK_ID}_${SLURM_ARRAY_JOB_ID}"
 OUTFILE="${OUTBASE}.out"
 ERRFILE="${OUTBASE}.err"
-
-# Redirect stdout/stderr separately
 exec 1> "$OUTFILE"
 exec 2> "$ERRFILE"
 
-echo "[$(date)] Starting ${STAGE} for lake_id=${LAKE_ID}, row=${SLURM_ARRAY_TASK_ID}"
+echo "[$(date)] Starting ${STAGE} lake_id=${LAKE_ID} row=${SLURM_ARRAY_TASK_ID}"
 echo "Job ID: ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
-echo "STDOUT: $OUTFILE"
-echo "STDERR: $ERRFILE"
+echo "stdout: $OUTFILE"
+echo "stderr: $ERRFILE"
 echo ""
 
 run_stage () {
@@ -157,21 +170,21 @@ run_stage () {
 }
 
 if [[ "${STAGE}" == "chain" ]]; then
-  # rotate logs per sub-stage (keep separate files as requested)
-  for st in pre dineof post; do
-    OUTFILE="${LOGS_DIR}/${st}_lake${LAKE_ID}_row${SLURM_ARRAY_TASK_ID}_${SLURM_ARRAY_JOB_ID}.out"
-    ERRFILE="${LOGS_DIR}/${st}_lake${LAKE_ID}_row${SLURM_ARRAY_TASK_ID}_${SLURM_ARRAY_JOB_ID}.err"
-    exec 1> "$OUTFILE"
-    exec 2> "$ERRFILE"
-    echo "[$(date)] Starting ${st} (inline-chain) for lake_id=${LAKE_ID}, row=${SLURM_ARRAY_TASK_ID}"
-    echo "Job ID: ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
-    echo ""
-    run_stage "$st"
-    echo ""
-    echo "[$(date)] Completed ${st} for lake_id=${LAKE_ID}, row=${SLURM_ARRAY_TASK_ID}"
-  done
+  # Decide chain sequence based on engine_mode
+  EMODE=$(python - <<'PY'
+import json,os
+with open(os.environ['CONF']) as f: conf=json.load(f)
+print(conf.get("engine_mode","dineof"))
+PY
+)
+  if [[ "$EMODE" == "dineof" ]]; then
+    for st in pre dineof post_dineof; do run_stage "$st"; done
+  elif [[ "$EMODE" == "dincae" ]]; then
+    for st in pre dincae post_dincae; do run_stage "$st"; done
+  else
+    for st in pre dineof dincae post_dineof post_dincae; do run_stage "$st"; done
+  fi
 else
-  # single-stage mode
   python lswtctl.py exec --config "$CONF" --row "$SLURM_ARRAY_TASK_ID" --stage "${STAGE}"
 fi
 
@@ -196,6 +209,7 @@ def do_plan(conf_path:str):
     print(f"Proposed run_tag: {paths0['run_tag']}")
     print(f"Run root: {paths0['run_root']}")
     print(f"Logs dir: {paths0['logs_dir']}")
+    print(f"Engine mode: {conf.get('engine_mode','dineof')}")
 
 def do_submit(conf_path:str):
     _ensure_stage_slurm()
@@ -240,16 +254,41 @@ def do_submit(conf_path:str):
         job = subprocess.check_output(cmd, env=env, cwd=here).decode().strip()
         return job
 
+    emode = conf.get("engine_mode", "dineof").lower()
     if per_index:
-        # Single array, inline chained stages (pre->dineof->post) per array index
         chain_job = submit_stage("chain", dep=None, name="lswt_chain")
-        print(f"Submitted (per-index inline chain): chain={chain_job}")
+        print(f"Submitted (per-index inline chain): chain={chain_job}  [mode={emode}]")
     else:
-        # Stage-wide chaining using Slurm dependencies
-        pre_job  = submit_stage("pre",   dep=None,             name="lswt_pre")
-        dnf_job  = submit_stage("dineof",dep=f"afterok:{pre_job}", name="lswt_dineof")
-        pst_job  = submit_stage("post",  dep=f"afterok:{dnf_job}", name="lswt_post")
-        print(f"Submitted (stage-wide chain): pre={pre_job} → dineof={dnf_job} → post={pst_job}")
+        # Stage-wide chaining
+        pre_job  = submit_stage("pre", dep=None, name="lswt_pre")
+        if emode == "dineof":
+            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}", name="lswt_dineof")
+            p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}", name="lswt_post_dineof")
+            print(f"Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}")
+        elif emode == "dincae":
+            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}", name="lswt_dincae")
+            p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}", name="lswt_post_dincae")
+            print(f"Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}")
+        else:
+            # both: run dineof and dincae after pre (in parallel), then their posts
+            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}", name="lswt_dineof")
+            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}", name="lswt_dincae")
+            pd_job = submit_stage("post_dineof", dep=f"afterok:{d_job}", name="lswt_post_dineof")
+            pc_job = submit_stage("post_dincae", dep=f"afterok:{c_job}", name="lswt_post_dincae")
+            print(f"Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}")
+
+def _env_for(conf: dict, stage: str) -> str:
+    envs = conf.get("env", {})
+    # map post variants
+    if stage == "post_dineof":
+        e = envs.get("post_dineof", envs.get("post", {}))
+    elif stage == "post_dincae":
+        e = envs.get("post_dincae", envs.get("post", {}))
+    else:
+        e = envs.get(stage, envs.get("pre", {}))
+    activate = e.get("activate", "")
+    module_load = e.get("module_load", "")
+    return " && ".join([s for s in [module_load, activate] if s])
 
 def do_exec(conf_path:str, row:int, stage:str):
     with open(conf_path) as f: conf = json.load(f)
@@ -260,15 +299,13 @@ def do_exec(conf_path:str, row:int, stage:str):
 
     paths = _resolve_paths(conf, lake_id, alpha)
     execs = conf.get("executables", {})
-    envs  = conf.get("env", {}).get(stage if stage in ("pre","dineof","post") else "pre", {})  # for 'chain', pre env first
-    activate = envs.get("activate", "")
-    module_load = envs.get("module_load", "")
-    stage_env = " && ".join([s for s in [module_load, activate] if s])
+    stage_env = _env_for(conf, stage)
 
     behavior = conf.get("behavior", {})
     keep_temps = bool(behavior.get("keep_temps", False))
     idempotent = bool(behavior.get("idempotent", True))
 
+    # --- PRE ---
     def run_pre():
         pre_cli = execs.get("pre_cli", "dineof_preprocessor")
         tmpdir = tempfile.mkdtemp(prefix="preconf_")
@@ -304,6 +341,7 @@ def do_exec(conf_path:str, row:int, stage:str):
             if not keep_temps:
                 pathlib.Path(pre_json).unlink(missing_ok=True); pathlib.Path(tmpdir).rmdir()
 
+    # --- DINEOF ---
     def run_dineof():
         dineof_bin = execs.get("dineof_bin", "/home/users/shaerdan/DINEOF_link/dineof")
         tmpdir = tempfile.mkdtemp(prefix="dineof_init_")
@@ -317,7 +355,7 @@ def do_exec(conf_path:str, row:int, stage:str):
         rec   = dp.get("rec", 1); eof   = dp.get("eof", 1); norm  = dp.get("norm", 0); numit = dp.get("numit", 3)
         seed  = dp.get("seed", 243435)
 
-        _ensure_dir(paths["output_dir"])
+        _ensure_dir(paths["dineof_dir"])
         init_txt = f"""! Auto-generated by lswtctl (ephemeral)
 data = ['{paths["prepared_nc"]}#{var_name}']
 mask = ['{paths["prepared_nc"]}#{mask_var}']
@@ -335,18 +373,18 @@ rec = {rec}
 eof = {eof}
 norm = {norm}
 
-Output = '{paths["output_dir"]}/'
-results = ['{paths["results_nc"]}#temp_filled']
+Output = '{paths["dineof_dir"]}/'
+results = ['{paths["results_nc_dineof"]}#temp_filled']
 
 seed = {seed}
 
-EOF.U = ['{paths["output_dir"]}/eof.nc#Usst']
-EOF.V = '{paths["output_dir"]}/eof.nc#V'
-EOF.Sigma = '{paths["output_dir"]}/eof.nc#Sigma'
+EOF.U = ['{paths["dineof_dir"]}/eof.nc#Usst']
+EOF.V = '{paths["dineof_dir"]}/eof.nc#V'
+EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
 """
         pathlib.Path(init_path).write_text(init_txt)
 
-        if idempotent and _idempotent_skip(paths["results_nc"], "DINEOF"):
+        if idempotent and _idempotent_skip(paths["results_nc_dineof"], "DINEOF"):
             if not keep_temps:
                 pathlib.Path(init_path).unlink(missing_ok=True); pathlib.Path(tmpdir).rmdir()
             return
@@ -359,39 +397,110 @@ EOF.Sigma = '{paths["output_dir"]}/eof.nc#Sigma'
             if not keep_temps:
                 pathlib.Path(init_path).unlink(missing_ok=True); pathlib.Path(tmpdir).rmdir()
 
-    def run_post():
+    # --- DINCAE ---
+    def run_dincae():
+        # Build DINCAE config from JSON (top-level 'dincae' block if present, else deduce from existing keys)
+        dcfg = {
+            "lake_id": lake_id,
+            "epoch": conf.get("dincae", {}).get("epoch", "1981-01-01T12:00:00Z"),
+            "var_name": conf.get("variables", {}).get("lswt_var", "lake_surface_water_temperature"),
+            "crop": {"buffer_pixels": conf.get("dincae", {}).get("crop", {}).get("buffer_pixels", 2)},
+            "cv": conf.get("dincae", {}).get("cv", {"cv_fraction":0.1, "random_seed":1234, "use_cv": True}),
+            "train": conf.get("dincae", {}).get("train", {
+                "epochs":300,"batch_size":32,"ntime_win":0,"learning_rate":1e-4,"enc_levels":3,
+                "obs_err_std":0.2,"save_epochs_interval":10,"use_gpu":True
+            }),
+            "runner": conf.get("dincae", {}).get("runner", {
+                "mode":"local","julia_exe":"julia","script":"run_dincae.jl","julia_project":True,"skip_existing":True
+            }),
+            "slurm": conf.get("dincae", {}).get("slurm", {}),
+            "post": conf.get("dincae", {}).get("post", {"write_merged": False})
+        }
+        # Intermediates live under dincae_dir
+        _ensure_dir(paths["dincae_dir"])
+        prepared = PreparedNC(pathlib.Path(paths["prepared_nc"]))
+        arts = dincae_build_inputs(prepared, pathlib.Path(paths["dincae_dir"]), dcfg)
+        arts = dincae_run(dcfg, arts)
+        # Write a DINEOF-shaped product to dincae_results, then the post stage reads that
+        shaped_nc = pathlib.Path(paths["dincae_dir"]) / "dincae_results.nc"
+        out = dincae_write_out(
+            arts=arts,
+            prepared=prepared,
+            post_dir=pathlib.Path(paths["dincae_dir"]),  # temporary sink; we'll copy to results path
+            final_front_name="__tmp_dincae_for_post__",  # temporary name
+            cfg=dcfg
+        )
+        # Move the shaped output into results_nc_dincae for post stage, and remove temp names
+        tmp_output = out["output_nc"]
+        if tmp_output and pathlib.Path(tmp_output).exists():
+            shutil.copy2(tmp_output, paths["results_nc_dincae"])
+
+    # --- POST (DINEOF/DINCAE separated) ---
+    def run_post_dineof():
         post_cli = execs.get("post_cli", "dineof_postprocessor")
         _ensure_dir(paths["post_dir"]); _ensure_dir(paths["html_dir"])
 
-        if idempotent and _idempotent_skip(paths["post_nc"], "POST"):
+        if idempotent and _idempotent_skip(paths["post_dineof"], "POST_DINEOF"):
             return
 
         cmd = (
             f"{post_cli} "
             f"--lake-path {paths['lake_ts']} "
             f"--dineof-input-path {paths['prepared_nc']} "
-            f"--dineof-output-path {paths['results_nc']} "
-            f"--output-path {paths['post_nc']} "
+            f"--dineof-output-path {paths['results_nc_dineof']} "
+            f"--output-path {paths['post_dineof']} "
             f"--output-html-folder {paths['html_dir']} "
             f"--config-file {os.path.abspath(conf_path)} "
             f"--climatology-file {paths['clim_nc']} "
             f"--units celsius"
         )
-        print("[POST] Exec:", cmd, flush=True)
+        print("[POST_DINEOF] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)
 
+    def run_post_dincae():
+        post_cli = execs.get("post_cli", "dineof_postprocessor")
+        _ensure_dir(paths["post_dir"]); _ensure_dir(paths["html_dir"])
+
+        if idempotent and _idempotent_skip(paths["post_dincae"], "POST_DINCAE"):
+            return
+
+        cmd = (
+            f"{post_cli} "
+            f"--lake-path {paths['lake_ts']} "
+            f"--dineof-input-path {paths['prepared_nc']} "
+            f"--dineof-output-path {paths['results_nc_dincae']} "
+            f"--output-path {paths['post_dincae']} "
+            f"--output-html-folder {paths['html_dir']} "
+            f"--config-file {os.path.abspath(conf_path)} "
+            f"--climatology-file {paths['clim_nc']} "
+            f"--units celsius"
+        )
+        print("[POST_DINCAE] Exec:", cmd, flush=True)
+        _bash_exec(cmd, stage_env)
+
+    # --- dispatch ---
     if stage == "pre":
         run_pre()
     elif stage == "dineof":
         run_dineof()
-    elif stage == "post":
-        run_post()
+    elif stage == "dincae":
+        run_dincae()
+    elif stage == "post_dineof":
+        run_post_dineof()
+    elif stage == "post_dincae":
+        run_post_dincae()
     elif stage == "chain":
-        run_pre(); run_dineof(); run_post()
+        emode = conf.get("engine_mode","dineof").lower()
+        if emode == "dineof":
+            run_pre(); run_dineof(); run_post_dineof()
+        elif emode == "dincae":
+            run_pre(); run_dincae(); run_post_dincae()
+        else:
+            run_pre(); run_dineof(); run_dincae(); run_post_dineof(); run_post_dincae()
     else:
         print(f"Unknown stage: {stage}", file=sys.stderr); sys.exit(2)
 
-# ---------- helper to print paths (for debugging from stage.slurm, if needed) ----------
+# ---------- helper to print paths ----------
 
 def do_paths(conf_path: str, row: int):
     with open(conf_path) as f: conf = json.load(f)
@@ -400,8 +509,8 @@ def do_paths(conf_path: str, row: int):
         print(f"# row {row} OOB", file=sys.stderr); sys.exit(1)
     lake_id, _, alpha = grid[row]
     P = _resolve_paths(conf, lake_id, alpha)
-    # Print key=value pairs (easy to eval in bash if ever needed)
-    for k in ("prepared_nc","results_nc","post_nc","lake_ts","clim_nc","output_dir","prepared_dir"):
+    for k in ("prepared_nc","results_nc_dineof","results_nc_dincae","post_dineof","post_dincae",
+              "lake_ts","clim_nc","dineof_dir","dincae_dir","prepared_dir","post_dir"):
         print(f'{k}={P[k]}')
 
 # ---------- main ----------
@@ -414,7 +523,7 @@ def main():
     p3 = sub.add_parser("exec")
     p3.add_argument("--config", required=True)
     p3.add_argument("--row", required=True, type=int)
-    p3.add_argument("--stage", required=True, choices=["pre","dineof","post","chain"])
+    p3.add_argument("--stage", required=True, choices=["pre","dineof","dincae","post_dineof","post_dincae","chain"])
     p4 = sub.add_parser("paths")
     p4.add_argument("--config", required=True)
     p4.add_argument("--row", required=True, type=int)
