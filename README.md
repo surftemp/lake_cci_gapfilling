@@ -56,7 +56,7 @@ Each engine writes its own intermediate folder (`dineof/`, `dincae/`) and the po
 
 
 ## Installation
-
+```
 Create an environment using:
     mamba create -n lake_cci_gapfilling python=3.10 -y
     mamba activate lake_cci_gapfilling
@@ -67,7 +67,7 @@ Install the tools from this repo using:
     git clone git@github.com:surftemp/lake_dashboard.git
     cd lake_dashboard
     pip install -e .
-
+```
 
 ## Configuration
 
