@@ -1,0 +1,27 @@
+# Python/build
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.installed.cfg
+*.log
+
+# Editors/OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Notebooks/caches (if any)
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local envs
+.venv/
+.env/
+.conda/
