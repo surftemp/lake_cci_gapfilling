@@ -3,8 +3,8 @@
   "description": "Experiment with shore removal and observation availability filtering (standardized units)",
   "mode": "anomaly",
   "note": "pilot1",
-
-  "engine_mode": "dineof",  // "dineof" | "dincae" | "both"
+  "_note_engine_mode": "dineof | dincae | both",
+  "engine_mode": "dineof", 
 
   "dataset_options": {
     "use_temporal_experiment": false,
