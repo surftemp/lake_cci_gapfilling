@@ -4,7 +4,7 @@ End-to-end orchestration to **prepare**, **reconstruct**, and **post-process** L
 - **DINEOF** (EOF-based) and/or
 - **DINCAE** (neural autoencoder; integrated via a thin adaptor layer).
 
-A single controller (`lswtctl.py`) reads one JSON file to run **DINEOF**, **DINCAE**, or **BOTH** and writes final NetCDFs with strict naming rules.
+A single controller (`lswtctl.py`) reads one JSON file to run **DINEOF**, **DINCAE**, or **BOTH** and writes spatially gapfilled or/and temporally interpolated LSWT NetCDFs.
 
 ---
 

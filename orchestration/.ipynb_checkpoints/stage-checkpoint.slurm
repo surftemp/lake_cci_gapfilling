@@ -2,6 +2,9 @@
 set -euo pipefail
 module purge || true
 
+source ~/miniforge3/bin/activate
+conda activate lake_cci_gapfilling
+
 # Extract lake_id for this task
 LAKE_ID=$(python -c "
 import json, itertools
