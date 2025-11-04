@@ -16,5 +16,5 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.scripts]
-dineof_preprocessor = "processors.preprocessor.dineof_preprocessor.convert_data:main"
+dineof_preprocessor = "processors.preprocessor.convert_data:main"
 dineof_postprocessor = "processors.postprocessor.post_process:main"

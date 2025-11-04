@@ -60,7 +60,7 @@ Each engine writes its own intermediate folder (`dineof/`, `dincae/`) and the po
 Create an environment using:
     mamba create -n lake_cci_gapfilling python=3.10 -y
     mamba activate lake_cci_gapfilling
-    mamba install xarray netcdf4 bokeh selenium firefox geckodriver -y
+    mamba install xarray netcdf4 bokeh selenium firefox geckodriver scipy -y
 
 Install the tools from this repo using:
     conda activate lake_cci_gapfilling
