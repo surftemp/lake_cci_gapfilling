@@ -41,7 +41,7 @@
 
   "env": {
     "pre": {
-      "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard"
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
     },
     "dineof": {
       "module_load": "module load jaspy"
@@ -51,10 +51,10 @@
       "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env"
     },
     "post": {
-      "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard"
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
     },
     "post_dincae": {
-      "activate": "source ~/miniforge3/bin/activate && conda activate lake_dashboard"
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
     }
   },
 
