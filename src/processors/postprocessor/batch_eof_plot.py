@@ -12,7 +12,7 @@ import os
 import csv
 import base64
 
-from lake_dashboard.data.metadata_reader import MetadataReader
+from processors.data.metadata_reader import MetadataReader
 
 dygraph_template = """
 <html lang="en">

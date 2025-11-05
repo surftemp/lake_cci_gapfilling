@@ -18,8 +18,6 @@ from dincae_arm import PreparedNC, build_inputs as dincae_build_inputs
 from dincae_arm import run_dincae as dincae_run
 from dincae_arm import write_dineof_shaped_outputs as dincae_write_out
 
-
-
 # ---------- small utils ----------
 
 def _fmt_ids(lake_id:int):
@@ -151,8 +149,8 @@ PY
 )
 
 OUTBASE="${LOGS_DIR}/${STAGE}_lake${LAKE_ID}_row${SLURM_ARRAY_TASK_ID}_${SLURM_ARRAY_JOB_ID}"
-OUTFILE="${OUTBASE}.out"
-ERRFILE="${OUTBASE}.err"
+OUTFILE="${OUTBASE}.out}"
+ERRFILE="${OUTBASE}.err}"
 exec 1> "$OUTFILE"
 exec 2> "$ERRFILE"
 
@@ -416,6 +414,9 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             "slurm": conf.get("dincae", {}).get("slurm", {}),
             "post": conf.get("dincae", {}).get("post", {"write_merged": False})
         }
+        # >>> PASS STAGE ENV TO DINCAE SUBJOB <<<
+        dcfg["env"] = conf.get("env", {})
+
         # Intermediates live under dincae_dir
         _ensure_dir(paths["dincae_dir"])
         prepared = PreparedNC(pathlib.Path(paths["prepared_nc"]))

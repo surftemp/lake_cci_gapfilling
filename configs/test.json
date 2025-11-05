@@ -4,7 +4,7 @@
   "mode": "anomaly",
   "note": "pilot1",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "both", 
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -48,7 +48,7 @@
     },
     "dincae": {
       "module_load": "module load jaspy",
-      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env"
+      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env && conda activate dincae_pipeline"
     },
     "post": {
       "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
@@ -107,9 +107,8 @@
       "use_gpu": true
     },
     "runner": {
-      "mode": "local",
+      "mode": "slurm",
       "julia_exe": "julia",
-      "script": "run_dincae.jl",
       "julia_project": true,
       "skip_existing": true,
       "CUDA_VISIBLE_DEVICES": "0",
@@ -136,7 +135,7 @@
     "time": "120:00:00",
     "mem": "128G",
     "max_concurrent": 60,
-    "per_index_chain": true
+    "per_index_chain": false
   },
 
   "system_settings": {
