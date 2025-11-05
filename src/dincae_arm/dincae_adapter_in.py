@@ -58,8 +58,29 @@ def crop_to_mask(in_nc: Path, out_nc: Path, buffer: int) -> None:
 def add_cv_clouds(in_nc: Path, out_cv_nc: Path, out_clean_nc: Path,
                   cv_fraction: float = 0.1,
                   random_seed: int | None = 1234,
-                  variable_name: str = "lake_surface_water_temperature") -> None:
+                  variable_name: str = "lake_surface_water_temperature",
+                  minseafrac: float = 0.05) -> None:
     ds = xr.load_dataset(in_nc)
+    var_data = ds[variable_name].values  # shape: (time, lat, lon)
+    count_nomissing = np.sum(~np.isnan(var_data), axis=0)  # (lat, lon)
+    n_time = var_data.shape[0]
+    frac_valid = count_nomissing / n_time
+
+    # Create land/sea mask: 1 where fraction > minseafrac
+    mask = (frac_valid > minseafrac).astype(np.int8)
+    
+    # Add mask and count_nomissing to dataset
+    ds['mask'] = xr.DataArray(
+        mask,
+        dims=('lat', 'lon'),
+        attrs={'long_name': 'mask (sea=1, land=0)'}
+    )
+    ds['count_nomissing'] = xr.DataArray(
+        count_nomissing.astype(np.int32),
+        dims=('lat', 'lon'),
+        attrs={'long_name': 'number of present data'}
+    )    
+    
     ds.to_netcdf(out_clean_nc)
     if "time" not in ds: raise ValueError("Dataset must have time dimension for CV masking.")
     if variable_name not in ds: raise ValueError(f"Variable '{variable_name}' not found for CV masking.")

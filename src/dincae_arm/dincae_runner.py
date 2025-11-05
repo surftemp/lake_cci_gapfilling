@@ -192,6 +192,7 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     # SBATCH script — run GPU work via SRUN so the GPU cgroup is attached
     sb = f"""#!/bin/bash
 #SBATCH --job-name=dincae_{lake_id}
+#SBATCH --exclude=gpuhost007
 #SBATCH --time={wall}
 #SBATCH --mem={mem}
 #SBATCH --partition={partition}
