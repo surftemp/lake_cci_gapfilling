@@ -99,7 +99,7 @@
     "train": {
       "epochs": 300,
       "batch_size": 32,
-      "ntime_win": 0,
+      "ntime_win": 1,
       "learning_rate": 0.0001,
       "enc_levels": 3,
       "obs_err_std": 0.2,
@@ -111,7 +111,6 @@
       "julia_exe": "julia",
       "julia_project": true,
       "skip_existing": true,
-      "CUDA_VISIBLE_DEVICES": "0",
       "JULIA_PROJECT": "/home/users/shaerdan/.julia/environments/v1.11"
     },
     "slurm": {

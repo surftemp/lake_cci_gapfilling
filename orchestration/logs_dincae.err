@@ -1,9 +1,0 @@
-Precompiling CUDA_Driver_jll...
-    638.3 ms  ✓ Preferences
-    499.2 ms  ✓ JLLWrappers
-   1007.1 ms  ✓ CUDA_Driver_jll
-  3 dependencies successfully precompiled in 4 seconds. 23 already precompiled.
-Precompiling CUDA_Runtime_jll...
-    988.4 ms  ✓ LazyArtifacts
-   1754.0 ms  ✓ CUDA_Runtime_jll
-  2 dependencies successfully precompiled in 4 seconds. 26 already precompiled.
