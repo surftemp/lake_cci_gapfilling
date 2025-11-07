@@ -157,7 +157,6 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     script_path = _generate_julia_script(arts, cfg)
     jobfile = Path(arts.dincae_dir) / f"run_dincae_{lake_id}.slurm"
 
-    # Read SLURM knobs from JSON with sane defaults
     partition = slurm.get("partition", "orchid")
     account   = slurm.get("account",   "orchid")
     qos       = slurm.get("qos",       "orchid")
@@ -165,17 +164,15 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     cpus      = int(slurm.get("cpus",  4))
     mem       = slurm.get("mem",       "128G")
     wall      = slurm.get("time",      "24:00:00")
-
     julia     = cfg.get("runner", {}).get("julia_exe", "julia")
 
-    # stage env from config
     env_lines = []
     denv = cfg.get("env", {}).get("dincae", {})
     if denv.get("module_load"): env_lines.append(denv["module_load"])
     if denv.get("activate"):    env_lines.append(denv["activate"])
     if cfg.get("runner", {}).get("JULIA_PROJECT"):
         env_lines.append(f'export JULIA_PROJECT="{cfg["runner"]["JULIA_PROJECT"]}"')
-    # per-job depot to avoid contention
+    
     depot_dir = Path(arts.dincae_dir) / ".julia_depot_${SLURM_JOB_ID}"
     env_lines += [
         "export JULIA_PKG_PRECOMPILE_AUTO=0",
@@ -185,14 +182,13 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     ]
     env_block = "\n".join(env_lines)
 
-    # absolute logs in run dir
     log_out = Path(arts.dincae_dir) / f"logs_dincae_{lake_id}.out"
     log_err = Path(arts.dincae_dir) / f"logs_dincae_{lake_id}.err"
 
-    # SBATCH script — run GPU work via SRUN so the GPU cgroup is attached
+    # Generate SLURM script
     sb = f"""#!/bin/bash
 #SBATCH --job-name=dincae_{lake_id}
-#SBATCH --exclude=gpuhost007
+#SBATCH --exclude=gpuhost007,gpuhost012,gpuhost016
 #SBATCH --time={wall}
 #SBATCH --mem={mem}
 #SBATCH --partition={partition}
@@ -209,22 +205,63 @@ cd {arts.dincae_dir}
 
 set -euo pipefail
 
-echo "Using JULIA_PROJECT=$JULIA_PROJECT"
-echo "Using JULIA_DEPOT_PATH=$JULIA_DEPOT_PATH"
+echo "=========================================="
+echo "DINCAE Job Starting"
+echo "=========================================="
+echo "Node: $(hostname)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Start time: $(date)"
+echo "JULIA_PROJECT=$JULIA_PROJECT"
+echo "JULIA_DEPOT_PATH=$JULIA_DEPOT_PATH"
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+echo ""
 
-# Preflight: ensure GPU is attached to the step
-srun --gres=gpu:{gpus} --ntasks=1 --cpus-per-task={cpus} nvidia-smi || ( echo "No GPU visible"; exit 1 )
+# === Precompile OUTSIDE srun (no timeout, full output) ===
+echo "=== Precompiling Julia packages ==="
+echo "Start: $(date)"
 
-# CUDA sanity (ensures CUDA can open the device)
-srun --gres=gpu:{gpus} --ntasks=1 --cpus-per-task={cpus} {julia} -e 'using CUDA; CUDA.versioninfo()' || exit 1
+{julia} -e 'using CUDA, cuDNN, DINCAE; println("All packages loaded successfully")'
+PRECOMPILE_EXIT=$?
 
-# Main (line-buffered for live tail)
+echo "End: $(date)"  
+echo "Exit code: $PRECOMPILE_EXIT"
+echo ""
+
+if [ $PRECOMPILE_EXIT -ne 0 ]; then
+    echo "=========================================="
+    echo "ERROR: Package precompilation failed"
+    echo "Exit code: $PRECOMPILE_EXIT"
+    echo "=========================================="
+    exit 1
+fi
+
+echo "Precompilation complete!"
+echo ""
+
+# === GPU verification (fast, already precompiled) ===
+echo "=== Verifying GPU access ==="
+srun --gres=gpu:{gpus} --ntasks=1 --cpus-per-task={cpus} nvidia-smi || {{
+    echo "ERROR: No GPU visible"
+    exit 1
+}}
+echo ""
+
+echo "=== Verifying CUDA functional ==="
+srun --gres=gpu:{gpus} --ntasks=1 --cpus-per-task={cpus} {julia} -e 'using CUDA; @assert CUDA.functional()' || {{
+    echo "ERROR: CUDA not functional"  
+    exit 1
+}}
+echo ""
+
+# === Main execution ===
+echo "=========================================="
+echo "Starting DINCAE Training"
+echo "Start time: $(date)"
+echo "=========================================="
 exec srun --gres=gpu:{gpus} --ntasks=1 --cpus-per-task={cpus} stdbuf -oL -eL {julia} --project {script_path.name}
 """
     jobfile.write_text(sb)
     subprocess.check_call(["sbatch", "--wait", str(jobfile)])
-
 
 def run_julia_local(arts: DincaeArtifacts, cfg: Dict) -> None:
     # local run (only if already on a GPU node)
