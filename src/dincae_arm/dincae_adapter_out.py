@@ -37,26 +37,35 @@ def post_map_to_full(pred_nc: Path, cropped_nc: Path, prepared_full_nc: Path, ou
 def to_dineof_shape(full_nc: Path, prepared_full_nc: Path, out_nc: Path, var_name: str) -> None:
     ds_full = xr.load_dataset(full_nc)
     ds_ref = xr.load_dataset(prepared_full_nc)
-    if var_name not in ds_full:
+    # FIX: Identify source variable and rename to 'temp_filled' for DINEOF compatibility
+    source_var = var_name
+    if source_var not in ds_full:
         candidates = [v for v in ds_full.data_vars]
         if not candidates: raise ValueError("Full product has no data variable to rename.")
-        ds_full = ds_full.rename({candidates[0]: var_name})
+        source_var = candidates[0]
+    # CRITICAL: Rename to temp_filled
+    target_var = "temp_filled"
+    if source_var != target_var:
+        ds_full = ds_full.rename({source_var: target_var})
     ds_out = ds_full.reindex_like(ds_ref, method=None, copy=True)
-    ds_out[var_name].attrs.setdefault("units", ds_ref[var_name].attrs.get("units", "kelvin"))
-    ds_out[var_name].attrs.setdefault("long_name", "lake surface water temperature (DINCAE)")
+    ds_out[target_var].attrs.setdefault("units", ds_ref[var_name].attrs.get("units", "kelvin"))
+    ds_out[target_var].attrs.setdefault("long_name", "lake surface water temperature (DINCAE)")
     ds_out.attrs.setdefault("source_model", "DINCAE")
     ds_out.to_netcdf(out_nc)
 
 def make_merged(output_nc: Path, prepared_full_nc: Path, out_merged_nc: Path, var_name: str) -> None:
     ds_pred = xr.load_dataset(output_nc)
     ds_ref = xr.load_dataset(prepared_full_nc)
-    if var_name not in ds_pred or var_name not in ds_ref:
-        raise ValueError(f"Expected '{var_name}' in both datasets.")
-    obs = ds_ref[var_name]
-    pred = ds_pred[var_name].reindex_like(obs)
+    # FIX: Use 'temp_filled' for prediction variable
+    pred_var = "temp_filled"
+    ref_var = var_name
+    if pred_var not in ds_pred or ref_var not in ds_ref:
+        raise ValueError(f"Expected '{pred_var}' in prediction and '{ref_var}' in reference.")
+    obs = ds_ref[ref_var]
+    pred = ds_pred[pred_var].reindex_like(obs)
     merged = xr.where(~np.isnan(obs), obs, pred)
-    ds_out = xr.Dataset({var_name: merged})
-    ds_out[var_name].attrs.update(ds_pred[var_name].attrs)
+    ds_out = xr.Dataset({pred_var: merged})
+    ds_out[pred_var].attrs.update(ds_pred[pred_var].attrs)
     ds_out.attrs.update({"merge_rule": "obs_priority_then_dincae", "source_model": "DINCAE"})
     ds_out.to_netcdf(out_merged_nc)
 

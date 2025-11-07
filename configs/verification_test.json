@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot run v0",
-  "description": "testing the pipeline v0",
+  "experiment_name": "pilot run v3",
+  "description": "test chain submission",
   "mode": "anomaly",
-  "note": "pilot2",
+  "note": "pilot3",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "dincae",
 
@@ -134,7 +134,7 @@
     "time": "120:00:00",
     "mem": "128G",
     "max_concurrent": 60,
-    "per_index_chain": false
+    "per_index_chain": true
   },
 
   "system_settings": {
