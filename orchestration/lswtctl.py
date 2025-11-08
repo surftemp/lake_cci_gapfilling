@@ -471,10 +471,13 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             f"--dineof-input-path {paths['prepared_nc']} "
             f"--dineof-output-path {paths['results_nc_dincae']} "
             f"--output-path {paths['post_dincae']} "
-            f"--output-html-folder {paths['html_dir']} "
             f"--config-file {os.path.abspath(conf_path)} "
             f"--climatology-file {paths['clim_nc']} "
-            f"--units celsius"
+            f"--units celsius "
+            f"--no-eof-filter "      
+            f"--no-eof-interp "      
+            f"--no-eof-meta "       
+            f"--no-log-meta"             
         )
         print("[POST_DINCAE] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)
