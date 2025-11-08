@@ -352,10 +352,62 @@ class PostProcessor:
             if orig_html:
                 self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_interp_full")
         
-            # No EOF steps on this pass
-            skip_steps = {"FilterTemporalEOFs", "ReconstructFromEOFs", "InterpolateTemporalEOFs"}
+            # Skip MergeOutputs because we want the full daily timeline, not original lake timeline
+            skip_steps = {"FilterTemporalEOFs", "ReconstructFromEOFs", "InterpolateTemporalEOFs", "MergeOutputsStep"}
         
-            ds3 = None
+            # Create initial dataset with full daily timeline instead of using MergeOutputsStep
+            with xr.open_dataset(interp_results) as ds_interp:
+                # Read prepared.nc for metadata and coordinates
+                with xr.open_dataset(self.dineof_input_path) as ds_in:
+                    self.ctx.input_attrs = dict(ds_in.attrs)
+                    self.ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
+                    self.ctx.test_id = str(ds_in.attrs.get("test_id", ""))
+                    lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
+                    lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
+                    lat_vals = ds_in[lat_name].values
+                    lon_vals = ds_in[lon_name].values
+                    lakeid_data = ds_in.get("lakeid")
+                
+                # Convert full_days (integer days since epoch) to datetime64
+                base_time = np.datetime64("1981-01-01T12:00:00")
+                full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
+                
+                # Get temp_filled from interpolated results
+                temp_data = ds_interp["temp_filled"].values
+                
+                # Build dataset with full daily timeline
+                ds3 = xr.Dataset()
+                ds3 = ds3.assign_coords({
+                    self.ctx.time_name: full_time,
+                    lat_name: lat_vals,
+                    lon_name: lon_vals
+                })
+                
+                if lakeid_data is not None:
+                    ds3["lakeid"] = lakeid_data
+                
+                ds3["temp_filled"] = xr.DataArray(
+                    temp_data,
+                    dims=(self.ctx.time_name, lat_name, lon_name),
+                    coords={self.ctx.time_name: full_time,
+                            lat_name: lat_vals,
+                            lon_name: lon_vals},
+                    attrs={"comment": "DINEOF-filled anomalies (daily interpolated, before trend/climatology add-back)"}
+                )
+                
+                # Copy attributes
+                if self.ctx.keep_attrs:
+                    ds3.attrs.update(self.ctx.input_attrs)
+                ds3.attrs["prepared_source"] = self.dineof_input_path
+                ds3.attrs["dineof_source"] = self.ctx.dineof_output_path
+                if self.ctx.test_id is not None:
+                    ds3.attrs["test_id"] = self.ctx.test_id
+                if self.ctx.lake_id is not None and self.ctx.lake_id >= 0:
+                    ds3.attrs["lake_id"] = self.ctx.lake_id
+                
+                print(f"[Post] Created daily interpolated dataset with {len(full_time)} timesteps (full daily timeline)")
+        
+            # Now run remaining steps (AddBackTrend, AddBackClimatology, etc.) on the daily timeline
             for step in self.pipeline:
                 if step.name in skip_steps:
                     continue

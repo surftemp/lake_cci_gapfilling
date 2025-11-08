@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot run v4",
-  "description": "test chain submission",
+  "experiment_name": "pilot run v5",
+  "description": "fixing dineof interpolated output bug",
   "mode": "anomaly",
-  "note": "pilot4",
+  "note": "pilot5",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
