@@ -357,7 +357,7 @@ def main():
 
     # cv mask generator arguments
     cv_group = parser.add_argument_group("DINEOF CV (optional)")
-    cv_group.add_argument("--cv-enable", action="store_true",
+    cv_group.add_argument("--cv-enable", action="store_true", default=None,
                           help="Generate DINEOF cross-validation pairs from the input file")
     cv_group.add_argument("--cv-data-var", type=str, default=None,
                           help="Variable name in the input file (default: lake_surface_water_temperature)")
