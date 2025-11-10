@@ -174,8 +174,56 @@ class Converter:
         # Track whether we've captured the original denominator and baseline
         baseline_captured = False
         
+        # Find the CV generation step index
+        cv_step_index = None
+        for idx, step in enumerate(self.processing_steps):
+            if isinstance(step, DineofCVGenerationStep):
+                cv_step_index = idx
+                break
+        
         # Process through pipeline
-        for step in self.processing_steps:
+        for idx, step in enumerate(self.processing_steps):
+            # Write file BEFORE CV generation runs
+            if cv_step_index is not None and idx == cv_step_index and step.should_apply(config):
+                print(f"\n{'='*60}")
+                print(f"Writing prepared.nc BEFORE CV generation...")
+                print(f"{'='*60}")
+                
+                # Clean up any remaining temporary attributes before writing
+                temp_attrs = [attr for attr in list(ds.attrs.keys()) if attr.startswith("_")]
+                for attr in temp_attrs:
+                    if attr in ds.attrs:
+                        del ds.attrs[attr]
+
+                for v in ("lake_surface_water_temperature", "lat", "lon"):
+                    if v in ds.variables:
+                        ds[v].attrs.pop("_FillValue", None)
+                        ds[v].attrs.pop("missing_value", None)
+                
+                # Ensure output directory exists
+                outdir = os.path.dirname(config.output_file)
+                if outdir:
+                    os.makedirs(outdir, exist_ok=True)
+                
+                # Write the file with proper encoding
+                encoding = {
+                    "lat": {"_FillValue": -32768},
+                    "lon": {"_FillValue": -32768},
+                    "lake_surface_water_temperature": {
+                        "_FillValue": self.fillvalue,
+                        "missing_value": self.missingvalue,
+                    },
+                }
+                ds.to_netcdf(config.output_file, encoding=encoding)
+                print(f"Intermediate prepared.nc written: {config.output_file}")
+                
+                # Re-open to ensure proper encoding metadata is available
+                ds.close()
+                ds = xr.open_dataset(config.output_file, decode_times=False)
+                print(f"Dataset reopened from disk for CV generation")
+                print(f"{'='*60}\n")
+            
+            # Apply the processing step
             if step.should_apply(config):
                 print(f"Applying: {step.name}")
                 ds = step.apply(ds, config)
