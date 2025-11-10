@@ -84,14 +84,15 @@
     "nev": 5,
     "numit": 3,
     "neini": 1,
-    "ncv": 7,
+    "ncv": 12,
     "tol": 1.0e-8,
     "nitemax": 300,
     "toliter": 1.0e-3,
     "rec": 1,
     "eof": 1,
     "norm": 0,
-    "seed": 243435
+    "seed": 243435,
+    "use_custom_cv": true        
   },
 
   "dincae": {

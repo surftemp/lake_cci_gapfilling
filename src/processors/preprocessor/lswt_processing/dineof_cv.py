@@ -111,7 +111,7 @@ REFERENCES
 
 AUTHOR
 ------
-Shaerdan Shataer, Niall McCarroll
+Shaerdan Shataer, with architecture design by Niall McCarroll
 National Centre for Earth Observation, University of Reading
 """
 
@@ -241,126 +241,73 @@ class DineofCVGeneratorCore:
     def generate(self, S: xr.DataArray, sea: np.ndarray, nbclean: int = 3, seed: int = 123) -> Tuple[np.ndarray, dict]:
         """
         Generate cross-validation test points by pasting cloud patterns onto clean frames.
-        
-        Parameters
-        ----------
-        S : xr.DataArray
-            Input data array with dimensions (time, lat, lon)
-        sea : np.ndarray
-            Lake/land mask (lat, lon) where True = lake pixel
-        nbclean : int
-            Number of clean frames to use as CV recipients (default: 3)
-        seed : int
-            Random seed for donor selection reproducibility (default: 123)
-            
-        Returns
-        -------
-        pairs : np.ndarray
-            CV test points as (2, nbpoints) array: [space_index, time_index]
-        meta : dict
-            Metadata about CV generation (frame indices, counts, etc.)
+        EXACT COPY from working JupyterHub code.
         """
-        # STEP 1: Enforce lake mask and get dimensions
-        S = S.where(sea)  # Set land pixels to NaN
+        # Apply lake mask
+        S = S.where(sea)
         T, nlat, nlon = S.sizes["time"], S.sizes["lat"], S.sizes["lon"]
-        M = int(sea.sum())  # Total lake pixels
-        nbland = int((~sea).sum())  # Total land pixels
+        M = int(sea.sum())
+        nbland = int((~sea).sum())
 
-        # STEP 2: Calculate cloud coverage for each time frame
-        # Cloud coverage = fraction of lake pixels that are missing (NaN)
-        nan_counts = np.isnan(S).sum(dim=("lat", "lon")).values  # Total NaNs per frame
-        cloudcov = (nan_counts - nbland) / M  # Exclude land NaNs, normalize by lake pixels
+        # Calculate cloud coverage per frame
+        nan_counts = np.isnan(S).sum(dim=("lat", "lon")).values
+        cloudcov = (nan_counts - nbland) / M
 
         if not (1 <= nbclean < T):
             raise ValueError("nbclean must be >=1 and < number of time steps.")
 
-        # STEP 3: Select clean frames (least cloudy) and donor frames (randomly from cloudy)
-        clean = np.argsort(cloudcov)[:nbclean]  # Indices of nbclean cleanest frames
-        donors_pool = np.where((cloudcov > 0) & (~np.isin(np.arange(T), clean)))[0]  # Cloudy frames only
+        # Select clean frames and donors
+        clean = np.argsort(cloudcov)[:nbclean]
+        donors_pool = np.where((cloudcov > 0) & (~np.isin(np.arange(T), clean)))[0]
         if donors_pool.size == 0:
-            raise ValueError("No cloudy donor frames available; dataset may be fully clean.")
+            raise ValueError("No cloudy donor frames available.")
 
-        # Randomly select donor frames (one per clean frame, with replacement allowed)
         rng = np.random.default_rng(seed)
         donors = rng.choice(donors_pool, size=nbclean, replace=True)
 
-        # STEP 4: Paste cloud patterns from donors onto clean frames
-        S_np = S.values  # Original data (ground truth)
-        S2_np = S_np.copy()  # Modified data (with artificial clouds)
-        
+        # Paste cloud patterns (EXACT JupyterHub code)
+        S_np = S.values
+        S2_np = S_np.copy()
         for t_clean, t_donor in zip(clean, donors):
-            # Get cloud mask (NaN pattern) from donor frame
             donor_nan = np.isnan(S_np[t_donor, :, :])
-            
-            # Apply donor's cloud mask to clean frame
             img = S2_np[t_clean, :, :]
-            img[donor_nan] = np.nan  # Mask pixels that were cloudy in donor
+            img[donor_nan] = np.nan
             S2_np[t_clean, :, :] = img
 
-        # STEP 5: Identify newly masked pixels (these become CV test points)
-        # newly[t,i,j] = True where pixel was valid in original but NaN in modified
+        # Find newly masked pixels
         newly = np.isnan(S2_np) & ~np.isnan(S_np)
 
-        # STEP 6: Convert to DINEOF linear indexing (column-major, 1-based)
-        # DINEOF expects spatial indices as m = m(lon, lat) with outer loop over lon
+        # Build DINEOF linear index (EXACT JupyterHub code)
         mindex_lonlat = np.zeros((nlon, nlat), dtype=np.int32)
         c = 0
-        for ii in range(nlon):  # Outer loop over longitude
-            for jj in range(nlat):  # Inner loop over latitude
-                if sea[jj, ii]:  # Only count lake pixels
+        for ii in range(nlon):          # lon outer
+            for jj in range(nlat):      # lat inner
+                if sea[jj, ii]:
                     c += 1
-                    mindex_lonlat[ii, jj] = c  # 1-based spatial index
-
-        # STEP 7: Extract CV test point coordinates
-        t_idx, i_idx, j_idx = np.where(newly)  # i=lat, j=lon from numpy indexing
+                    mindex_lonlat[ii, jj] = c
+        
+        # Extract CV coordinates (EXACT JupyterHub code)
+        t_idx, i_idx, j_idx = np.where(newly)
         if t_idx.size == 0:
-            raise RuntimeError("No newly masked points; increase nbclean or check donors.")
+            raise RuntimeError("No newly masked points; try larger nbclean or ensure donors have clouds.")
         
-        # Map to DINEOF spatial indices and 1-based time indices
-        space_idx = mindex_lonlat[j_idx, i_idx].astype(np.int32)  # m indices
-        time_idx = (t_idx + 1).astype(np.int32)  # Convert to 1-based time indices
+        space_idx = mindex_lonlat[j_idx, i_idx]
+        time_idx  = (t_idx + 1).astype(np.int32)
+        clouds_mat = np.column_stack([space_idx, time_idx]).astype(np.int32)
 
-        # STEP 8: Format as (2, nbpoints) array for DINEOF
-        pairs = np.column_stack([space_idx, time_idx]).astype(np.int32)
-        
-        # Metadata for logging and verification
         meta = {
-            "clean_frames": clean,  # Indices of frames that received artificial clouds
-            "donor_frames": donors,  # Indices of frames that donated cloud patterns
-            "total_cv_points": int(pairs.shape[0]),  # Total CV test points created
-            "affected_frames": int(np.unique(time_idx).size),  # Number of frames with CV points
-            "M_ocean_pixels": M,  # Total lake pixels
-            "T_frames": int(T),  # Total time frames
+            "clean_frames": clean,
+            "donor_frames": donors,
+            "total_cv_points": int(clouds_mat.shape[0]),
+            "affected_frames": int(np.unique(time_idx).size),
+            "mean_cv_per_frame_pct": 100.0 * (clouds_mat.shape[0] / float(T)) / M,
         }
-        return pairs, meta
+        return clouds_mat, meta
 
     def save_pairs_netcdf(self, pairs_1based: np.ndarray, out_nc: str, varname: str = "cv_pairs") -> Tuple[str, str]:
         """
-        Save CV test point pairs to NetCDF in DINEOF-compatible format.
-        
-        Parameters
-        ----------
-        pairs_1based : np.ndarray
-            CV test points as (nbpoints, 2) array with columns [space_index, time_index]
-            Both indices must be 1-based (Fortran convention)
-        out_nc : str
-            Output NetCDF file path
-        varname : str
-            Variable name in output NetCDF (default: "cv_pairs")
-            
-        Returns
-        -------
-        out_nc : str
-            Path to created NetCDF file
-        varname : str
-            Variable name used in NetCDF
-            
-        Notes
-        -----
-        Creates NetCDF with dimensions (index=2, nbpoints=N) where:
-        - index[0] contains spatial indices (m)
-        - index[1] contains temporal indices (t)
-        - Both are stored as float32 (DINEOF requirement)
+        Save CV pairs to NetCDF in DINEOF format.
+        EXACT COPY from working JupyterHub code.
         """
         pairs_t = pairs_1based.astype(np.float32).T  # (2, nbpoints)
         nbpoints = pairs_t.shape[1]
@@ -371,9 +318,12 @@ class DineofCVGeneratorCore:
                 "nbpoints": np.arange(1, nbpoints + 1, dtype=np.int32),
             },
         )
+        
+        out_nc = str(out_nc)
         os.makedirs(os.path.dirname(out_nc) or ".", exist_ok=True)
         if os.path.exists(out_nc):
             os.remove(out_nc)
+        
         ds.to_netcdf(out_nc, mode="w")
         ds.close()
         return out_nc, varname
@@ -409,39 +359,59 @@ class DineofCVGenerationStep(ProcessingStep):
         return "DINEOF CV Generation"
 
     def apply(self, ds: xr.Dataset, config: ProcessingConfig) -> xr.Dataset:
+        """Use processed dataset, NOT input file - this is the critical fix!"""
         try:
             if not config.cv_mask_var:
                 raise ValueError("cv_enable set but cv_mask_var is not provided.")
 
-            data_nc = config.input_file            # per your requirement: same input path used elsewhere
             data_var = config.cv_data_var or "lake_surface_water_temperature"
-            mask_nc = config.cv_mask_file or config.input_file  # DEFAULT to input_file if not provided
             mask_var = config.cv_mask_var
             nbclean = int(config.cv_nbclean or 3)
             seed = int(config.cv_seed or 123)
             out_nc = config.cv_out or os.path.join(os.path.dirname(config.output_file) or ".", "cv_pairs.nc")
             varname = config.cv_varname or "cv_pairs"
             
-            # Log what we're doing
-            print(f"[CV] Generating cross-validation pairs from: {data_nc}")
-            print(f"[CV] Using mask variable '{mask_var}' from: {mask_nc}")
-            if mask_nc == config.input_file:
-                print(f"[CV] (mask file defaulted to input file - same file contains both data and mask)")
+            print(f"[CV] Generating cross-validation pairs from PROCESSED dataset")
+            print(f"[CV] Using mask variable '{mask_var}' and data variable '{data_var}'")
 
+            # Validate variables exist
+            if data_var not in ds.variables:
+                raise ValueError(f"'{data_var}' not found in processed dataset")
+            if mask_var not in ds.variables:
+                raise ValueError(f"'{mask_var}' not found in processed dataset")
+            
+            # Extract from PROCESSED dataset
+            S = ds[data_var].load()
+            mask_da = ds[mask_var].load()
+            
+            # Convert mask to boolean
             core = DineofCVGeneratorCore()
-            S, sea = core.load(data_nc, data_var, mask_nc, mask_var)
+            sea = core._normalize_mask_da(mask_da)
+            
+            M = int(sea.sum())
+            print(f"[CV] Lake pixels in processed data: {M}")
+            
+            # Generate CV pairs from processed data
             pairs, meta = core.generate(S, sea, nbclean=nbclean, seed=seed)
+            
+            # Verify spatial indices are valid
+            max_spatial_idx = int(pairs[:, 0].max())
+            if max_spatial_idx > M:
+                raise ValueError(
+                    f"CV generation produced spatial index {max_spatial_idx} "
+                    f"but only {M} lake pixels exist!"
+                )
+            
             path, vname = core.save_pairs_netcdf(pairs, out_nc, varname=varname)
 
-            # record in attrs (non-invasive)
+            # Record in attrs
             ds.attrs["dineof_cv_path"] = path
             ds.attrs["dineof_cv_var"] = vname
             ds.attrs["dineof_cv_total_points"] = meta["total_cv_points"]
             ds.attrs["dineof_cv_affected_frames"] = meta["affected_frames"]
-            ds.attrs["dineof_cv_M_ocean_pixels"] = meta["M_ocean_pixels"]
-            ds.attrs["dineof_cv_T_frames"] = meta["T_frames"]
 
             print(f"[CV] Saved CV NetCDF: {path}#{vname} ({meta['total_cv_points']} points)")
+            print(f"[CV] Spatial indices: 1..{max_spatial_idx} (valid range: 1..{M})")
             print(f"[CV] Add to dineof.init:\n      clouds = '{path}#{vname}'")
             return ds
 
