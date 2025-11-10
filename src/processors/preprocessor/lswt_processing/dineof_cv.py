@@ -260,29 +260,32 @@ class DineofCVGeneratorCore:
         return clouds_mat, meta
 
     def save_pairs_netcdf(self, pairs_1based, out_nc, varname="cv_pairs"):
-        """
-        Save as int32 with dims (index, nbpoints) → (2, N), matches earlier successful layout.
-        """
-        p = np.asarray(pairs_1based, dtype=np.int32)  # (N,2) [m,t]
-        pairs_t = p.T  # (2, N)
-
+        import xarray as xr, numpy as np, os
+        p = np.asarray(pairs_1based, dtype=np.int32)  # shape (N, 2) columns [m, t]
+    
+        # Write as (nbpoints, index) to align with Fortran arrays clouds(nbpoints,2)
         ds = xr.Dataset(
-            {varname: (("index", "nbpoints"), pairs_t)},
+            {varname: (("nbpoints", "index"), p)},
             coords={
+                "nbpoints": np.arange(1, p.shape[0] + 1, dtype=np.int32),
                 "index":    np.array([1, 2], dtype=np.int32),
-                "nbpoints": np.arange(1, pairs_t.shape[1] + 1, dtype=np.int32),
             },
         )
+    
         if os.path.exists(out_nc):
             os.remove(out_nc)
-        # lock types; no _FillValue on the data variable
+    
+        # Ensure integer type, no fill value, NetCDF3 classic layout (max compat)
         ds[varname] = ds[varname].astype("int32")
         ds[varname].encoding["_FillValue"] = None
-        ds["index"]    = ds["index"].astype("int32")
         ds["nbpoints"] = ds["nbpoints"].astype("int32")
-        ds.to_netcdf(out_nc, mode="w", engine="netcdf4")
+        ds["index"]    = ds["index"].astype("int32")
+    
+        # IMPORTANT: write as NETCDF3_CLASSIC to avoid any exotic chunking/endianness gotchas
+        ds.to_netcdf(out_nc, mode="w", engine="scipy")  # writes NetCDF3 classic
         ds.close()
         return out_nc, varname
+
 
 
 class DineofCVGenerationStep(ProcessingStep):
