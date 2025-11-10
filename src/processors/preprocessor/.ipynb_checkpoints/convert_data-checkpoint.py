@@ -259,20 +259,26 @@ class Converter:
             os.makedirs(outdir, exist_ok=True)
 
         # Record final time count for stats
-        rec.set_total_time_after(int(ds.dims.get("time", 0)))        
+        rec.set_total_time_after(int(ds.dims.get("time", 0)))
         
-        ds.to_netcdf(
-            config.output_file,
-            encoding={
-                "lat": {"_FillValue": -32768},
-                "lon": {"_FillValue": -32768},
-                "lake_surface_water_temperature": {
-                    "_FillValue": self.fillvalue,
-                    "missing_value": self.missingvalue,
+        # Only write if we haven't already (CV generation writes it early)
+        if cv_step_index is None or not getattr(config, 'cv_enable', False):
+            ds.to_netcdf(
+                config.output_file,
+                encoding={
+                    "lat": {"_FillValue": -32768},
+                    "lon": {"_FillValue": -32768},
+                    "lake_surface_water_temperature": {
+                        "_FillValue": self.fillvalue,
+                        "missing_value": self.missingvalue,
+                    },
                 },
-            },
-        )
-        print(f"Conversion complete: {config.input_file} => {config.output_file}")
+            )
+            print(f"Conversion complete: {config.input_file} => {config.output_file}")
+        else:
+            # File already written before CV generation
+            ds.close()
+            print(f"Conversion complete (file written before CV): {config.input_file} => {config.output_file}")
 
 
 def _merge_cfg(json_cfg: dict, args: argparse.Namespace) -> dict:

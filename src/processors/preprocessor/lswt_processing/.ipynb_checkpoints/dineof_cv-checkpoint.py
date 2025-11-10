@@ -175,7 +175,7 @@ class DineofCVGeneratorCore:
                 bad += 1
         return bad
 
-    def generate(self, S: xr.DataArray, sea: np.ndarray, nbclean: int = 3, seed: int = 123) -> Tuple[np.ndarray, dict]:
+    def generate(self, S: xr.DataArray, sea: np.ndarray, nbclean: int = 3, seed: int = 123, prepared_file_path: str = None) -> Tuple[np.ndarray, dict]:        
         """
         Generate CV pairs by pasting donor cloud patterns onto clean frames,
         then align each pair in time and strictly filter against CF-NaNs and RAW fills.
@@ -231,13 +231,11 @@ class DineofCVGeneratorCore:
         clouds_mat = np.column_stack([np.array(kept_m, np.int32),
                                       np.array(kept_t, np.int32)]).astype(np.int32)
 
-        # STRICT filter against CF-NaN and RAW fills (e.g., 9999)
-        # Find backing file path of S
-        prep_path = (S.encoding.get("source")
-                     or S.encoding.get("filename_or_obj")
-                     or S.encoding.get("filepath", None))
+        # STRICT filter against CF-NaN and RAW fills
+        # Use the prepared.nc file path that was written before CV generation
+        prep_path = prepared_file_path
         if not prep_path or not os.path.exists(prep_path):
-            raise RuntimeError("Cannot locate backing file for prepared dataset; strict RAW/CF filtering requires file path.")
+            raise RuntimeError(f"Cannot locate backing file for prepared dataset at: {prep_path}")
 
         clouds_mat, dropped_raw = self._strict_filter_cf_and_raw(
             prepared_path=prep_path, vname=S.name, inv=inv, clouds_mat=clouds_mat
@@ -327,7 +325,7 @@ class DineofCVGenerationStep(ProcessingStep):
             print(f"[CV] Lake pixels in processed data: {M}")
 
             core = DineofCVGeneratorCore()
-            pairs, meta = core.generate(S, sea, nbclean=nbclean, seed=seed)
+            pairs, meta = core.generate(S, sea, nbclean=nbclean, seed=seed, prepared_file_path=config.output_file)            
 
             max_spatial_idx = int(pairs[:, 0].max()) if pairs.size else 0
             if max_spatial_idx > M:
