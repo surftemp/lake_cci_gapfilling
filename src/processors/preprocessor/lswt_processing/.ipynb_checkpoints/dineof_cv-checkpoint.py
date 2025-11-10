@@ -1,9 +1,12 @@
 # lswt_processing/dineof_cv.py
 """
 DINEOF Cross-Validation (CV) Mask Generator
-- lon-outer linearisation (matches DINEOF expectation)
+- LAT-OUTER linearisation (matches MATLAB/Fortran DINEOF expectation)
 - Per-pair time alignment (robust to t vs t-1 checks)
 - STRICT filtering against both CF-NaN and RAW fill tokens (e.g., 9999)
+
+FIXED: Changed from lon-outer to lat-outer spatial indexing to match
+       the official MATLAB DINEOF helper scripts (dineof_cvp.m)
 """
 
 import os
@@ -53,22 +56,32 @@ class DineofCVGeneratorCore:
         return da, sea
 
     @staticmethod
-    def _build_mindex_lon_outer(sea: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _build_mindex_lat_outer(sea: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Build spatial linear index m (1..M) from a (lat,lon) boolean mask.
-        lon-outer, lat-inner. Returns (mindex[lon,lat], inv[1..M]=(lat,lon)).
+        LAT-OUTER, LON-INNER (matches MATLAB/Fortran DINEOF convention).
+        
+        This matches the official MATLAB DINEOF helper dineof_cvp.m:
+            for i=1:imax    (first dimension outer)
+              for j=1:jmax  (second dimension inner)
+        
+        For Python with shape (lat, lon), this means:
+            for lat in range(nlat):  (lat outer)
+              for lon in range(nlon): (lon inner)
+        
+        Returns (mindex[lat,lon], inv[1..M]=(lat,lon)).
         """
         nlat, nlon = sea.shape
-        mindex = np.zeros((nlon, nlat), dtype=np.int32)  # addressed [lon,lat]
+        mindex = np.zeros((nlat, nlon), dtype=np.int32)  # addressed [lat,lon]
         c = 0
-        for ii in range(nlon):          # lon outer
-            for jj in range(nlat):      # lat inner
+        for jj in range(nlat):          # lat outer
+            for ii in range(nlon):      # lon inner
                 if sea[jj, ii]:
                     c += 1
-                    mindex[ii, jj] = c
+                    mindex[jj, ii] = c
         I, J = np.where(mindex > 0)
         inv = np.empty((c + 1, 2), np.int32)            # 1..M
-        inv[mindex[I, J]] = np.stack([J, I], 1)         # (lat,lon)
+        inv[mindex[I, J]] = np.stack([I, J], 1)         # (lat,lon)
         return mindex, inv
 
     @staticmethod
@@ -84,7 +97,7 @@ class DineofCVGeneratorCore:
         n_drop = 0
 
         for mi, ti in zip(space_idx.tolist(), time_idx.tolist()):
-            jj, ii = inv[int(mi)]
+            jj, ii = inv[int(mi)]  # jj=lat, ii=lon
 
             # Option A: keep t' = t  → require S[t], S[t-1] finite
             ok_keep = (2 <= ti <= T) and np.isfinite(Snp[ti - 1, jj, ii]) and np.isfinite(Snp[ti - 2, jj, ii])
@@ -137,7 +150,7 @@ class DineofCVGeneratorCore:
         ti = clouds_mat[:, 1].astype(int)
 
         # Map to indices
-        jj = inv[mi, 0]; ii = inv[mi, 1]
+        jj = inv[mi, 0]; ii = inv[mi, 1]  # jj=lat, ii=lon
         tt = ti - 1
         tm1 = ti - 2
 
@@ -168,7 +181,7 @@ class DineofCVGeneratorCore:
             return 0
         bad = 0
         for mi, ti in clouds_mat:
-            jj, ii = inv[int(mi)]
+            jj, ii = inv[int(mi)]  # jj=lat, ii=lon
             ok_t   = (1 <= ti <= T) and np.isfinite(Snp[ti - 1, jj, ii])
             ok_tm1 = (2 <= ti <= T) and np.isfinite(Snp[ti - 2, jj, ii])
             if not (ok_t and ok_tm1):
@@ -179,6 +192,8 @@ class DineofCVGeneratorCore:
         """
         Generate CV pairs by pasting donor cloud patterns onto clean frames,
         then align each pair in time and strictly filter against CF-NaNs and RAW fills.
+        
+        FIXED: Uses lat-outer spatial indexing to match MATLAB/Fortran DINEOF.
         """
         # Apply lake mask; compute sizes
         S = S.where(sea)
@@ -210,15 +225,16 @@ class DineofCVGeneratorCore:
             S2_np[t_clean, :, :] = img
 
         newly = np.isnan(S2_np) & ~np.isnan(S_np)
-        t_idx, i_idx, j_idx = np.where(newly)
+        t_idx, i_idx, j_idx = np.where(newly)  # i_idx=lat, j_idx=lon for (time,lat,lon) array
         if t_idx.size == 0:
             raise RuntimeError("No newly masked points; try larger nbclean or ensure donors have clouds.")
 
-        # lon-outer spatial index
-        mindex, inv = self._build_mindex_lon_outer(sea)
+        # LAT-OUTER spatial index (matches MATLAB DINEOF)
+        mindex, inv = self._build_mindex_lat_outer(sea)
 
-        # Natural (1-based) indices; mindex is addressed [lon,lat]
-        space_idx = mindex[j_idx, i_idx].astype(np.int32)
+        # Natural (1-based) indices
+        # mindex is addressed [lat,lon], so we use [i_idx, j_idx]
+        space_idx = mindex[i_idx, j_idx].astype(np.int32)
         time_idx  = (t_idx + 1).astype(np.int32)  # 1-based
 
         # Per-pair time alignment using CF-masked array (S_np)
@@ -255,37 +271,34 @@ class DineofCVGeneratorCore:
             "cv_keep_t": n_keep_t,
             "cv_shift_t_plus_1": n_shift_t1,
             "cv_dropped": n_drop + dropped_raw,
-            "spatial_order": "lon_outer",
+            "spatial_order": "lat_outer",
         }
         return clouds_mat, meta
 
     def save_pairs_netcdf(self, pairs_1based, out_nc, varname="cv_pairs"):
-        import xarray as xr, numpy as np, os
-        p = np.asarray(pairs_1based, dtype=np.int32)  # shape (N, 2) columns [m, t]
-    
-        # Write as (nbpoints, index) to align with Fortran arrays clouds(nbpoints,2)
+        """
+        Save as int32 with dims (index, nbpoints) → (2, N), matches earlier successful layout.
+        """
+        p = np.asarray(pairs_1based, dtype=np.int32)  # (N,2) [m,t]
+        pairs_t = p.T  # (2, N)
+
         ds = xr.Dataset(
-            {varname: (("nbpoints", "index"), p)},
+            {varname: (("index", "nbpoints"), pairs_t)},
             coords={
-                "nbpoints": np.arange(1, p.shape[0] + 1, dtype=np.int32),
                 "index":    np.array([1, 2], dtype=np.int32),
+                "nbpoints": np.arange(1, pairs_t.shape[1] + 1, dtype=np.int32),
             },
         )
-    
         if os.path.exists(out_nc):
             os.remove(out_nc)
-    
-        # Ensure integer type, no fill value, NetCDF3 classic layout (max compat)
+        # lock types; no _FillValue on the data variable
         ds[varname] = ds[varname].astype("int32")
         ds[varname].encoding["_FillValue"] = None
-        ds["nbpoints"] = ds["nbpoints"].astype("int32")
         ds["index"]    = ds["index"].astype("int32")
-    
-        # IMPORTANT: write as NETCDF3_CLASSIC to avoid any exotic chunking/endianness gotchas
-        ds.to_netcdf(out_nc, mode="w", engine="scipy")  # writes NetCDF3 classic
+        ds["nbpoints"] = ds["nbpoints"].astype("int32")
+        ds.to_netcdf(out_nc, mode="w", engine="netcdf4")
         ds.close()
         return out_nc, varname
-
 
 
 class DineofCVGenerationStep(ProcessingStep):
