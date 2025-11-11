@@ -1,10 +1,10 @@
 {
   "experiment_name": "pilot run v10",
-  "description": "debugging custom cv alignment of dineof and dincae",
+  "description": "debugging custom cv for dineof",
   "mode": "anomaly",
   "note": "pilot10",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "both",
+  "engine_mode": "dineof",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -35,7 +35,7 @@
 
   "executables": {
     "pre_cli": "dineof_preprocessor",
-    "dineof_bin": "/home/users/shaerdan/DINEOF_link/dineof",
+    "dineof_bin": "/home/users/shaerdan/softwares/DINEOF/dineof",
     "post_cli": "dineof_postprocessor"
   },
 

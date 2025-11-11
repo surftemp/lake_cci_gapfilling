@@ -346,7 +346,7 @@ def do_exec(conf_path:str, row:int, stage:str):
 
     # --- DINEOF ---
     def run_dineof():
-        dineof_bin = execs.get("dineof_bin", "/home/users/shaerdan/DINEOF_link/dineof")
+        dineof_bin = execs.get("dineof_bin", "/home/users/shaerdan/softwares/DINEOF/dineof")
         tmpdir = tempfile.mkdtemp(prefix="dineof_init_")
         init_path = os.path.join(tmpdir, f"lake_{lake_id}.init")
         var_name = conf.get("variables", {}).get("lswt_var", "lake_surface_water_temperature")
