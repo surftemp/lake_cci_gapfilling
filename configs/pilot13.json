@@ -66,8 +66,7 @@
   "preprocessing_options": {
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
-    "quality_threshold": 3,
-    "internal_cv_fraction": 0.10, 
+    "quality_threshold": 3,   
     "cv_enable": false,
     "cv_mask_var": "lakeid",
     "cv_fraction_target": 0.05,
@@ -96,7 +95,8 @@
     "eof": 1,
     "norm": 0,
     "seed": 243435,
-    "use_custom_cv": true        
+    "use_custom_cv": false,
+    "internal_cv_fraction": 0.10      
   },
 
   "dincae": {
