@@ -9,6 +9,9 @@ dist/
 .installed.cfg
 *.log
 
+# html
+*.html
+
 # Editors/OS
 .DS_Store
 .vscode/
