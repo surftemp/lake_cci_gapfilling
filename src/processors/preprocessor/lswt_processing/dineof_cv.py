@@ -34,6 +34,7 @@ def _collect_fill_values(da: xr.DataArray) -> np.ndarray:
                 fills.append(float(val))
             else:
                 fills.extend([float(x) for x in np.atleast_1d(val)])
+    # fallback on typical fillvalues in case key is not in attrs
     fills.extend([9.96921e36, 1.0e36, 1.0e30, -1.0e30, 1.0e20, -1.0e20, 9999.0, -9999.0])
     if not fills:
         return np.array([], dtype=np.float64)
@@ -47,7 +48,7 @@ def _build_mindex_lat_outer(sea: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     c = 0
     for jj in range(nlat):       # lat outer
         for ii in range(nlon):   # lon inner
-            if sea[jj, ii]:
+            if sea[jj, ii]:      # sea is general mask, 1 for water/valid, 0 for land/invalid
                 c += 1
                 mindex[jj, ii] = c
     I, J = np.where(mindex > 0)
@@ -376,6 +377,89 @@ class DineofCVGenerationStep(ProcessingStep):
                 prepared_file_path=getattr(config, "output_file", None),
             )
 
+            # --- aim for cv_fraction_target (closest from below), with optional absolute cap ---
+            cv_fraction_target = float(getattr(config, "cv_fraction_target", 1.0))
+            cv_absolute_cap    = getattr(config, "cv_absolute_cap", None)
+
+            # Build strict-valid pool using the same RAW/CF semantics as strict filter
+            tmp_path = None
+            try:
+                backing_path, tmp_path = _ensure_prepared_path(
+                    S.to_dataset(name=S.name), S.name, getattr(config, "output_file", None)
+                )
+                ds_cf  = xr.open_dataset(backing_path, decode_times=False, mask_and_scale=True)
+                ds_raw = xr.open_dataset(backing_path, decode_times=False, mask_and_scale=False)
+
+                A_cf  = ds_cf[S.name].values  # (T,lat,lon)
+                A_raw = ds_raw[S.name].values
+                T = A_cf.shape[0]
+
+                fill_vec = _collect_fill_values(ds_raw[S.name])
+                SEA = np.broadcast_to(sea[None, :, :], (T,) + sea.shape)
+
+                valid_cf = np.isfinite(A_cf)
+                valid_cf_tm1 = np.vstack([np.zeros((1,) + sea.shape, dtype=bool), valid_cf[:-1]])
+                valid = SEA & valid_cf & valid_cf_tm1
+
+                if fill_vec.size:
+                    raw = A_raw.astype(np.float64)
+                    eq_fill_t = np.any(
+                        np.isclose(raw[..., None], fill_vec[None, None, None, :], rtol=0, atol=1e-12), axis=-1
+                    )
+                    eq_fill_tm1 = np.vstack([np.zeros((1,) + sea.shape, dtype=bool), eq_fill_t[:-1]])
+                    valid &= ~eq_fill_t & ~eq_fill_tm1
+
+                valid[0, :, :] = False  # need t-1
+                valid_pool_size = int(valid.sum())
+            finally:
+                try:
+                    ds_cf.close(); ds_raw.close()
+                except Exception:
+                    pass
+                if tmp_path and os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except Exception: pass
+
+            K_target = int(np.floor(cv_fraction_target * valid_pool_size))
+            if cv_absolute_cap is not None:
+                K_target = min(K_target, int(cv_absolute_cap))
+            K_target = max(0, K_target)
+
+            # If initial nbclean overshoots, downsample; else increase nbclean until crossing, keep best-under
+            k0 = int(pairs.shape[0])
+            if k0 > K_target and K_target >= 0:
+                rng = np.random.default_rng(seed)
+                take = rng.choice(k0, size=K_target, replace=False) if K_target > 0 else []
+                pairs = pairs[take, :] if K_target > 0 else pairs[:0, :]
+                meta["total_cv_points"] = int(pairs.shape[0])
+            elif k0 < K_target:
+                nbclean0 = nbclean
+                nbclean_max = max(nbclean0, (int(S.sizes["time"]) - 1))
+                best_pairs = pairs
+                best_meta  = meta
+                best_k     = k0
+                crossed    = False
+                for nb in range(nbclean0 + 1, nbclean_max + 1):
+                    pairs_nb, meta_nb = core.generate(
+                        S, sea, nbclean=nb, seed=seed, prepared_file_path=getattr(config, "output_file", None)
+                    )
+                    k = int(pairs_nb.shape[0])
+                    if k == K_target:
+                        best_pairs, best_meta, best_k = pairs_nb, meta_nb, k
+                        crossed = True
+                        break
+                    if k < K_target and k > best_k:
+                        best_pairs, best_meta, best_k = pairs_nb, meta_nb, k
+                    if k > K_target:
+                        crossed = True
+                        break
+                if crossed and best_k > K_target:
+                    rng = np.random.default_rng(seed)
+                    take = rng.choice(best_k, size=K_target, replace=False)
+                    best_pairs = best_pairs[take, :]
+                    best_meta["total_cv_points"] = int(best_pairs.shape[0])
+                pairs, meta = best_pairs, best_meta
+
             if pairs.size:
                 max_m = int(pairs[:, 0].max())
                 if max_m > M:
@@ -389,6 +473,9 @@ class DineofCVGenerationStep(ProcessingStep):
             ds.attrs["dineof_cv_affected_frames"] = meta["affected_frames"]
             ds.attrs["dineof_cv_M_ocean_pixels"] = M
             ds.attrs["dineof_cv_T_frames"] = int(S.sizes["time"])
+            ds.attrs["dineof_cv_fraction_target"] = float(getattr(config, "cv_fraction_target", 1.0))
+            if getattr(config, "cv_absolute_cap", None) is not None:
+                ds.attrs["dineof_cv_absolute_cap"] = int(getattr(config, "cv_absolute_cap"))
 
             print(f"[CV] Saved: {path}#{vname} ({meta['total_cv_points']} pts)")
             print(f"[CV] Spatial order: {meta['spatial_order']}")
