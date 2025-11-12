@@ -1,10 +1,10 @@
 {
-  "experiment_name": "pilot run v12",
+  "experiment_name": "pilot run v13",
   "description": "testing cv percentage control for dineof",
   "mode": "anomaly",
-  "note": "pilot12",
+  "note": "pilot13",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dineof",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -66,8 +66,9 @@
   "preprocessing_options": {
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
-    "quality_threshold": 3,   
-    "cv_enable": true,
+    "quality_threshold": 3,
+    "internal_cv_fraction": 0.10, 
+    "cv_enable": false,
     "cv_mask_var": "lakeid",
     "cv_fraction_target": 0.05,
     "cv_absolute_cap": null,      
