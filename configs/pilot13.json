@@ -4,7 +4,7 @@
   "mode": "anomaly",
   "note": "pilot13",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "both",
+  "engine_mode": "dineof",
 
   "dataset_options": {
     "use_temporal_experiment": false,

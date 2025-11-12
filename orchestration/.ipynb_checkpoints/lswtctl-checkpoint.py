@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from dincae_arm import PreparedNC, build_inputs as dincae_build_inputs
 from dincae_arm import run_dincae as dincae_run
 from dincae_arm import write_dineof_shaped_outputs as dincae_write_out
+import numpy as np
 
 # ---------- small utils ----------
 
@@ -113,6 +114,65 @@ def _idempotent_skip(path:str, label:str):
         print(f"[{label}] Exists → {path} (skip)")
         return True
     return False
+
+
+# ----- helper for cv percentage control ------
+def _count_valid_pixels(prepared_nc: str, var_name: str, mask_var: str) -> int:
+    """
+    Count valid pixels: in mask AND finite AND not fill value.
+    
+    Returns: number of (time, lat, lon) points that are valid
+    """
+    import xarray as xr
+    import numpy as np
+    
+    # Open in both modes to check CF and RAW
+    ds_cf = xr.open_dataset(prepared_nc, mask_and_scale=True)
+    ds_raw = xr.open_dataset(prepared_nc, mask_and_scale=False)
+    
+    try:
+        # Get mask: 1 = water/valid, 0 = land/invalid
+        mask = ds_cf[mask_var].values  # (lat, lon)
+        lake_mask = (mask == 1)
+        
+        # Get data
+        A_cf = ds_cf[var_name].values  # (time, lat, lon)
+        A_raw = ds_raw[var_name].values
+        T, nlat, nlon = A_cf.shape
+        
+        # Collect fill values
+        fills = []
+        for key in ("_FillValue", "missing_value"):
+            if key in ds_raw[var_name].attrs:
+                val = ds_raw[var_name].attrs[key]
+                if np.isscalar(val):
+                    fills.append(float(val))
+        fills.extend([9.96921e36, 1.0e36, 1.0e30, -1.0e30, 1.0e20, -1.0e20, 9999.0, -9999.0])
+        fill_vec = np.array(sorted(set(fills)), dtype=np.float64)
+        
+        # Broadcast mask to 3D
+        SEA = np.broadcast_to(lake_mask[None, :, :], (T, nlat, nlon))
+        
+        # Check CF finite
+        valid = SEA & np.isfinite(A_cf)
+        
+        # Check RAW against fill values
+        if fill_vec.size:
+            raw = A_raw.astype(np.float64)
+            is_fill = np.any(
+                np.isclose(raw[..., None], fill_vec[None, None, None, :], 
+                          rtol=0, atol=1e-12), 
+                axis=-1
+            )
+            valid &= ~is_fill
+        
+        valid_count = int(valid.sum())
+        return valid_count
+        
+    finally:
+        ds_cf.close()
+        ds_raw.close()
+
 
 # ---------- stage.slurm materializer ----------
 
