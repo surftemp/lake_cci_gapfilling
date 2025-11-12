@@ -28,3 +28,6 @@ dist/
 .venv/
 .env/
 .conda/
+
+# Jupyter autosave dirs
+**/.ipynb_checkpoints/
