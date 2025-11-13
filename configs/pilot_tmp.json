@@ -1,10 +1,10 @@
 {
-  "experiment_name": "pilot run v11",
-  "description": "pilot run to test custom cv for dineof for all lakes",
+  "experiment_name": "pilot_tmp",
+  "description": "pilot_tmp: test dincae cv and error stats generation",
   "mode": "anomaly",
-  "note": "pilot11",
+  "note": "pilot_tmp",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dineof",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -67,8 +67,10 @@
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
     "quality_threshold": 3,   
-    "cv_enable": true,
-    "cv_mask_var": "lakeid",      
+    "cv_enable": false,
+    "cv_mask_var": "lakeid",
+    "cv_fraction_target": 0.05,
+    "cv_absolute_cap": null,      
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
@@ -82,10 +84,10 @@
 
   "dineof_parameters": {
     "alpha_values": [0.1],
-    "nev": 5,
+    "nev": 22,
     "numit": 3,
     "neini": 1,
-    "ncv": 12,
+    "ncv": 29,
     "tol": 1.0e-8,
     "nitemax": 300,
     "toliter": 1.0e-3,
@@ -93,13 +95,21 @@
     "eof": 1,
     "norm": 0,
     "seed": 243435,
-    "use_custom_cv": true        
+    "use_custom_cv": false,
+    "internal_cv_fraction": 0.10      
   },
 
   "dincae": {
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
-    "cv": { "cv_fraction": 0.10, "random_seed": 1234, "use_cv": true },
+    "cv": {
+      "cv_fraction": 0.10,
+      "random_seed": 1234,
+      "use_cv": true,
+      "minseafrac": 0.05,
+      "min_frac_missing": 0.05,
+      "max_frac_missing": 0.70
+    },
     "train": {
       "epochs": 300,
       "batch_size": 32,

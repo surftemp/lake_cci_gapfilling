@@ -144,6 +144,21 @@ loss = DINCAE.reconstruct(
 open(joinpath(outdir, "loss_history.json"), "w") do io
     JSON.print(io, Dict("loss"=>loss, "epochs"=>collect(1:length(loss))))
 end
+
+# --- CV RMS computation ---
+case = (
+    fname_orig = fname_cleanup,  # cleaned base (no synthetic CV)
+    fname_cv   = cv_clean,       # cleaned CV file (with synthetic CV clouds)
+    varname    = varname,
+)
+
+cvrms = DINCAE_utils.cvrms(case, fname_rec)
+
+open(joinpath(outdir, "cv_rms.txt"), "w") do io
+    @printf(io, "CV_RMS %0.6f\n", cvrms)
+end
+
+
 println("Wrote ", fname_rec); flush(stdout)
 """
     script_path = arts.dincae_dir / "run_dincae.jl"
