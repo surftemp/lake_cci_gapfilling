@@ -9,6 +9,9 @@ dist/
 .installed.cfg
 *.log
 
+# Jupyter
+.ipynb_checkpoints/
+
 # html
 *.html
 
