@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot run v8",
-  "description": "debugging custom cv for dineof",
+  "experiment_name": "pilot run v12",
+  "description": "testing cv percentage control for dineof",
   "mode": "anomaly",
-  "note": "pilot8",
+  "note": "pilot12",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "dineof",
 
@@ -35,7 +35,7 @@
 
   "executables": {
     "pre_cli": "dineof_preprocessor",
-    "dineof_bin": "/home/users/shaerdan/DINEOF_link/dineof",
+    "dineof_bin": "/home/users/shaerdan/softwares/DINEOF/dineof",
     "post_cli": "dineof_postprocessor"
   },
 
@@ -68,7 +68,9 @@
     "end_date": "2022-12-31",
     "quality_threshold": 3,   
     "cv_enable": true,
-    "cv_mask_var": "lakeid",      
+    "cv_mask_var": "lakeid",
+    "cv_fraction_target": 0.05,
+    "cv_absolute_cap": null,      
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
@@ -99,14 +101,7 @@
   "dincae": {
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
-    "cv": {
-      "cv_fraction": 0.10,
-      "random_seed": 1234,
-      "use_cv": true,
-      "minseafrac": 0.05,
-      "min_frac_missing": 0.05,
-      "max_frac_missing": 0.70
-    },
+    "cv": { "cv_fraction": 0.10, "random_seed": 1234, "use_cv": true },
     "train": {
       "epochs": 300,
       "batch_size": 32,

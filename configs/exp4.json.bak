@@ -1,15 +1,15 @@
 {
-  "experiment_name": "pilot run v8",
-  "description": "debugging custom cv for dineof",
+  "experiment_name": "exp4",
+  "description": "exp4: without detrend",
   "mode": "anomaly",
-  "note": "pilot8",
+  "note": "exp4",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dineof",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [3007],
+    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81, 84, 88, 91, 133, 146, 165, 170, 171, 174, 177, 198, 223, 227, 236, 257, 295, 298, 310, 311, 314, 318, 319, 321, 327, 335, 375, 380, 395, 423, 443, 463, 488, 492, 505, 513, 523, 546, 571, 586, 604, 648, 674, 679, 688, 829, 893, 905, 917, 920, 1046, 1115, 1146, 1196, 1204, 1241, 1307, 1437, 1555, 1771, 1774, 1801, 1902, 1951, 1955, 1975, 2099, 2965, 3007, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300000853, 300000918, 300001118, 300001141, 300001612, 300001625, 300001645, 300002883, 300004634, 300004816, 300004882, 300004974, 300009807, 300010187, 300010196, 300010537, 300010539, 300010540, 300010866, 300012284, 300012336, 300012341, 300015376, 300016649],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
@@ -35,7 +35,7 @@
 
   "executables": {
     "pre_cli": "dineof_preprocessor",
-    "dineof_bin": "/home/users/shaerdan/DINEOF_link/dineof",
+    "dineof_bin": "/home/users/shaerdan/softwares/DINEOF/dineof",
     "post_cli": "dineof_postprocessor"
   },
 
@@ -67,8 +67,10 @@
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
     "quality_threshold": 3,   
-    "cv_enable": true,
-    "cv_mask_var": "lakeid",      
+    "cv_enable": false,
+    "cv_mask_var": "lakeid",
+    "cv_fraction_target": 0.05,
+    "cv_absolute_cap": null,      
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
@@ -76,16 +78,16 @@
     "remove_shore": 0.0,
     "distance_to_land_dir": "/home/users/shaerdan/general_purposes/distance_to_land_mask",
     "min_observation_percent": 0.05,
-    "detrend_lake_mean": true,
+    "detrend_lake_mean": false,
     "detrend_coverage_threshold": 0.05
   },
 
   "dineof_parameters": {
     "alpha_values": [0.1],
-    "nev": 5,
+    "nev": 22,
     "numit": 3,
     "neini": 1,
-    "ncv": 12,
+    "ncv": 29,
     "tol": 1.0e-8,
     "nitemax": 300,
     "toliter": 1.0e-3,
@@ -93,20 +95,14 @@
     "eof": 1,
     "norm": 0,
     "seed": 243435,
-    "use_custom_cv": true        
+    "use_custom_cv": false,
+    "internal_cv_fraction": 0.10      
   },
 
   "dincae": {
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
-    "cv": {
-      "cv_fraction": 0.10,
-      "random_seed": 1234,
-      "use_cv": true,
-      "minseafrac": 0.05,
-      "min_frac_missing": 0.05,
-      "max_frac_missing": 0.70
-    },
+    "cv": { "cv_fraction": 0.10, "random_seed": 1234, "use_cv": true },
     "train": {
       "epochs": 300,
       "batch_size": 32,

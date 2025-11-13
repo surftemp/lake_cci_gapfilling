@@ -1,15 +1,15 @@
 {
-  "experiment_name": "pilot run v8",
-  "description": "debugging custom cv for dineof",
+  "experiment_name": "shore_obs_filtering_experiment",
+  "description": "Experiment with shore removal and observation availability filtering (standardized units)",
   "mode": "anomaly",
-  "note": "pilot8",
+  "note": "pilot1",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dineof",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [3007],
+    "custom_lake_ids": [1204],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
@@ -66,9 +66,6 @@
   "preprocessing_options": {
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
-    "quality_threshold": 3,   
-    "cv_enable": true,
-    "cv_mask_var": "lakeid",      
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
@@ -85,28 +82,20 @@
     "nev": 5,
     "numit": 3,
     "neini": 1,
-    "ncv": 12,
+    "ncv": 7,
     "tol": 1.0e-8,
     "nitemax": 300,
     "toliter": 1.0e-3,
     "rec": 1,
     "eof": 1,
     "norm": 0,
-    "seed": 243435,
-    "use_custom_cv": true        
+    "seed": 243435
   },
 
   "dincae": {
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
-    "cv": {
-      "cv_fraction": 0.10,
-      "random_seed": 1234,
-      "use_cv": true,
-      "minseafrac": 0.05,
-      "min_frac_missing": 0.05,
-      "max_frac_missing": 0.70
-    },
+    "cv": { "cv_fraction": 0.10, "random_seed": 1234, "use_cv": true },
     "train": {
       "epochs": 300,
       "batch_size": 32,
@@ -145,7 +134,7 @@
     "time": "120:00:00",
     "mem": "128G",
     "max_concurrent": 60,
-    "per_index_chain": true
+    "per_index_chain": false
   },
 
   "system_settings": {

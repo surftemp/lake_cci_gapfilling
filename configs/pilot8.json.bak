@@ -99,14 +99,7 @@
   "dincae": {
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
-    "cv": {
-      "cv_fraction": 0.10,
-      "random_seed": 1234,
-      "use_cv": true,
-      "minseafrac": 0.05,
-      "min_frac_missing": 0.05,
-      "max_frac_missing": 0.70
-    },
+    "cv": { "cv_fraction": 0.10, "random_seed": 1234, "use_cv": true },
     "train": {
       "epochs": 300,
       "batch_size": 32,
