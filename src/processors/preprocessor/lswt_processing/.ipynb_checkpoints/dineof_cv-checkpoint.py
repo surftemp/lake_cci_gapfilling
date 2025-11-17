@@ -9,6 +9,40 @@ from .config import ProcessingConfig
 JULIA_SCRIPT = os.path.join(os.path.dirname(__file__), "dineof_cvp_cli.jl")
 
 
+def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_frac: float) -> int:
+    """
+    Minimal estimator for nbclean:
+    - load prepared.nc
+    - compute cloud coverage per frame over water pixels
+    - sort ascending (cleanest first)
+    - choose smallest nb such that mean(coverage[0:nb]) >= target_frac
+    """
+    import xarray as xr
+    import numpy as np
+
+    ds = xr.open_dataset(prepared_path)
+    A  = ds[data_var].load().values      # (time, lat, lon)
+    M  = ds[mask_var].load().values      # (lat, lon)
+    ds.close()
+
+    sea = (M == 1)
+    Mcount = int(sea.sum())
+    if Mcount == 0:
+        return 3  # fallback
+
+    cloudcov = []
+    for t in range(A.shape[0]):
+        s = A[t]
+        nan_count = int((np.isnan(s) & sea).sum())
+        cloudcov.append(nan_count / Mcount)
+
+    cloudcov = np.sort(np.asarray(cloudcov, dtype=float))
+
+    for nb in range(1, cloudcov.size + 1):
+        if cloudcov[:nb].mean() >= target_frac:
+            return nb
+    return int(cloudcov.size)
+
 class DineofCVGenerationStep(ProcessingStep):
     @property
     def name(self) -> str:
@@ -36,9 +70,20 @@ class DineofCVGenerationStep(ProcessingStep):
         data_var = getattr(config, "cv_data_var","lake_surface_water_temperature")
         mask_var = getattr(config, "cv_mask_var", "lakeid")
 
-        # New: control nbclean from JSON (preprocessing_options.cv_nbclean), default 3
-        nbclean = int(getattr(config, "cv_nbclean", 3))
+        # choose nbclean:
+        #     - If cv_fraction_target is set, estimate from coverage
+        #     - Else fall back to explicit cv_nbclean (or 3)
+        target_frac = getattr(config, "cv_fraction_target", None)
+        if target_frac is not None:
+            target_frac = float(target_frac)
+            nbclean = estimate_nbclean(prepared_path, data_var, mask_var, target_frac)
+            print(f"[CV] Estimated nbclean={nbclean} for target fraction={target_frac}")
+        else:
+            nbclean = int(getattr(config, "cv_nbclean", 3))
+            print(f"[CV] Using nbclean from config: {nbclean}")
 
+
+        
         out_dir = os.path.dirname(prepared_path) or "."
 
         fname     = f"{prepared_path}#{data_var}"
