@@ -64,6 +64,7 @@ class ProcessingConfig:
     cv_seed: int | None = None
     cv_out: str | None = None
     cv_varname: str | None = None
+    cv_fraction_target: float | None = None  
     
     def __post_init__(self):
         """Validate configuration parameters after initialization"""

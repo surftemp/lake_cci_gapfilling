@@ -38,10 +38,16 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
 
     cloudcov = np.sort(np.asarray(cloudcov, dtype=float))
 
+    print(f"[DEBUG] Cloud coverages: {cloudcov[:10]}...")  # Debug first 10 values
+
     for nb in range(1, cloudcov.size + 1):
         if cloudcov[:nb].mean() >= target_frac:
+            print(f"[DEBUG] Estimated nbclean: {nb} for target fraction: {target_frac}")
             return nb
+
+    print(f"[DEBUG] Default nbclean (using all): {cloudcov.size}")
     return int(cloudcov.size)
+
 
 class DineofCVGenerationStep(ProcessingStep):
     @property
@@ -73,7 +79,8 @@ class DineofCVGenerationStep(ProcessingStep):
         # choose nbclean:
         #     - If cv_fraction_target is set, estimate from coverage
         #     - Else fall back to explicit cv_nbclean (or 3)
-        target_frac = getattr(config, "cv_fraction_target", None)
+        target_frac = config.cv_fraction_target
+        print(f"[CV] Target fraction = {target_frac} correctly loaded")
         if target_frac is not None:
             target_frac = float(target_frac)
             nbclean = estimate_nbclean(prepared_path, data_var, mask_var, target_frac)
