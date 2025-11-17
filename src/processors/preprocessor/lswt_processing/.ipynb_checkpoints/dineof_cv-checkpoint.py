@@ -1,14 +1,19 @@
 # lswt_processing/dineof_cv.py
 """
-DINEOF Cross-Validation (CV) Mask Generator — robust & DINEOF-accurate
+DINEOF Cross-Validation (CV) Mask Generator — Julia-aligned, DINEOF-accurate
 
 - Spatial enumeration: lat-outer, lon-inner (Fortran/MATLAB-like), matching DINEOF.
 - NetCDF pairs: (nbpoints, index) == (N, 2), columns [m, t], both 1-based.
-- Strict filtering on BOTH CF (masked/scaled) and RAW (mask_and_scale=False):
-  reject any pair where S[t] or S[t-1] is NaN OR equals known fill sentinels.
-- If prepared.nc doesn’t exist yet, we emit a TEMP prepared snapshot where NaNs
-  are ENCODED as a real fill value (e.g., 9999.0) and _FillValue/missing_value
-  attrs are set, so RAW view exposes 9999 and CF view exposes NaN.
+- Logic of cloud generation and indexing mirrors the Julia dineof_cvp code:
+    * Choose nbclean cleanest time frames (lowest cloud fraction).
+    * Randomly choose donor frames (avoiding clean frames).
+    * Paste donor cloud patterns into clean frames to create new missing values.
+    * Build (m, t) pairs for the newly missing points using a DINEOF-style mindex.
+
+- The outer pipeline still supports:
+    * cv_fraction_target and optional cv_absolute_cap,
+    * computing a valid-pool size using strict RAW/CF semantics on prepared.nc,
+    * saving metadata into the xarray.Dataset attributes.
 """
 
 import os
@@ -23,32 +28,20 @@ from .config import ProcessingConfig
 
 
 # ------------------------------ helpers ------------------------------
-
-def _collect_fill_values(da: xr.DataArray) -> np.ndarray:
-    fills = []
-    atts = da.attrs
-    for key in ("_FillValue", "missing_value"):
-        if key in atts:
-            val = atts[key]
-            if np.isscalar(val):
-                fills.append(float(val))
-            else:
-                fills.extend([float(x) for x in np.atleast_1d(val)])
-    # fallback on typical fillvalues in case key is not in attrs
-    fills.extend([9.96921e36, 1.0e36, 1.0e30, -1.0e30, 1.0e20, -1.0e20, 9999.0, -9999.0])
-    if not fills:
-        return np.array([], dtype=np.float64)
-    return np.array(sorted(set(fills)), dtype=np.float64)
-
-
 def _build_mindex_lat_outer(sea: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Fortran/MATLAB-like enumeration: lat outer, lon inner."""
+    """Fortran/MATLAB-like enumeration: lat outer, lon inner.
+
+    sea: 2D boolean or {0,1} array (lat, lon), True/1 for water/valid, False/0 for land.
+    Returns:
+        mindex: (lat, lon) -> m (1..M), 0 for land
+        inv:    (M+1, 2)   with inv[m] = (j, i) in 0-based (lat, lon) index
+    """
     nlat, nlon = sea.shape
     mindex = np.zeros((nlat, nlon), dtype=np.int32)
     c = 0
     for jj in range(nlat):       # lat outer
         for ii in range(nlon):   # lon inner
-            if sea[jj, ii]:      # sea is general mask, 1 for water/valid, 0 for land/invalid
+            if sea[jj, ii]:
                 c += 1
                 mindex[jj, ii] = c
     I, J = np.where(mindex > 0)
@@ -66,18 +59,10 @@ def _write_temp_prepared_snapshot(ds: xr.Dataset, data_var: str, target_dir: Opt
       - CF view will show NaN; RAW view shows the numeric fill (e.g., 9999.0).
     Only writes coords (time, lat, lon) and the data_var to keep it small.
     """
-    if data_var not in ds:
-        raise ValueError(f"{data_var} not in dataset")
     A = ds[data_var]
+    fill_value = 9999.0 
 
-    # Determine fill to use
-    fill_candidates = _collect_fill_values(A)
-    if fill_candidates.size:
-        fill_value = float(fill_candidates[0])
-    else:
-        fill_value = 9999.0  # sensible default for our temp snapshot
-
-    # Build minimal Dataset
+    # minimal Dataset
     coords = {}
     for c in ("time", "lat", "lon"):
         if c in ds:
@@ -94,7 +79,7 @@ def _write_temp_prepared_snapshot(ds: xr.Dataset, data_var: str, target_dir: Opt
         dims=A.dims,
         coords=coords,
         name=data_var,
-        attrs=dict(A.attrs),  # copy scale/add_offset if any
+        attrs=dict(A.attrs),  # <-- this was the buggy line
     )
     # Ensure fill attrs present
     A_out.attrs["_FillValue"] = fill_value
@@ -108,10 +93,9 @@ def _write_temp_prepared_snapshot(ds: xr.Dataset, data_var: str, target_dir: Opt
         fd, tmp_path = tempfile.mkstemp(prefix="tmp_prepared_", suffix=".nc", dir=target_dir)
     else:
         fd, tmp_path = tempfile.mkstemp(prefix="tmp_prepared_", suffix=".nc")
-    try:
-        os.close(fd)
-    except Exception:
-        pass
+        
+    os.close(fd)
+
 
     # Enforce dtype + encodings so CF/RAW behave as intended
     enc = {data_var: {"_FillValue": fill_value, "dtype": "float32"}}
@@ -141,35 +125,81 @@ class DineofCVGeneratorCore:
         sea: np.ndarray,
         nbclean: int,
         seed: int,
-        prepared_file_path: Optional[str],
+        prepared_file_path: Optional[str] = None,
     ) -> Tuple[np.ndarray, dict]:
         """
-        1) Paste donor-clouds into clean frames to create 'newly' masked points.
-        2) Build DINEOF m (lat-outer, lon-inner).
-        3) Per-pair time choice: keep t if S[t] and S[t-1] finite, else try t+1, else drop.
-        4) STRICT filter on a real-on-disk prepared file (CF + RAW), rejecting NaNs and sentinels.
-        """
-        # Apply sea mask and shapes
-        S = S.where(sea)
-        T, nlat, nlon = S.sizes["time"], S.sizes["lat"], S.sizes["lon"]
-        M = int(sea.sum())
-        nbland = int((~sea).sum())
 
-        nan_counts = np.isnan(S).sum(dim=("lat", "lon")).values
-        cloudcov = (nan_counts - nbland) / max(M, 1)
+        Mirrors the Julia dineof_cvp logic:
+
+        1) Apply sea mask: set non-sea pixels to NaN in all frames.
+        2) Compute cloudcov(t): fraction of NaNs (minus static land) per time.
+        3) Select nbclean cleanest frames (lowest cloudcov).
+        4) Randomly choose donor frames (avoiding clean frames).
+        5) Paste donor clouds (NaNs) into clean frames, creating newly-masked points.
+        6) Build DINEOF mindex (lat-outer, lon-inner).
+        7) For every newly masked point, record (m, t) with 1-based time index.
+
+        Arguments
+        ---------
+        S : xr.DataArray
+            Data array with dims ("time", "lat", "lon").
+        sea : np.ndarray
+            2D boolean array (lat, lon). True for water (mask==1 in Julia).
+        nbclean : int
+            Number of cleanest images to be covered with clouds.
+        seed : int
+            RNG seed for donor selection.
+        prepared_file_path : Optional[str]
+            Kept for API compatibility, unused in this simplified core.
+
+        Returns
+        -------
+        clouds_mat : np.ndarray of shape (N, 2)
+            Each row is [m, t], both 1-based, DINEOF-style.
+        meta : dict
+            Metadata, including counts and some basic diagnostics.
+        """
+
+        # 1. Shapes and mask
+
+        T = int(S.sizes["time"])
+        nlat = int(S.sizes["lat"])
+        nlon = int(S.sizes["lon"])
+
+        S_np = S.values.astype(np.float64, copy=True)  # (time, lat, lon)
+
+        if sea.shape != (nlat, nlon):
+            raise ValueError(f"'sea' mask shape {sea.shape} does not match (lat,lon)=({nlat},{nlon})")
+
+        land = ~sea
+        # Apply sea mask: land -> NaN at all times
+        for t in range(T):
+            img = S_np[t, :, :]
+            img[land] = np.nan
+            S_np[t, :, :] = img
+
+        nbland = int(land.sum())
+        mmax = int(sea.sum())
+        if mmax == 0:
+            raise ValueError("No sea pixels in 'sea' mask.")
+
+        # 2. Cloud coverage per time frame
+        nan_counts = np.isnan(S_np).sum(axis=(1, 2))  # shape (T,)
+        cloudcov = (nan_counts - nbland) / float(mmax)
 
         if not (1 <= nbclean < T):
             raise ValueError("nbclean must be >=1 and < number of time steps.")
 
-        clean = np.argsort(cloudcov)[:nbclean]
-        donors_pool = np.where((cloudcov > 0) & (~np.isin(np.arange(T), clean)))[0]
-        if donors_pool.size == 0:
-            raise ValueError("No cloudy donor frames available.")
-        rng = np.random.default_rng(seed)
-        donors = rng.choice(donors_pool, size=nbclean, replace=True)
+        clean = np.argsort(cloudcov)[:nbclean]  # indices of cleanest frames
 
-        # Paste donor clouds
-        S_np = S.values  # (time, lat, lon)
+        # 3. Random donor indices, avoiding clean
+        rng = np.random.default_rng(seed)
+        Ntime = T
+        donors = rng.integers(0, Ntime, size=nbclean)
+        while np.any(np.isin(donors, clean)):
+            donors = rng.integers(0, Ntime, size=nbclean)
+
+        # 4. Build S2 by pasting donor clouds into clean frames
         S2_np = S_np.copy()
         for t_clean, t_donor in zip(clean, donors):
             donor_nan = np.isnan(S_np[t_donor, :, :])
@@ -177,154 +207,77 @@ class DineofCVGeneratorCore:
             img[donor_nan] = np.nan
             S2_np[t_clean, :, :] = img
 
+        # 5. Newly masked points: NaN in S2 but finite in original S
         newly = np.isnan(S2_np) & ~np.isnan(S_np)
         t_idx, jj_idx, ii_idx = np.where(newly)  # (time, lat, lon)
-        if t_idx.size == 0:
+        nbpoints = t_idx.size
+        if nbpoints == 0:
             raise RuntimeError("No newly masked points; increase nbclean or ensure donors have clouds.")
 
-        # Spatial indexing: DINEOF-compatible
-        mindex, inv = _build_mindex_lat_outer(sea)
-        space_idx = mindex[jj_idx, ii_idx].astype(np.int32)
-        time_idx = (t_idx + 1).astype(np.int32)  # 1-based
+        # 6. Spatial enumeration (mindex) as in Julia
+        mindex, _ = _build_mindex_lat_outer(sea)
 
-        kept_m, kept_t, n_keep_t, n_shift_t1, n_drop = self._per_pair_time_align_masked(
-            S_np, inv, T, space_idx, time_idx
-        )
-        if not kept_m:
-            raise ValueError("All candidate CV pairs were dropped by masked-domain alignment.")
+        clouds_mat = np.zeros((nbpoints, 2), dtype=np.int32)
+        out_count = 0
+        for l, (ti, jj, ii) in enumerate(zip(t_idx, jj_idx, ii_idx)):
+            m = mindex[jj, ii]
+            if m <= 0:
+                continue
+            clouds_mat[out_count, 0] = int(m)        # m index (1..M)
+            clouds_mat[out_count, 1] = int(ti + 1)   # time index, 1-based
+            out_count += 1
 
-        clouds_mat = np.column_stack([np.array(kept_m, np.int32),
-                                      np.array(kept_t, np.int32)]).astype(np.int32)
+        clouds_mat = clouds_mat[:out_count, :]
 
-        # Hard drop any t<=1 (DINEOF needs t-1)
-        if clouds_mat.size:
-            clouds_mat = clouds_mat[clouds_mat[:, 1] >= 2]
-
-        # STRICT filter using an on-disk prepared file (real RAW + CF semantics)
-        tmp_path = None
-        try:
-            backing_path, tmp_path = _ensure_prepared_path(S.to_dataset(name=S.name), S.name, prepared_file_path)
-            clouds_mat, dropped_raw = self._strict_filter_cf_and_raw(
-                prepared_path=backing_path, vname=S.name, inv=inv, clouds_mat=clouds_mat
-            )
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try: os.remove(tmp_path)
-                except Exception: pass
+        # 7. Diagnostics
+        nbgood = int(np.isfinite(S_np).sum())
+        nbgood2 = int(np.isfinite(S2_np).sum())
+        pct_added = 100.0 * (nbgood - nbgood2) / max(nbgood, 1)
 
         meta = {
             "clean_frames": clean,
             "donor_frames": donors,
             "total_cv_points": int(clouds_mat.shape[0]),
             "affected_frames": int(np.unique(clouds_mat[:, 1]).size) if clouds_mat.size else 0,
-            "mean_cv_per_frame_pct": 100.0 * (clouds_mat.shape[0] / float(T)) / max(M, 1),
-            "cv_keep_t": n_keep_t,
-            "cv_shift_t_plus_1": n_shift_t1,
-            "cv_dropped": n_drop + int((space_idx.size - clouds_mat.shape[0])),
+            "mean_cv_per_frame_pct": 100.0 * (clouds_mat.shape[0] / float(T)) / max(mmax, 1),
+            "cv_keep_t": 0,                  # kept for API / print compatibility
+            "cv_shift_t_plus_1": 0,
+            "cv_dropped": 0,
             "spatial_order": "lat_outer",
+            "pct_cloud_cover_added": pct_added,
         }
         return clouds_mat, meta
 
     @staticmethod
-    def _per_pair_time_align_masked(
-        Snp: np.ndarray,
-        inv: np.ndarray,
-        T: int,
-        space_idx: np.ndarray,
-        time_idx: np.ndarray,
-    ):
-        kept_m, kept_t = [], []
-        n_keep_t = 0
-        n_shift_t1 = 0
-        n_drop = 0
-
-        for mi, ti in zip(space_idx.tolist(), time_idx.tolist()):
-            jj, ii = inv[int(mi)]
-            ok_keep = (2 <= ti <= T) and np.isfinite(Snp[ti - 1, jj, ii]) and np.isfinite(Snp[ti - 2, jj, ii])
-            ok_shift = (ti + 1 <= T) and np.isfinite(Snp[ti, jj, ii]) and np.isfinite(Snp[ti - 1, jj, ii])
-
-            if ok_keep:
-                kept_m.append(int(mi)); kept_t.append(int(ti)); n_keep_t += 1
-            elif ok_shift:
-                kept_m.append(int(mi)); kept_t.append(int(ti + 1)); n_shift_t1 += 1
-            else:
-                n_drop += 1
-
-        return kept_m, kept_t, n_keep_t, n_shift_t1, n_drop
-
-    @staticmethod
-    def _strict_filter_cf_and_raw(
-        prepared_path: str,
-        vname: str,
-        inv: np.ndarray,
-        clouds_mat: np.ndarray,
-    ) -> Tuple[np.ndarray, int]:
-        if clouds_mat.size == 0:
-            return clouds_mat, 0
-
-        ds_cf = xr.open_dataset(prepared_path, decode_times=False, mask_and_scale=True)
-        ds_raw = xr.open_dataset(prepared_path, decode_times=False, mask_and_scale=False)
-
-        if vname not in ds_cf.variables:
-            raise ValueError(f"Variable '{vname}' not found in prepared file {prepared_path}")
-
-        A_cf = ds_cf[vname].values
-        A_raw = ds_raw[vname].values
-        T = A_cf.shape[0]
-
-        fill_vec = _collect_fill_values(ds_raw[vname])
-
-        mi = clouds_mat[:, 0].astype(int)
-        ti = clouds_mat[:, 1].astype(int)
-
-        jj = inv[mi, 0]
-        ii = inv[mi, 1]
-        tt = ti - 1
-        tm1 = ti - 2
-
-        keep = (ti >= 2) & (ti <= T)
-
-        # CF finite checks (reject NaN)
-        keep &= np.isfinite(A_cf[tt, jj, ii])
-        keep &= np.isfinite(A_cf[tm1, jj, ii])
-
-        # RAW sentinel checks (reject any match to fill values)
-        if fill_vec.size:
-            raw_t = A_raw[tt, jj, ii].astype(np.float64)
-            raw_m1 = A_raw[tm1, jj, ii].astype(np.float64)
-            is_fill_t = np.any(np.isclose(raw_t[:, None], fill_vec[None, :], rtol=0, atol=1e-12), axis=1)
-            is_fill_m1 = np.any(np.isclose(raw_m1[:, None], fill_vec[None, :], rtol=0, atol=1e-12), axis=1)
-            keep &= ~is_fill_t
-            keep &= ~is_fill_m1
-
-        filtered = clouds_mat[keep]
-        dropped = int((~keep).sum())
-
-        ds_cf.close(); ds_raw.close()
-        return filtered, dropped
-
-    @staticmethod
     def save_pairs_netcdf(pairs_1based: np.ndarray, out_nc: str, varname: str = "cv_pairs") -> Tuple[str, str]:
+        """
+        Save CV pairs to NetCDF in DINEOF/Julia-compatible layout:
+
+        - pairs_1based: array of shape (N, 2), columns [m, t], both 1-based.
+        - NetCDF variable shape: (nbpoints, index) == (N, 2).
+        """
         p = np.asarray(pairs_1based, dtype=np.int32)
         if p.ndim != 2 or p.shape[1] != 2:
             raise ValueError(f"pairs must have shape (N,2); got {p.shape}")
-        
-        # TRANSPOSE to (2, N) for Fortran dimension reversal
-        p_t = p.T  # Shape (2, N)
-        
+
+        N = p.shape[0]
+
         ds = xr.Dataset(
-            {varname: (("index", "nbpoints"), p_t)},  # Changed order and use transposed
+            {varname: (("nbpoints", "index"), p)},  # shape (N, 2)
             coords={
-                "index": np.array([1, 2], dtype=np.int32),  # Swapped order
-                "nbpoints": np.arange(1, p.shape[0] + 1, dtype=np.int32),
+                "nbpoints": np.arange(1, N + 1, dtype=np.int32),   # 1..N
+                "index": np.array([1, 2], dtype=np.int32),         # 1=m, 2=t
             },
         )
+
         if os.path.exists(out_nc):
             os.remove(out_nc)
+
         ds[varname] = ds[varname].astype("int32")
         ds[varname].encoding["_FillValue"] = None
         ds["nbpoints"] = ds["nbpoints"].astype("int32")
         ds["index"] = ds["index"].astype("int32")
+
         ds.to_netcdf(out_nc, mode="w", engine="netcdf4")
         ds.close()
         return out_nc, varname
@@ -381,7 +334,7 @@ class DineofCVGenerationStep(ProcessingStep):
             cv_fraction_target = float(getattr(config, "cv_fraction_target", 1.0))
             cv_absolute_cap    = getattr(config, "cv_absolute_cap", None)
 
-            # Build strict-valid pool using the same RAW/CF semantics as strict filter
+            # Build strict-valid pool using RAW/CF semantics on prepared file
             tmp_path = None
             try:
                 backing_path, tmp_path = _ensure_prepared_path(
@@ -394,20 +347,20 @@ class DineofCVGenerationStep(ProcessingStep):
                 A_raw = ds_raw[S.name].values
                 T = A_cf.shape[0]
 
-                fill_vec = _collect_fill_values(ds_raw[S.name])
+                FILL = 9999.0
+                
                 SEA = np.broadcast_to(sea[None, :, :], (T,) + sea.shape)
-
+                
+                # CF view: finite at t and t-1
                 valid_cf = np.isfinite(A_cf)
                 valid_cf_tm1 = np.vstack([np.zeros((1,) + sea.shape, dtype=bool), valid_cf[:-1]])
                 valid = SEA & valid_cf & valid_cf_tm1
-
-                if fill_vec.size:
-                    raw = A_raw.astype(np.float64)
-                    eq_fill_t = np.any(
-                        np.isclose(raw[..., None], fill_vec[None, None, None, :], rtol=0, atol=1e-12), axis=-1
-                    )
-                    eq_fill_tm1 = np.vstack([np.zeros((1,) + sea.shape, dtype=bool), eq_fill_t[:-1]])
-                    valid &= ~eq_fill_t & ~eq_fill_tm1
+                
+                # RAW view: explicitly reject 9999.0 at t and t-1
+                raw = A_raw.astype(np.float64)
+                eq_fill_t = np.isclose(raw, FILL, rtol=0, atol=1e-6)
+                eq_fill_tm1 = np.vstack([np.zeros((1,) + sea.shape, dtype=bool), eq_fill_t[:-1]])
+                valid &= ~eq_fill_t & ~eq_fill_tm1
 
                 valid[0, :, :] = False  # need t-1
                 valid_pool_size = int(valid.sum())
@@ -418,47 +371,31 @@ class DineofCVGenerationStep(ProcessingStep):
                     pass
                 if tmp_path and os.path.exists(tmp_path):
                     try: os.remove(tmp_path)
-                    except Exception: pass
+                    except Exception:
+                        pass
 
+            # --- convert fraction & cap into a soft target K_target ---
             K_target = int(np.floor(cv_fraction_target * valid_pool_size))
             if cv_absolute_cap is not None:
                 K_target = min(K_target, int(cv_absolute_cap))
             K_target = max(0, K_target)
 
-            # If initial nbclean overshoots, downsample; else increase nbclean until crossing, keep best-under
             k0 = int(pairs.shape[0])
-            if k0 > K_target and K_target >= 0:
+            print(f"[CV] Initial CV pairs: {k0}, target K_target={K_target}, valid_pool_size={valid_pool_size}")
+
+            # downsample only if overshoot. never re-generate with new nbclean if not enough.
+            if K_target < k0:
                 rng = np.random.default_rng(seed)
-                take = rng.choice(k0, size=K_target, replace=False) if K_target > 0 else []
-                pairs = pairs[take, :] if K_target > 0 else pairs[:0, :]
+                if K_target > 0:
+                    take = rng.choice(k0, size=K_target, replace=False)
+                    pairs = pairs[take, :]
+                else:
+                    pairs = pairs[:0, :]
                 meta["total_cv_points"] = int(pairs.shape[0])
-            elif k0 < K_target:
-                nbclean0 = nbclean
-                nbclean_max = max(nbclean0, (int(S.sizes["time"]) - 1))
-                best_pairs = pairs
-                best_meta  = meta
-                best_k     = k0
-                crossed    = False
-                for nb in range(nbclean0 + 1, nbclean_max + 1):
-                    pairs_nb, meta_nb = core.generate(
-                        S, sea, nbclean=nb, seed=seed, prepared_file_path=getattr(config, "output_file", None)
-                    )
-                    k = int(pairs_nb.shape[0])
-                    if k == K_target:
-                        best_pairs, best_meta, best_k = pairs_nb, meta_nb, k
-                        crossed = True
-                        break
-                    if k < K_target and k > best_k:
-                        best_pairs, best_meta, best_k = pairs_nb, meta_nb, k
-                    if k > K_target:
-                        crossed = True
-                        break
-                if crossed and best_k > K_target:
-                    rng = np.random.default_rng(seed)
-                    take = rng.choice(best_k, size=K_target, replace=False)
-                    best_pairs = best_pairs[take, :]
-                    best_meta["total_cv_points"] = int(best_pairs.shape[0])
-                pairs, meta = best_pairs, best_meta
+            else:
+                # Under target: accept what nbclean produced
+                meta["total_cv_points"] = k0
+
 
             if pairs.size:
                 max_m = int(pairs[:, 0].max())
