@@ -7,7 +7,6 @@ Contains the main configuration dataclass that holds all processing parameters.
 from dataclasses import dataclass
 from typing import Optional
 
-
 @dataclass
 class ProcessingConfig:
     """Configuration object for all processing parameters"""
@@ -64,8 +63,8 @@ class ProcessingConfig:
     cv_seed: int | None = None
     cv_out: str | None = None
     cv_varname: str | None = None
-    cv_fraction_target: float | None = None  
-    
+    cv_fraction_target: Optional[float] = None  
+
     def __post_init__(self):
         """Validate configuration parameters after initialization"""
         if self.remove_threshold < 0.0 or self.remove_threshold > 1.0:

@@ -158,6 +158,7 @@ class Converter:
             cv_seed=cv_seed,
             cv_out=cv_out,
             cv_varname=cv_varname,
+            cv_fraction_target=cv_fraction_target,        
         )
 
         # Load initial dataset
@@ -324,7 +325,8 @@ def _merge_cfg(json_cfg: dict, args: argparse.Namespace) -> dict:
         ("cv_nbclean", "cv_nbclean"),
         ("cv_seed", "cv_seed"),
         ("cv_out", "cv_out"),
-        ("cv_varname", "cv_varname"),   
+        ("cv_varname", "cv_varname"),  
+        ("cv_fraction_target", "cv_fraction_target"),                
     ]:
         val = cli.get(k_cli, None)
         # For booleans from argparse with default None, store only if provided
@@ -424,9 +426,10 @@ def main():
     cv_group.add_argument("--cv-seed", type=int, default=None,
                           help="RNG seed (default 123)")
     cv_group.add_argument("--cv-out", type=str, default=None,
-                          help="Output NetCDF path for CV pairs (default: <output_dir>/clouds_index.nc)")
+                          help="Output NetCDF path for CV pairs (default: <output_dir>/cv_pairs.nc)")
     cv_group.add_argument("--cv-varname", type=str, default=None,
-                          help="Variable name in CV NetCDF (default: clouds_index)")
+                          help="Variable name in CV NetCDF (default: cv_pairs)")
+    
 
     args = parser.parse_args()
 
@@ -479,7 +482,8 @@ def main():
         cfg.get("cv_nbclean"),
         cfg.get("cv_seed"),
         cfg.get("cv_out"),
-        cfg.get("cv_varname"),        
+        cfg.get("cv_varname"),
+        cfg.get("cv_fraction_target"),        
     )
 
     # OPTIONAL: provenance sidecar JSON (effective config + detrend params)
