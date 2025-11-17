@@ -11,11 +11,12 @@ JULIA_SCRIPT = os.path.join(os.path.dirname(__file__), "dineof_cvp_cli.jl")
 
 def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_frac: float) -> int:
     """
-    Minimal estimator for nbclean:
-    - load prepared.nc
-    - compute cloud coverage per frame over water pixels
-    - sort ascending (cleanest first)
-    - choose smallest nb such that mean(coverage[0:nb]) >= target_frac
+    Estimator for nbclean that models the actual cloud pasting operation.
+    
+    The Julia code pastes cloud patterns from RANDOM donor frames onto clean frames.
+    New clouds = pixels where clean frame has data AND donor frame has NaN.
+    
+    We estimate: fraction_added ≈ (nbclean * valid_per_clean * avg_donor_cloudiness) / total_valid
     """
     import xarray as xr
     import numpy as np
@@ -30,23 +31,50 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
     if Mcount == 0:
         return 3  # fallback
 
+    ntime = A.shape[0]
     cloudcov = []
-    for t in range(A.shape[0]):
+    for t in range(ntime):
         s = A[t]
         nan_count = int((np.isnan(s) & sea).sum())
         cloudcov.append(nan_count / Mcount)
 
-    cloudcov = np.sort(np.asarray(cloudcov, dtype=float))
+    cloudcov = np.asarray(cloudcov, dtype=float)
+    sorted_cov = np.sort(cloudcov)
+    
+    # Total valid observations in entire dataset
+    total_valid = int(np.sum(~np.isnan(A) & sea[np.newaxis, :, :]))
+    
+    # Average cloud coverage of ALL frames (donors will have roughly this)
+    avg_cloud_cov = cloudcov.mean()
+    
+    print(f"[DEBUG] Cloud coverages (sorted): {sorted_cov[:10]}...")
+    print(f"[DEBUG] Avg cloud coverage: {avg_cloud_cov:.3f}, Total valid pixels: {total_valid}")
 
-    print(f"[DEBUG] Cloud coverages: {cloudcov[:10]}...")  # Debug first 10 values
-
-    for nb in range(1, cloudcov.size + 1):
-        if cloudcov[:nb].mean() >= target_frac:
+    # For each candidate nbclean, estimate fraction of new clouds added
+    for nb in range(1, ntime + 1):
+        # Clean frames have the lowest cloud coverage
+        clean_cov = sorted_cov[:nb].mean()
+        
+        # Valid pixels in these clean frames
+        valid_in_clean_frames = nb * Mcount * (1 - clean_cov)
+        
+        # Donor frames will paste their clouds onto clean frames
+        # New clouds ≈ valid_in_clean * avg_cloud_cov (probability overlap)
+        estimated_new_clouds = valid_in_clean_frames * avg_cloud_cov
+        
+        # Fraction of total valid data that becomes clouded
+        fraction_added = estimated_new_clouds / total_valid
+        
+        if nb <= 5 or nb % 10 == 0:
+            print(f"[DEBUG] nbclean={nb}: clean_cov={clean_cov:.3f}, "
+                  f"est_fraction={fraction_added:.4f} ({fraction_added*100:.2f}%)")
+        
+        if fraction_added >= target_frac:
             print(f"[DEBUG] Estimated nbclean: {nb} for target fraction: {target_frac}")
             return nb
 
-    print(f"[DEBUG] Default nbclean (using all): {cloudcov.size}")
-    return int(cloudcov.size)
+    print(f"[DEBUG] Could not reach target {target_frac}, using all frames: {ntime}")
+    return ntime
 
 
 class DineofCVGenerationStep(ProcessingStep):

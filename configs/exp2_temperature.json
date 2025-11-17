@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp3",
-  "description": "exp3: use lswt",
-  "mode": "lswt",
-  "note": "exp3",
+  "experiment_name": "exp2",
+  "description": "exp2: temperature",
+  "mode": "temperature",
+  "note": "exp2",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
@@ -67,10 +67,12 @@
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
     "quality_threshold": 3,   
-    "cv_enable": false,
+    "cv_enable": true,
     "cv_mask_var": "lakeid",
+    "cv_data_var": "lake_surface_water_temperature", 
     "cv_fraction_target": 0.05,
-    "cv_absolute_cap": null,      
+    "cv_absolute_cap": null,    
+    "cv_nbclean": 30,       
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
@@ -84,10 +86,10 @@
 
   "dineof_parameters": {
     "alpha_values": [0.1],
-    "nev": 22,
+    "nev": 30,
     "numit": 3,
     "neini": 1,
-    "ncv": 29,
+    "ncv": 37,
     "tol": 1.0e-8,
     "nitemax": 300,
     "toliter": 1.0e-3,
@@ -95,7 +97,7 @@
     "eof": 1,
     "norm": 0,
     "seed": 243435,
-    "use_custom_cv": false,
+    "use_custom_cv": true,
     "internal_cv_fraction": 0.10      
   },
 
@@ -103,7 +105,7 @@
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
     "cv": {
-      "cv_fraction": 0.10,
+      "cv_fraction": 0.05,
       "random_seed": 1234,
       "use_cv": true,
       "minseafrac": 0.05,
@@ -111,11 +113,11 @@
       "max_frac_missing": 0.70
     },
     "train": {
-      "epochs": 300,
+      "epochs": 600,
       "batch_size": 32,
       "ntime_win": 1,
       "learning_rate": 0.0001,
-      "enc_levels": 3,
+      "enc_levels": 4,
       "obs_err_std": 0.2,
       "save_epochs_interval": 10,
       "use_gpu": true
