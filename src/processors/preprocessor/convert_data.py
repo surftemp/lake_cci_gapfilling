@@ -119,7 +119,8 @@ class Converter:
         cv_nbclean: int | None = None,
         cv_seed: int | None = None,
         cv_out: str | None = None,
-        cv_varname: str | None = None,        
+        cv_varname: str | None = None,
+        cv_fraction_target: float | None = None,
     ):
         """Main conversion method - maintains original interface"""
 
