@@ -424,9 +424,9 @@ def main():
     cv_group.add_argument("--cv-seed", type=int, default=None,
                           help="RNG seed (default 123)")
     cv_group.add_argument("--cv-out", type=str, default=None,
-                          help="Output NetCDF path for CV pairs (default: <output_dir>/cv_pairs.nc)")
+                          help="Output NetCDF path for CV pairs (default: <output_dir>/clouds_index.nc)")
     cv_group.add_argument("--cv-varname", type=str, default=None,
-                          help="Variable name in CV NetCDF (default: cv_pairs)")
+                          help="Variable name in CV NetCDF (default: clouds_index)")
 
     args = parser.parse_args()
 

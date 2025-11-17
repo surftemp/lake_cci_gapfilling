@@ -417,7 +417,7 @@ def do_exec(conf_path:str, row:int, stage:str):
         tol   = dp.get("tol", 1e-8); nitemax = dp.get("nitemax", 300); toliter = dp.get("toliter", 1e-3)
         rec   = dp.get("rec", 1); eof   = dp.get("eof", 1); norm  = dp.get("norm", 0); numit = dp.get("numit", 3)
         seed  = dp.get("seed", 243435)
-        use_custom_cv = dp.get("use_custom_cv", False)  # option to use custom generated cv_pairs.nc
+        use_custom_cv = dp.get("use_custom_cv", False)  # option to use custom generated clouds_index.nc
         internal_cv_fraction = float(dp.get("internal_cv_fraction", 0.10)) # define the number of cv points as a fraction of all-valid-pixel count
         internal_cv_cap = dp.get("internal_cv_absolute_cap", None) # hard cap, optional
         
@@ -425,8 +425,8 @@ def do_exec(conf_path:str, row:int, stage:str):
         _ensure_dir(paths["dineof_dir"])
         
         # Check if file exists (from preprocessing stage)
-        cv_pairs_nc = os.path.join(paths["prepared_dir"], "cv_pairs.nc")
-        use_cv_file = use_custom_cv and os.path.exists(cv_pairs_nc)
+        clouds_index_nc = os.path.join(paths["prepared_dir"], "clouds_index.nc")
+        use_cv_file = use_custom_cv and os.path.exists(clouds_index_nc)
 
 
         # --- Calculate number_cv_points for internal CV ---
@@ -460,7 +460,7 @@ def do_exec(conf_path:str, row:int, stage:str):
 
         
         if use_cv_file:
-            print(f"[DINEOF] Using file: {cv_pairs_nc}", flush=True)
+            print(f"[DINEOF] Using file: {clouds_index_nc}", flush=True)
         elif number_cv_points is not None:
             print(f"[DINEOF] Using DINEOF internal CV with {number_cv_points} points", flush=True)
         else:
@@ -495,7 +495,7 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
         
         # Add custom CV (clouds) or internal CV (number_cv_points)
         if use_cv_file:
-            init_txt += f"\nclouds = '{cv_pairs_nc}#cv_pairs'\n"
+            init_txt += f"\nclouds = '{clouds_index_nc}#clouds_index'\n"
         elif number_cv_points is not None:
             init_txt += f"\nnumber_cv_points = {number_cv_points}\n"        
         pathlib.Path(init_path).write_text(init_txt)
