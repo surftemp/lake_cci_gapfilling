@@ -53,6 +53,7 @@ from .post_steps.qa_plots import QAPlotsStep
 from .post_steps.filter_eofs import FilterTemporalEOFsStep
 from .post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
 from .post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
+from .post_steps.lswt_plots import LSWTPlotsStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -226,6 +227,9 @@ class PostProcessor:
         if self.options.write_eof_metadata:
             steps.append(AddEOFsMetadataStep())            
 
+        # LSWT time series plots (no condition required)
+        steps.append(LSWTPlotsStep(original_ts_path=self.lake_path))
+        
         return steps
 
     def run(self) -> None:
@@ -438,6 +442,7 @@ class PostProcessor:
             self.ctx.output_path        = orig_output
             self.ctx.output_html_folder = orig_html
         
+        LSWTPlotsStep(original_ts_path=self.lake_path).apply(self.ctx, None)
 
 
 # ===== CLI =====
