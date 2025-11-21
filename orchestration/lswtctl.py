@@ -379,6 +379,7 @@ def do_exec(conf_path:str, row:int, stage:str):
             "mask_var": mask_var, "time_var": time_var,
             "output_dir": paths["prepared_dir"], "output_file": paths["prepared_nc"],
             "output": paths["prepared_nc"],
+            "climatology_file": paths["clim_nc"], 
             **conf.get("preprocessing_options", {})
         }
         _ensure_test_id(pre_conf, paths["run_tag"])
