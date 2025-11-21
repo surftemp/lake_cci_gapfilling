@@ -111,7 +111,14 @@ class MergeOutputsStep(PostProcessingStep):
                 lon_name: ds_orig[lon_name].values
             })
             if "lakeid" in ds_orig:
-                ds_merged["lakeid"] = ds_orig["lakeid"]
+                lakeid_raw = ds_orig["lakeid"].values
+                lakeid_binary = np.where(np.isfinite(lakeid_raw) & (lakeid_raw != 0), 1, 0).astype(np.int32)
+                ds_merged["lakeid"] = xr.DataArray(
+                    lakeid_binary,
+                    dims=ds_orig["lakeid"].dims,
+                    coords=ds_orig["lakeid"].coords,
+                    attrs={"long_name": "lake mask", "flag_values": "0=land, 1=lake"}
+                )
     
             ds_merged["temp_filled"] = xr.DataArray(
                 out,

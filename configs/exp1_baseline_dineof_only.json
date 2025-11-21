@@ -1,0 +1,160 @@
+{
+  "experiment_name": "exp1",
+  "description": "exp1: baseline",
+  "mode": "anomaly",
+  "note": "exp1",
+  "_note_engine_mode": "dineof | dincae | both",
+  "engine_mode": "dineof",
+
+  "dataset_options": {
+    "use_temporal_experiment": false,
+    "use_custom_lake_ids": true,
+    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81, 84, 88, 91, 133, 146, 165, 170, 171, 174, 177, 198, 223, 227, 236, 257, 295, 298, 310, 311, 314, 318, 319, 321, 327, 335, 375, 380, 395, 423, 443, 463, 488, 492, 505, 513, 523, 546, 571, 586, 604, 648, 674, 679, 688, 829, 893, 905, 917, 920, 1046, 1115, 1146, 1196, 1204, 1241, 1307, 1437, 1555, 1771, 1774, 1801, 1902, 1951, 1955, 1975, 2099, 2965, 3007, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300000853, 300000918, 300001118, 300001141, 300001612, 300001625, 300001645, 300002883, 300004634, 300004816, 300004882, 300004974, 300009807, 300010187, 300010196, 300010537, 300010539, 300010540, 300010866, 300012284, 300012336, 300012341, 300015376, 300016649],
+    "versions_to_process": ["v2"],
+    "alpha_values": [0.1]
+  },
+
+  "paths": {
+    "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
+    "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
+    "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
+    "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",
+    "post_dir_template": "{run_root}/post/{lake_id9}/{alpha_slug}",
+    "html_dir_template": "{run_root}/html/{lake_id9}/{alpha_slug}",
+    "logs_dir_template": "{run_root}/logs",
+    "prepared_filename": "prepared.nc",
+    "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
+    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc"
+  },
+
+  "variables": {
+    "lswt_var": "lake_surface_water_temperature",
+    "mask_var": "lakeid",
+    "time_var": "time"
+  },
+
+  "executables": {
+    "pre_cli": "dineof_preprocessor",
+    "dineof_bin": "/home/users/shaerdan/softwares/DINEOF/dineof",
+    "post_cli": "dineof_postprocessor"
+  },
+
+  "env": {
+    "pre": {
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
+    },
+    "dineof": {
+      "module_load": "module load jaspy"
+    },
+    "dincae": {
+      "module_load": "module load jaspy",
+      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env && conda activate dincae_pipeline"
+    },
+    "post": {
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
+    },
+    "post_dincae": {
+      "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
+    }
+  },
+
+  "behavior": {
+    "idempotent": true,
+    "keep_temps": false
+  },
+
+  "preprocessing_options": {
+    "start_date": "2004-01-01",
+    "end_date": "2022-12-31",
+    "quality_threshold": 3,   
+    "cv_enable": true,
+    "cv_mask_var": "lakeid",
+    "cv_data_var": "lake_surface_water_temperature", 
+    "cv_fraction_target": 0.05,
+    "cv_absolute_cap": null,    
+    "cv_nbclean": 30,       
+    "remove_avhrr_ql3": false,
+    "replace_ice_zero": true,
+    "remove_threshold": 0.05,
+    "apply_zscore_filter": true,
+    "remove_shore": 0.0,
+    "distance_to_land_dir": "/home/users/shaerdan/general_purposes/distance_to_land_mask",
+    "min_observation_percent": 0.05,
+    "detrend_lake_mean": true,
+    "detrend_coverage_threshold": 0.05
+  },
+
+  "dineof_parameters": {
+    "alpha_values": [0.1],
+    "nev": 30,
+    "numit": 3,
+    "neini": 1,
+    "ncv": 37,
+    "tol": 1.0e-8,
+    "nitemax": 300,
+    "toliter": 1.0e-3,
+    "rec": 1,
+    "eof": 1,
+    "norm": 0,
+    "seed": 243435,
+    "use_custom_cv": true,
+    "internal_cv_fraction": 0.10      
+  },
+
+  "dincae": {
+    "epoch": "1981-01-01T12:00:00Z",
+    "crop": { "buffer_pixels": 2 },
+    "cv": {
+      "cv_fraction": 0.05,
+      "random_seed": 1234,
+      "use_cv": true,
+      "minseafrac": 0.05,
+      "min_frac_missing": 0.05,
+      "max_frac_missing": 0.70
+    },
+    "train": {
+      "epochs": 600,
+      "batch_size": 32,
+      "ntime_win": 1,
+      "learning_rate": 0.0001,
+      "enc_levels": 4,
+      "obs_err_std": 0.2,
+      "save_epochs_interval": 10,
+      "use_gpu": true
+    },
+    "runner": {
+      "mode": "slurm",
+      "julia_exe": "julia",
+      "julia_project": true,
+      "skip_existing": true,
+      "JULIA_PROJECT": "/home/users/shaerdan/.julia/environments/v1.11"
+    },
+    "slurm": {
+      "partition": "orchid",
+      "gpus": 1,
+      "time": "24:00:00",
+      "mem": "128G",
+      "cpus": 4,
+      "account": "orchid",
+      "qos": "orchid",
+      "log_out": "logs_dincae.out",
+      "log_err": "logs_dincae.err"
+    },
+    "post": { "write_merged": false }
+  },
+
+  "submission": {
+    "partition": "standard",
+    "qos": "long",
+    "account": "eocis_chuk",
+    "time": "120:00:00",
+    "mem": "128G",
+    "max_concurrent": 60,
+    "per_index_chain": true
+  },
+
+  "system_settings": {
+    "qos_choice": "long",
+    "csv_file": "Summary_selected_lakes.csv"
+  }
+}
