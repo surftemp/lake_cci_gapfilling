@@ -41,7 +41,7 @@ class MergeOutputsStep(PostProcessingStep):
             ctx.input_attrs = dict(ds_in.attrs)
             ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
             ctx.test_id = str(ds_in.attrs.get("test_id", ""))
-            prep_days = np.asarray(ds_in[ctx.time_name].values, dtype="int64")
+            prep_days = self.npdatetime_to_days_since_epoch(ds_in[ctx.time_name].values)
             ctx.prepared_time_days = prep_days
     
         # DINEOF output (unfiltered or filtered)

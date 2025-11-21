@@ -117,6 +117,8 @@ output = Dataset(joinpath(outdir,"clouds_index.nc"),"c");
 defDim(output,"nbpoints",size(clouds_indexes,1))
 defDim(output,"index",size(clouds_indexes,2))
 
+    
+
 ncCloud = defVar(output,"clouds_index",Int64,("nbpoints","index"));
 ncCloud[:] = clouds_indexes;
 
