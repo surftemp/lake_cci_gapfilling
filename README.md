@@ -60,12 +60,12 @@ Each engine writes its own intermediate folder (`dineof/`, `dincae/`) and the po
 Create an environment using:
     mamba create -n lake_cci_gapfilling python=3.10 -y
     mamba activate lake_cci_gapfilling
-    mamba install xarray netcdf4 bokeh selenium firefox geckodriver scipy -y
+    mamba install xarray netcdf4 bokeh selenium firefox geckodriver scipy matplotlib -y
 
 Install the tools from this repo using:
     conda activate lake_cci_gapfilling
-    git clone git@github.com:surftemp/lake_dashboard.git
-    cd lake_dashboard
+    git clone git@github.com:surftemp/lake_cci_gapfilling.git
+    cd lake_cci_gapfilling
     pip install -e .
 ```
 
@@ -88,13 +88,13 @@ Important keys:
 ## Usage
 
 ```bash
-# 1. Plan
+# Plan (can skip this)
 python orchestration/lswtctl.py plan config/experiment_settings.json
 
-# 2. Submit Slurm jobs
+# Create and Submit Slurm jobs
 python orchestration/lswtctl.py submit config/experiment_settings.json
 
-# 3. Run one row manually
+# Run one row manually
 python orchestration/lswtctl.py exec --config config/experiment_settings.json --row 0 --stage chain
 ```
 
@@ -112,6 +112,8 @@ dineof/{lake_id9}/{alpha_slug}/dineof_results.nc
 dincae/{lake_id9}/{alpha_slug}/dincae_results.nc
 post/{lake_id9}/{alpha_slug}/LAKE{lake_id9}-..._dineof.nc
 post/{lake_id9}/{alpha_slug}/LAKE{lake_id9}-..._dincae.nc
+post/{lake_id9}/{alpha_slug}/plots/..._{suffix}.png
+
 ```
 
 ---
