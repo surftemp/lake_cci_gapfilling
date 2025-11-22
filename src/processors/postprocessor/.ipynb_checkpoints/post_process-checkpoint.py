@@ -240,8 +240,9 @@ class PostProcessor:
         if self.options.write_eof_metadata:
             steps.append(AddEOFsMetadataStep())            
 
-        # LSWT time series plots (no condition required)
-        steps.append(LSWTPlotsStep(original_ts_path=self.lake_path))
+        # Note: LSWTPlotsStep is NOT added to the pipeline here.
+        # It is called once at the end of run() after all passes complete,
+        # to avoid redundant plot generation during intermediate passes.
         
         return steps
 

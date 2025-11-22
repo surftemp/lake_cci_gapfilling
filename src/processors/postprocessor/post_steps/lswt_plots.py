@@ -439,7 +439,8 @@ class LSWTPlotsStep(PostProcessingStep):
     
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
         lake_id = ctx.lake_id or 0
-        plot_dir = os.path.join(os.path.dirname(ctx.output_path), "plots")
+        post_dir = os.path.dirname(ctx.output_path)
+        plot_dir = os.path.join(post_dir, "plots")
         
         print(f"[LSWTPlots] Generating plots for lake {lake_id} in {plot_dir}")
         
@@ -454,47 +455,73 @@ class LSWTPlotsStep(PostProcessingStep):
         dineof_filtered_interp = None  # filtered, full daily
         dincae = None
         
+        # Build paths explicitly from post_dir and lake_id to avoid issues when
+        # ctx.output_path doesn't end with "_dineof.nc" (e.g., when running DINCAE postprocessor)
+        lake_id_str = f"LAKE{lake_id:09d}"
+        
+        # Pattern: LAKE{id}-*_dineof.nc, LAKE{id}-*_dincae.nc, etc.
+        # Try to find files matching expected patterns
+        def find_output_file(suffix: str) -> Optional[str]:
+            """Find output file with given suffix in post_dir."""
+            import glob
+            pattern = os.path.join(post_dir, f"{lake_id_str}-*{suffix}")
+            matches = glob.glob(pattern)
+            if matches:
+                return matches[0]
+            # Also try without the dash (older naming convention)
+            pattern = os.path.join(post_dir, f"{lake_id_str}*{suffix}")
+            matches = glob.glob(pattern)
+            if matches:
+                return matches[0]
+            return None
+        
         # Load main DINEOF output (raw, sparse)
-        if os.path.exists(ctx.output_path):
+        dineof_path = find_output_file("_dineof.nc")
+        if dineof_path and os.path.exists(dineof_path):
             try:
-                with xr.open_dataset(ctx.output_path) as ds_file:
+                with xr.open_dataset(dineof_path) as ds_file:
                     dineof = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINEOF from: {os.path.basename(dineof_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF: {e}")
         
         # Load DINEOF filtered (sparse)
-        filtered_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_filtered.nc")
-        if os.path.exists(filtered_path):
+        filtered_path = find_output_file("_dineof_eof_filtered.nc")
+        if filtered_path and os.path.exists(filtered_path):
             try:
                 with xr.open_dataset(filtered_path) as ds_file:
                     dineof_filtered = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINEOF filtered from: {os.path.basename(filtered_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF filtered: {e}")
         
         # Load DINEOF interpolated (raw, full daily)
-        interp_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_interp_full.nc")
-        if os.path.exists(interp_path):
+        interp_path = find_output_file("_dineof_eof_interp_full.nc")
+        if interp_path and os.path.exists(interp_path):
             try:
                 with xr.open_dataset(interp_path) as ds_file:
                     dineof_interp = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINEOF interp from: {os.path.basename(interp_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF interp: {e}")
         
         # Load DINEOF filtered interpolated (filtered, full daily)
-        filtered_interp_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_filtered_interp_full.nc")
-        if os.path.exists(filtered_interp_path):
+        filtered_interp_path = find_output_file("_dineof_eof_filtered_interp_full.nc")
+        if filtered_interp_path and os.path.exists(filtered_interp_path):
             try:
                 with xr.open_dataset(filtered_interp_path) as ds_file:
                     dineof_filtered_interp = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINEOF filtered interp from: {os.path.basename(filtered_interp_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF filtered interp: {e}")
         
         # Load DINCAE output
-        dincae_path = ctx.output_path.replace("_dineof.nc", "_dincae.nc")
-        if os.path.exists(dincae_path):
+        dincae_path = find_output_file("_dincae.nc")
+        if dincae_path and os.path.exists(dincae_path):
             try:
                 with xr.open_dataset(dincae_path) as ds_file:
                     dincae = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINCAE from: {os.path.basename(dincae_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINCAE: {e}")
         
