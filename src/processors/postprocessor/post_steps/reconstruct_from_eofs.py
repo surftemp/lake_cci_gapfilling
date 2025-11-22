@@ -12,61 +12,48 @@ from .base import PostProcessingStep, PostContext
 class ReconstructFromEOFsStep(PostProcessingStep):
     """
     Reconstruct (anomaly) field from temporal/spatial EOFs (+ eigenvalues)
-    and write a new file 'dineof_results_eof_filtered.nc' that mirrors the
-    structure/attrs of the original dineof_results.nc.
+    and write a dineof_results_*.nc file that mirrors the structure/attrs 
+    of the original dineof_results.nc.
 
-    Trigger use-cases:
-      1) EOF filtering applied (preferred input = filtered EOFs).
-      2) Interpolation of EOFs required (dummy toggle supported).
+    Source modes:
+      - 'filtered'        -> reads eofs_filtered.nc, writes dineof_results_eof_filtered.nc
+      - 'interp'          -> reads eofs_interpolated.nc, writes dineof_results_eof_interp_full.nc
+      - 'filtered_interp' -> reads eofs_filtered_interpolated.nc, writes dineof_results_eof_filtered_interp_full.nc
 
     Notes:
       - Does NOT modify the main merged ds. Operates on disk side artifacts.
       - No new attrs are invented; global/var attrs are copied from the original results file.
     """
 
-    name = "ReconstructFromEOFs"
+    name = "ReconstructFromEOFs"  # Base name, will be overridden in __init__
 
-    def __init__(self, *, require_when_filtered: bool = True, require_when_interp: bool = False):
-        self.require_when_filtered = require_when_filtered
-        self.require_when_interp = require_when_interp
+    def __init__(self, *, source_mode: str = "filtered"):
+        assert source_mode in ("filtered", "interp", "filtered_interp")
+        self.source_mode = source_mode
+        # Dynamic name for skip_steps logic in multi-pass
+        self.name = f"ReconstructFromEOFs_{source_mode}"
 
     # ---------- plumbing ----------
 
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
-        # Apply if:
-        #  (A) filtering was enabled AND produced/left an EOFs file, or
-        #  (B) user asked for the (future) "interpolated EOFs" path (dummy toggle here).
         base_dir = os.path.dirname(ctx.dineof_output_path)
         have_results = os.path.isfile(ctx.dineof_output_path)
         if not have_results:
             return False
 
-        eofs_path = self._prefer_filtered_eofs(ctx, base_dir)
-        if self.require_when_filtered and eofs_path:
-            return True
-        if self.require_when_interp:
-            # placeholder for later: if/when an "interpolated EOFs" artifact exists
-            return True
-        return False
+        eofs_path = self._get_eofs_source(base_dir)
+        return eofs_path is not None
 
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
         base_dir = os.path.dirname(ctx.dineof_output_path)
-        eofs_path = self._prefer_filtered_eofs(ctx, base_dir)
-        print("eof path", eofs_path)
-        if eofs_path.endswith("eofs_interpolated.nc"):
-            print("eofs_interpolated found")
-            target_path = os.path.join(base_dir, "dineof_results_eof_interp_full.nc")
-        elif eofs_path.endswith("eofs_filtered.nc"):
-            print("eofs_filtered found")
-            target_path = os.path.join(base_dir, "dineof_results_eof_filtered.nc")
-        else:
-            target_path = os.path.join(base_dir, "dineof_results_from_eofs.nc")      
+        eofs_path = self._get_eofs_source(base_dir)
+        target_path = os.path.join(base_dir, self._get_output_filename())
+        
+        print(f"[{self.name}] source_mode={self.source_mode}, eofs_path={eofs_path}")
             
         if eofs_path is None:
-            print(f"[{self.name}] No EOFs file found to reconstruct from; skipping.")
+            print(f"[{self.name}] No EOFs file found for source_mode={self.source_mode}; skipping.")
             return ds if ds is not None else xr.Dataset()
-
-        # target_path = os.path.join(base_dir, "dineof_results_eof_filtered.nc")
 
         # --- open EOFs
         try:
@@ -121,7 +108,8 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         eig = eofs["eigenvalues"].values
         # guard length
         K = T.shape[1]
-        sigma = np.sqrt(eig[:K])
+        # sigma = np.sqrt(eig[:K])
+        sigma = eig[:K]
         # scale temporal by sigma
         T_scaled = T * sigma[np.newaxis, :]
 
@@ -167,15 +155,28 @@ class ReconstructFromEOFsStep(PostProcessingStep):
 
     # ---------- helpers ----------
 
-    def _prefer_filtered_eofs(self, ctx: PostContext, base_dir: str) -> Optional[str]:
-        # prefer interpolated → filtered → raw
-        p_interp = os.path.join(base_dir, "eofs_interpolated.nc")
-        if os.path.isfile(p_interp): return p_interp
-        p_filt = os.path.join(base_dir, "eofs_filtered.nc")
-        if os.path.isfile(p_filt): return p_filt
-        p_raw  = os.path.join(base_dir, "eofs.nc")
-        if os.path.isfile(p_raw):  return p_raw
+    def _get_eofs_source(self, base_dir: str) -> Optional[str]:
+        """Explicit source selection based on source_mode."""
+        if self.source_mode == "filtered":
+            p = os.path.join(base_dir, "eofs_filtered.nc")
+            return p if os.path.isfile(p) else None
+        elif self.source_mode == "interp":
+            p = os.path.join(base_dir, "eofs_interpolated.nc")
+            return p if os.path.isfile(p) else None
+        elif self.source_mode == "filtered_interp":
+            p = os.path.join(base_dir, "eofs_filtered_interpolated.nc")
+            return p if os.path.isfile(p) else None
         return None
+    
+    def _get_output_filename(self) -> str:
+        """Output filename based on source_mode."""
+        if self.source_mode == "filtered":
+            return "dineof_results_eof_filtered.nc"
+        elif self.source_mode == "interp":
+            return "dineof_results_eof_interp_full.nc"
+        elif self.source_mode == "filtered_interp":
+            return "dineof_results_eof_filtered_interp_full.nc"
+        return "dineof_results_from_eofs.nc"
 
     def _infer_yx_names(self, ds: xr.Dataset) -> Tuple[str, str]:
         for yx in (("y","x"), ("lat","lon")):

@@ -11,15 +11,22 @@ class InterpolateTemporalEOFsStep(PostProcessingStep):
       - target = 'prepared'  -> prepared.nc timeline (trimmed)
       - target = 'full'      -> daily from ctx.time_start_days..ctx.time_end_days
     Edge policy: leave_nan | nearest
+    Source mode:
+      - 'raw'      -> reads eofs.nc, writes eofs_interpolated.nc
+      - 'filtered' -> reads eofs_filtered.nc, writes eofs_filtered_interpolated.nc
     """
 
-    name = "InterpolateTemporalEOFs"
+    name = "InterpolateTemporalEOFs"  # Base name, will be overridden in __init__
 
-    def __init__(self, *, target: str = "full", edge_policy: str = "leave_nan"):
+    def __init__(self, *, target: str = "full", edge_policy: str = "leave_nan", source_mode: str = "raw"):
         assert target in ("prepared", "full")
         assert edge_policy in ("leave_nan", "nearest")
+        assert source_mode in ("raw", "filtered")
         self.target = target
         self.edge_policy = edge_policy
+        self.source_mode = source_mode
+        # Dynamic name for skip_steps logic in multi-pass
+        self.name = f"InterpolateTemporalEOFs_{source_mode}"
 
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
         base_dir = os.path.dirname(ctx.dineof_output_path)
@@ -86,14 +93,15 @@ class InterpolateTemporalEOFsStep(PostProcessingStep):
             out.attrs["eofs_interpolated"] = 1
             out.attrs["eof_interp_method"] = "linear"
             out.attrs["eof_interp_edge"] = self.edge_policy
+            out.attrs["eof_interp_source"] = self.source_mode  # track which EOFs were used
             out.attrs["target_time_from"] = "prepared.nc" if (self.target == "prepared") else "preprocessor attrs (full daily)"
             out = out.assign_coords(t=target_days)
 
             # write
-            target_path = os.path.join(base_dir, "eofs_interpolated.nc")
+            target_path = os.path.join(base_dir, self._get_output_filename())
             comp = {v: {"zlib": True, "complevel": 4} for v in out.data_vars}
             out.to_netcdf(target_path, encoding=comp)
-            print(f"[{self.name}] Wrote {target_path}")
+            print(f"[{self.name}] Wrote {target_path} (source_mode={self.source_mode})")
 
             # stash path on context for downstream
             ctx.eofs_interpolated_path = target_path
@@ -104,13 +112,26 @@ class InterpolateTemporalEOFsStep(PostProcessingStep):
 
     # ---- helpers ----
     def _pick_eofs_src(self, base_dir: str) -> Optional[str]:
-        for name in ("eofs_filtered.nc", "eofs.nc", "EOFs.nc"):
-            p = os.path.join(base_dir, name)
-            if os.path.isfile(p):
-                return p
-        # any *eofs*.nc
-        cand = sorted(glob.glob(os.path.join(base_dir, "*eofs*.nc")))
-        return cand[0] if cand else None
+        """Explicit source selection based on source_mode."""
+        if self.source_mode == "raw":
+            # Try eofs.nc or EOFs.nc (raw from DINEOF)
+            for name in ("eofs.nc", "EOFs.nc"):
+                p = os.path.join(base_dir, name)
+                if os.path.isfile(p):
+                    return p
+            return None
+        elif self.source_mode == "filtered":
+            p = os.path.join(base_dir, "eofs_filtered.nc")
+            return p if os.path.isfile(p) else None
+        return None
+    
+    def _get_output_filename(self) -> str:
+        """Output filename based on source_mode."""
+        if self.source_mode == "raw":
+            return "eofs_interpolated.nc"
+        elif self.source_mode == "filtered":
+            return "eofs_filtered_interpolated.nc"
+        return "eofs_interpolated.nc"
 
     def _read_prepared_days(self, ctx: PostContext) -> np.ndarray:
         with xr.open_dataset(ctx.dineof_input_path) as ds_in:

@@ -444,9 +444,17 @@ class LSWTPlotsStep(PostProcessingStep):
         print(f"[LSWTPlots] Generating plots for lake {lake_id} in {plot_dir}")
         
         results = []
-        dineof, dineof_interp, dincae, original, climatology = None, None, None, None, None
         
-        # Load main DINEOF output
+        # Initialize all series as None
+        original = None
+        climatology = None
+        dineof = None              # raw, sparse
+        dineof_filtered = None     # filtered, sparse
+        dineof_interp = None       # raw, full daily
+        dineof_filtered_interp = None  # filtered, full daily
+        dincae = None
+        
+        # Load main DINEOF output (raw, sparse)
         if os.path.exists(ctx.output_path):
             try:
                 with xr.open_dataset(ctx.output_path) as ds_file:
@@ -454,7 +462,16 @@ class LSWTPlotsStep(PostProcessingStep):
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF: {e}")
         
-        # Load DINEOF interpolated
+        # Load DINEOF filtered (sparse)
+        filtered_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_filtered.nc")
+        if os.path.exists(filtered_path):
+            try:
+                with xr.open_dataset(filtered_path) as ds_file:
+                    dineof_filtered = extract_lake_series(ds_file, "temp_filled")
+            except Exception as e:
+                print(f"[LSWTPlots] Could not load DINEOF filtered: {e}")
+        
+        # Load DINEOF interpolated (raw, full daily)
         interp_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_interp_full.nc")
         if os.path.exists(interp_path):
             try:
@@ -462,6 +479,15 @@ class LSWTPlotsStep(PostProcessingStep):
                     dineof_interp = extract_lake_series(ds_file, "temp_filled")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF interp: {e}")
+        
+        # Load DINEOF filtered interpolated (filtered, full daily)
+        filtered_interp_path = ctx.output_path.replace("_dineof.nc", "_dineof_eof_filtered_interp_full.nc")
+        if os.path.exists(filtered_interp_path):
+            try:
+                with xr.open_dataset(filtered_interp_path) as ds_file:
+                    dineof_filtered_interp = extract_lake_series(ds_file, "temp_filled")
+            except Exception as e:
+                print(f"[LSWTPlots] Could not load DINEOF filtered interp: {e}")
         
         # Load DINCAE output
         dincae_path = ctx.output_path.replace("_dineof.nc", "_dincae.nc")
@@ -488,9 +514,17 @@ class LSWTPlotsStep(PostProcessingStep):
             except Exception as e:
                 print(f"[LSWTPlots] Could not load climatology: {e}")
         
-        # Individual plots
-        for series, label in [(original, "Original"), (dineof, "DINEOF"), 
-                              (dineof_interp, "DINEOF_interp"), (dincae, "DINCAE")]:
+        # ==================== Individual Plots ====================
+        individual_series = [
+            (original, "Original"),
+            (dineof, "DINEOF"),
+            (dineof_filtered, "DINEOF_filtered"),
+            (dineof_interp, "DINEOF_interp"),
+            (dineof_filtered_interp, "DINEOF_filtered_interp"),
+            (dincae, "DINCAE"),
+        ]
+        
+        for series, label in individual_series:
             if series:
                 path = plot_single_series(series, lake_id, label, plot_dir)
                 if path:
@@ -503,14 +537,27 @@ class LSWTPlotsStep(PostProcessingStep):
                 results.append(path)
                 print(f"[LSWTPlots] Saved: {os.path.basename(path)}")
         
-        # Comparison plots
+        # ==================== Comparison Plots ====================
+        # Sparse comparisons: raw vs filtered
         comparisons = [
+            (dineof, dineof_filtered, "DINEOF", "DINEOF_filtered"),
+        ]
+        
+        # Full daily comparisons: raw_interp vs filtered_interp
+        comparisons.append(
+            (dineof_interp, dineof_filtered_interp, "DINEOF_interp", "DINEOF_filtered_interp")
+        )
+        
+        # Original vs outputs
+        comparisons.extend([
             (original, dineof, "Original", "DINEOF"),
             (original, dincae, "Original", "DINCAE"),
-            (dineof, dineof_interp, "DINEOF", "DINEOF_interp"),
-            (dineof, dincae, "DINEOF", "DINCAE"),
-            (dineof_interp, dincae, "DINEOF_interp", "DINCAE"),
-        ]
+        ])
+        
+        # DINEOF vs DINCAE (sparse)
+        if dincae is not None:
+            comparisons.append((dineof, dincae, "DINEOF", "DINCAE"))
+            comparisons.append((dineof_filtered, dincae, "DINEOF_filtered", "DINCAE"))
         
         for s1, s2, l1, l2 in comparisons:
             path = plot_comparison(s1, s2, lake_id, l1, l2, plot_dir)

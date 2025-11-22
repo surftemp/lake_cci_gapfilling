@@ -208,15 +208,28 @@ class PostProcessor:
             )
 
         if self.options.eof_interp_enable:
-            steps.append(InterpolateTemporalEOFsStep(target="full", edge_policy=self.options.eof_interp_edge))
-            
-        if self.options.recon_after_eof_filter or self.options.recon_when_interp_eofs or self.options.eof_interp_enable:
-            steps.append(
-                ReconstructFromEOFsStep(
-                    require_when_filtered=self.options.recon_after_eof_filter,
-                    require_when_interp=self.options.recon_when_interp_eofs,
-                )
-            )            
+            # Interpolate raw EOFs to full daily
+            steps.append(InterpolateTemporalEOFsStep(
+                target="full", 
+                edge_policy=self.options.eof_interp_edge,
+                source_mode="raw"  # eofs.nc -> eofs_interpolated.nc
+            ))
+            # Interpolate filtered EOFs to full daily
+            steps.append(InterpolateTemporalEOFsStep(
+                target="full", 
+                edge_policy=self.options.eof_interp_edge,
+                source_mode="filtered"  # eofs_filtered.nc -> eofs_filtered_interpolated.nc
+            ))
+        
+        # Reconstruct from filtered EOFs (sparse timestamps)
+        if self.options.recon_after_eof_filter:
+            steps.append(ReconstructFromEOFsStep(source_mode="filtered"))
+        
+        # Reconstruct from interpolated EOFs (full daily from raw)
+        if self.options.eof_interp_enable:
+            steps.append(ReconstructFromEOFsStep(source_mode="interp"))
+            # Reconstruct from filtered interpolated EOFs (full daily from filtered)
+            steps.append(ReconstructFromEOFsStep(source_mode="filtered_interp"))
             
 
         # Parse DINEOF log for CV metrics
@@ -305,7 +318,14 @@ class PostProcessor:
             self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered")
         
             # Skip the EOF steps on this second pass (we already filtered & reconstructed)
-            skip_steps = {"FilterTemporalEOFs", "ReconstructFromEOFs"}
+            skip_steps = {
+                "FilterTemporalEOFs", 
+                "InterpolateTemporalEOFs_raw",
+                "InterpolateTemporalEOFs_filtered",
+                "ReconstructFromEOFs_filtered", 
+                "ReconstructFromEOFs_interp",
+                "ReconstructFromEOFs_filtered_interp",
+            }
         
             ds2 = None
             for step in self.pipeline:
@@ -357,7 +377,15 @@ class PostProcessor:
                 self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_interp_full")
         
             # Skip MergeOutputs because we want the full daily timeline, not original lake timeline
-            skip_steps = {"FilterTemporalEOFs", "ReconstructFromEOFs", "InterpolateTemporalEOFs", "MergeOutputsStep"}
+            skip_steps = {
+                "FilterTemporalEOFs", 
+                "InterpolateTemporalEOFs_raw",
+                "InterpolateTemporalEOFs_filtered", 
+                "MergeOutputsStep",
+                "ReconstructFromEOFs_filtered", 
+                "ReconstructFromEOFs_interp",
+                "ReconstructFromEOFs_filtered_interp",
+            }
         
             # Create initial dataset with full daily timeline instead of using MergeOutputsStep
             with xr.open_dataset(interp_results) as ds_interp:
@@ -436,6 +464,117 @@ class PostProcessor:
                 os.makedirs(os.path.dirname(self.ctx.output_path), exist_ok=True)
                 ds3.to_netcdf(self.ctx.output_path, encoding=enc3)
                 print(f"[Post] Wrote full-daily interpolated final output: {self.ctx.output_path}")
+        
+            # restore
+            self.ctx.dineof_output_path = orig_results
+            self.ctx.output_path        = orig_output
+            self.ctx.output_html_folder = orig_html
+        
+        # ==================== PASS 4: filtered interpolated (full daily from filtered) ====================
+        base_dir = os.path.dirname(self.dineof_output_path)
+        filtered_interp_results = os.path.join(base_dir, "dineof_results_eof_filtered_interp_full.nc")
+        if os.path.isfile(filtered_interp_results):
+            print(f"[Post] Found filtered-interpolated reconstruction: {filtered_interp_results}")
+        
+            # stash originals
+            orig_results = self.ctx.dineof_output_path
+            orig_output  = self.ctx.output_path
+            orig_html    = self.ctx.output_html_folder
+        
+            # switch to filtered interpolated result; suffix output
+            self.ctx.dineof_output_path = filtered_interp_results
+            self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered_interp_full")
+            if orig_html:
+                self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_filtered_interp_full")
+        
+            # Skip same steps as pass 3
+            skip_steps = {
+                "FilterTemporalEOFs", 
+                "InterpolateTemporalEOFs_raw",
+                "InterpolateTemporalEOFs_filtered", 
+                "MergeOutputsStep",
+                "ReconstructFromEOFs_filtered", 
+                "ReconstructFromEOFs_interp",
+                "ReconstructFromEOFs_filtered_interp",
+            }
+        
+            # Create initial dataset with full daily timeline instead of using MergeOutputsStep
+            with xr.open_dataset(filtered_interp_results) as ds_interp:
+                # Read prepared.nc for metadata and coordinates
+                with xr.open_dataset(self.dineof_input_path) as ds_in:
+                    self.ctx.input_attrs = dict(ds_in.attrs)
+                    self.ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
+                    self.ctx.test_id = str(ds_in.attrs.get("test_id", ""))
+                    lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
+                    lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
+                    lat_vals = ds_in[lat_name].values
+                    lon_vals = ds_in[lon_name].values
+                    lakeid_data = ds_in.get("lakeid")
+                
+                # Convert full_days (integer days since epoch) to datetime64
+                base_time = np.datetime64("1981-01-01T12:00:00")
+                full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
+                
+                # Get temp_filled from interpolated results
+                temp_data = ds_interp["temp_filled"].values
+                
+                # Build dataset with full daily timeline
+                ds4 = xr.Dataset()
+                ds4 = ds4.assign_coords({
+                    self.ctx.time_name: full_time,
+                    lat_name: lat_vals,
+                    lon_name: lon_vals
+                })
+                
+                if lakeid_data is not None:
+                    ds4["lakeid"] = lakeid_data
+                
+                ds4["temp_filled"] = xr.DataArray(
+                    temp_data,
+                    dims=(self.ctx.time_name, lat_name, lon_name),
+                    coords={self.ctx.time_name: full_time,
+                            lat_name: lat_vals,
+                            lon_name: lon_vals},
+                    attrs={"comment": "DINEOF-filled anomalies (filtered + daily interpolated, before trend/climatology add-back)"}
+                )
+                
+                # Copy attributes
+                if self.ctx.keep_attrs:
+                    ds4.attrs.update(self.ctx.input_attrs)
+                ds4.attrs["prepared_source"] = self.dineof_input_path
+                ds4.attrs["dineof_source"] = self.ctx.dineof_output_path
+                if self.ctx.test_id is not None:
+                    ds4.attrs["test_id"] = self.ctx.test_id
+                if self.ctx.lake_id is not None and self.ctx.lake_id >= 0:
+                    ds4.attrs["lake_id"] = self.ctx.lake_id
+                
+                print(f"[Post] Created filtered-interpolated dataset with {len(full_time)} timesteps (full daily timeline)")
+        
+            # Now run remaining steps (AddBackTrend, AddBackClimatology, etc.) on the daily timeline
+            for step in self.pipeline:
+                if step.name in skip_steps:
+                    continue
+                if not step.should_apply(self.ctx, ds4):
+                    continue
+                ds4 = step.apply(self.ctx, ds4)
+        
+            if ds4 is not None:
+                try:
+                    with xr.open_dataset(self.dineof_input_path) as ds_in:
+                        pcfg = ds_in.attrs.get("preprocess_config_path")
+                        if pcfg:
+                            ds4.attrs["preprocess_config_path"] = str(pcfg)
+                except Exception:
+                    pass
+                if self.experiment_config_file:
+                    ds4.attrs["experiment_config_file"] = str(self.experiment_config_file)
+        
+                enc4 = {v: {"zlib": True, "complevel": 4} for v in ds4.data_vars}
+                if "temp_filled" in ds4:
+                    enc4["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+                os.makedirs(os.path.dirname(self.ctx.output_path), exist_ok=True)
+                ds4.to_netcdf(self.ctx.output_path, encoding=enc4)
+                print(f"[Post] Wrote filtered-interpolated final output: {self.ctx.output_path}")
         
             # restore
             self.ctx.dineof_output_path = orig_results
