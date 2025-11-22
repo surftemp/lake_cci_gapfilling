@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp1",
+  "experiment_name": "exp1_dineof_only",
   "description": "exp1: baseline",
   "mode": "anomaly",
-  "note": "exp1",
+  "note": "exp1_dineof_only",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "dineof",
 
@@ -47,8 +47,8 @@
       "module_load": "module load jaspy"
     },
     "dincae": {
-      "module_load": "module load jaspy",
-      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env && conda activate dincae_pipeline"
+      "module_load": "",
+      "activate": "source ~/miniforge3/bin/activate && conda activate julia-cuda"
     },
     "post": {
       "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"

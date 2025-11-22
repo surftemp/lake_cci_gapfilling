@@ -4,7 +4,7 @@
   "mode": "anomaly",
   "note": "pilot_tmp",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dineof",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -47,8 +47,8 @@
       "module_load": "module load jaspy"
     },
     "dincae": {
-      "module_load": "module load jaspy",
-      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env && conda activate dincae_pipeline"
+      "module_load": "",
+      "activate": "source ~/miniforge3/bin/activate && conda activate julia-cuda"
     },
     "post": {
       "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
@@ -124,10 +124,10 @@
     },
     "runner": {
       "mode": "slurm",
-      "julia_exe": "julia",
+      "julia_exe": "/home/users/shaerdan/.juliaup/bin/julia",
       "julia_project": true,
       "skip_existing": true,
-      "JULIA_PROJECT": "/home/users/shaerdan/.julia/environments/v1.11"
+      "julia_depot": "/home/users/shaerdan/miniforge3/envs/julia-cuda/share/julia"
     },
     "slurm": {
       "partition": "orchid",

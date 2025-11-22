@@ -269,6 +269,13 @@ def do_plan(conf_path:str):
     print(f"Logs dir: {paths0['logs_dir']}")
     print(f"Engine mode: {conf.get('engine_mode','dineof')}")
 
+def _job_prefix(conf_path: str) -> str:
+    """Extract job name prefix from config filename (e.g., 'exp1' from 'exp1_baseline.json')."""
+    basename = os.path.basename(conf_path)
+    name = os.path.splitext(basename)[0]  # remove .json
+    # Truncate to reasonable length for SLURM job names (max ~64 chars typically)
+    return name[:20] if len(name) > 20 else name
+
 def do_submit(conf_path:str):
     _ensure_stage_slurm()
     with open(conf_path) as f: conf = json.load(f)
@@ -291,6 +298,9 @@ def do_submit(conf_path:str):
     tim  = sub.get("time", "12:00:00"); mem  = sub.get("mem", "8G")
     per_index = bool(sub.get("per_index_chain", False))
 
+    # Get job prefix from config filename for easy identification/cancellation
+    job_prefix = _job_prefix(conf_path)
+
     nmax = len(grid) - 1
     base = ["sbatch", "--parsable",
             f"--array=0-{nmax}%{maxc}",
@@ -306,7 +316,8 @@ def do_submit(conf_path:str):
     def submit_stage(stage, dep=None, name=None):
         env = os.environ.copy()
         env.update({"CONF": os.path.abspath(conf_path), "STAGE": stage, "LOGS_DIR": logd})
-        cmd = base + ["--job-name", name or f"lswt_{stage}"]
+        job_name = name or f"{job_prefix}_{stage}"
+        cmd = base + ["--job-name", job_name]
         if dep: cmd += ["--dependency", dep]
         cmd += ["stage.slurm"]
         job = subprocess.check_output(cmd, env=env, cwd=here).decode().strip()
@@ -314,26 +325,26 @@ def do_submit(conf_path:str):
 
     emode = conf.get("engine_mode", "dineof").lower()
     if per_index:
-        chain_job = submit_stage("chain", dep=None, name="lswt_chain")
-        print(f"Submitted (per-index inline chain): chain={chain_job}  [mode={emode}]")
+        chain_job = submit_stage("chain")
+        print(f"Submitted (per-index inline chain): chain={chain_job}  [mode={emode}]  [prefix={job_prefix}]")
     else:
         # Stage-wide chaining
-        pre_job  = submit_stage("pre", dep=None, name="lswt_pre")
+        pre_job  = submit_stage("pre")
         if emode == "dineof":
-            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}", name="lswt_dineof")
-            p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}", name="lswt_post_dineof")
-            print(f"Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}")
+            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
+            p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
+            print(f"Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
         elif emode == "dincae":
-            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}", name="lswt_dincae")
-            p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}", name="lswt_post_dincae")
-            print(f"Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}")
+            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
+            p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
+            print(f"Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
         else:
             # both: run dineof and dincae after pre (in parallel), then their posts
-            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}", name="lswt_dineof")
-            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}", name="lswt_dincae")
-            pd_job = submit_stage("post_dineof", dep=f"afterok:{d_job}", name="lswt_post_dineof")
-            pc_job = submit_stage("post_dincae", dep=f"afterok:{c_job}", name="lswt_post_dincae")
-            print(f"Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}")
+            d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
+            c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
+            pd_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
+            pc_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
+            print(f"Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}  [prefix={job_prefix}]")
 
 def _env_for(conf: dict, stage: str) -> str:
     envs = conf.get("env", {})

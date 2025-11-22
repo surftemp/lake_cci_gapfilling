@@ -13,13 +13,26 @@ def _as_datetime64_from_int(time_da: xr.DataArray, epoch: str) -> xr.DataArray:
     base = np.datetime64(epoch.replace("Z", ""), "ns")
     vals = np.asarray(time_da.values, dtype=float)
     out = base + (vals * np.timedelta64(1, "D")).astype("timedelta64[ns]")
-    return xr.DataArray(out, dims=time_da.dims, coords=time_da.coords, name=time_da.name, attrs=time_da.attrs)
+    # Filter out CF encoding attributes that would conflict with xarray encoding
+    cf_encoding_attrs = {"calendar", "units", "_FillValue"}
+    clean_attrs = {k: v for k, v in time_da.attrs.items() if k not in cf_encoding_attrs}
+    return xr.DataArray(out, dims=time_da.dims, coords=time_da.coords, name=time_da.name, attrs=clean_attrs)
 
 def convert_time(in_nc: Path, out_nc: Path, epoch: str) -> None:
     ds = xr.load_dataset(in_nc)
     if "time" not in ds:
         raise ValueError("No 'time' coordinate in dataset.")
     ds = ds.assign_coords(time=_as_datetime64_from_int(ds["time"], epoch))
+    
+    # Remove CF encoding attributes from time coordinate to avoid conflict
+    # when xarray tries to encode datetime64 values
+    cf_encoding_attrs = {"calendar", "units", "_FillValue"}
+    if "time" in ds.coords:
+        ds["time"].attrs = {
+            k: v for k, v in ds["time"].attrs.items() 
+            if k not in cf_encoding_attrs
+        }
+    
     ds.to_netcdf(out_nc)
 
 def _bbox_from_mask(mask2d: np.ndarray, buffer: int) -> tuple[int, int, int, int]:

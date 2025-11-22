@@ -185,15 +185,24 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     denv = cfg.get("env", {}).get("dincae", {})
     if denv.get("module_load"): env_lines.append(denv["module_load"])
     if denv.get("activate"):    env_lines.append(denv["activate"])
-    if cfg.get("runner", {}).get("JULIA_PROJECT"):
-        env_lines.append(f'export JULIA_PROJECT="{cfg["runner"]["JULIA_PROJECT"]}"')
     
-    depot_dir = Path(arts.dincae_dir) / ".julia_depot_${SLURM_JOB_ID}"
+    # Use JULIA_PROJECT from config if specified
+    julia_project = cfg.get("runner", {}).get("JULIA_PROJECT")
+    if julia_project:
+        env_lines.append(f'export JULIA_PROJECT="{julia_project}"')
+    
+    # Use a shared depot for julia-cuda environment, separate from $HOME/.julia
+    # This avoids CUDA version conflicts with packages compiled against older CUDA
+    # The depot can be configured via runner.julia_depot, defaults to ~/.julia_cuda_depot
+    shared_depot = cfg.get("runner", {}).get("julia_depot", "$HOME/.julia_cuda_depot")
     env_lines += [
         "export JULIA_PKG_PRECOMPILE_AUTO=0",
-        f'export JULIA_DEPOT_PATH="{depot_dir}:$HOME/.julia"',
-        f"mkdir -p {depot_dir}",
+        # Use shared depot for julia-cuda, do NOT fall back to $HOME/.julia
+        f'export JULIA_DEPOT_PATH="{shared_depot}"',
+        f'mkdir -p "{shared_depot}"',
         "export CUDA_DEVICE_ORDER=PCI_BUS_ID",
+        # Ensure conda's CUDA is used
+        'export CUDA_PATH="${CONDA_PREFIX}"',
     ]
     env_block = "\n".join(env_lines)
 
@@ -226,9 +235,16 @@ echo "=========================================="
 echo "Node: $(hostname)"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Start time: $(date)"
-echo "JULIA_PROJECT=$JULIA_PROJECT"
+echo "JULIA_PROJECT=${{JULIA_PROJECT:-not set}}"
 echo "JULIA_DEPOT_PATH=$JULIA_DEPOT_PATH"
-echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+echo "CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-not set}}"
+echo "CONDA_PREFIX=${{CONDA_PREFIX:-not set}}"
+echo "CUDA_PATH=${{CUDA_PATH:-not set}}"
+echo ""
+
+# === Check CUDA version from Julia ===
+echo "=== Checking CUDA version ==="
+{julia} -e 'using CUDA; CUDA.versioninfo()' || echo "Warning: CUDA check failed"
 echo ""
 
 # === Precompile OUTSIDE srun (no timeout, full output) ===
