@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot_tmp_plotres",
-  "description": "pilot_tmp_plotres: baseline",
+  "experiment_name": "pilot_tmp_copy_variables",
+  "description": "pilot_tmp_copy_variables: baseline",
   "mode": "anomaly",
-  "note": "pilot_tmp_plotres",
+  "note": "pilot_tmp_copy_variables",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 

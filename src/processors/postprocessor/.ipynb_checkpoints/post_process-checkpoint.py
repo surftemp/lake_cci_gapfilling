@@ -172,6 +172,12 @@ class PostProcessor:
         # Merge DINEOF output onto original time axis
         steps.append(MergeOutputsStep())
 
+        # Copy "lake_surface_water_temperature" and "quality_level" from prepared.nc onto merged timeline
+        steps.append(CopyAuxFlagsStep(vars_to_copy=(
+            "lake_surface_water_temperature",
+            "quality_level",
+        )))
+        
         # Copy aux flags (e.g., 'ice_replaced') from prepared.nc onto merged timeline
         if self.options.copy_aux_flags:
             steps.append(CopyAuxFlagsStep(vars_to_copy=("ice_replaced",)))
