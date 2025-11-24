@@ -187,9 +187,11 @@ if enable_plotting
     @info "  Log: $plot_log"
     
     # Use shell with nohup and redirection to ensure process survives
-    julia_cmd = Base.julia_cmd()
-    shell_cmd = "nohup $julia_cmd --project $plot_script > $plot_log 2>&1 &"
-    run(`bash -c $shell_cmd`)
+    julia_path = joinpath(Sys.BINDIR, "julia")
+    @info "  Julia: $julia_path"
+    bg_cmd = "nohup $julia_path --project $plot_script > $plot_log 2>&1 &"
+    @info "  Command: $bg_cmd"
+    run(`bash -c $bg_cmd`)
 else
     @info "CV plotting disabled (enable with dincae.post.enable_cv_plots: true)"
 end
