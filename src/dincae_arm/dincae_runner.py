@@ -224,7 +224,7 @@ if enable_plotting
         end
         println(io, "export JULIA_DEPOT_PATH=\\"$julia_depot\\"")
         println(io, "export CUDA_DEVICE_ORDER=PCI_BUS_ID")
-        println(io, "export CUDA_PATH=\\"\\\${CONDA_PREFIX}\\"")
+        println(io, "export CUDA_PATH=\\"\\${{CONDA_PREFIX}}\\"")
         println(io, "")
         println(io, "$julia_exe $plot_script")
     end
