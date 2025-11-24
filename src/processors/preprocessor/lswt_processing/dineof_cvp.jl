@@ -101,7 +101,7 @@ clouds_indexes = zeros(nbpoints,2);
 for l=1:nbpoints
   iex = CartesianIndices(size(SST2))[indexex[l]] 
   clouds_indexes[l,1] = mindex[iex[1],iex[2]];
-  clouds_indexes[l,2] = iex[3];
+  clouds_indexes[l,2] = iex[3];      
 end  
 
 cloudcov2 = (sum(sum(isnan.(SST2),dims=2),dims=1) .- nbland)/m;
@@ -116,12 +116,16 @@ println("$(100*(nbgood-nbgood2)/nbgood) % of cloud cover added")
 output = Dataset(joinpath(outdir,"clouds_index.nc"),"c");
 defDim(output,"nbpoints",size(clouds_indexes,1))
 defDim(output,"index",size(clouds_indexes,2))
-
-    
+defDim(output,"indexcount",m)
 
 ncCloud = defVar(output,"clouds_index",Int64,("nbpoints","index"));
 ncCloud[:] = clouds_indexes;
 
+iCloud = defVar(output,"iindex",Int64,("indexcount",));
+iCloud[:] = iindex;
+jCloud = defVar(output,"jindex",Int64,("indexcount",));
+jCloud[:] = jindex;
+    
 close(output)
 
 end

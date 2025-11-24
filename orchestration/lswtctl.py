@@ -88,6 +88,7 @@ def _resolve_paths(conf, lake_id:int, alpha:float):
 
     prepared_name = P.get("prepared_filename", "prepared.nc")
     prepared_nc   = os.path.join(prep_dir, prepared_name)
+    clouds_index_nc = os.path.join(prep_dir, "clouds_index.nc")  # DINEOF CV points
 
     # engine-separated result files
     results_nc_dineof = os.path.join(dineof_dir, "dineof_results.nc")
@@ -102,7 +103,7 @@ def _resolve_paths(conf, lake_id:int, alpha:float):
         "run_root": run_root, "run_tag": tag, "logs_dir": logs_dir,
         "prepared_dir": prep_dir, "dineof_dir": dineof_dir, "dincae_dir": dincae_dir,
         "post_dir": post_dir, "html_dir": html_dir,
-        "prepared_nc": prepared_nc,
+        "prepared_nc": prepared_nc, "clouds_index_nc": clouds_index_nc,
         "results_nc_dineof": results_nc_dineof, "results_nc_dincae": results_nc_dincae,
         "lake_ts": lake_ts, "clim_nc": clim_nc,
         "post_dineof": post_dineof, "post_dincae": post_dincae,
@@ -561,7 +562,20 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
         print(f"[DINCAE] Saved config: {persistent_dincae_config}", flush=True)
         
         prepared = PreparedNC(pathlib.Path(paths["prepared_nc"]))
-        arts = dincae_build_inputs(prepared, pathlib.Path(paths["dincae_dir"]), dcfg)
+        
+        # Check if we should use DINEOF's CV points for fair comparison
+        use_dineof_cv = conf.get("dincae", {}).get("cv", {}).get("use_dineof_cv", False)
+        clouds_index_path = None
+        if use_dineof_cv:
+            clouds_index_path = pathlib.Path(paths["clouds_index_nc"])
+            if clouds_index_path.exists():
+                print(f"[DINCAE] Using DINEOF CV points from: {clouds_index_path}", flush=True)
+            else:
+                print(f"[DINCAE] WARNING: use_dineof_cv=True but clouds_index.nc not found: {clouds_index_path}", flush=True)
+                print(f"[DINCAE] Falling back to independent CV generation", flush=True)
+                clouds_index_path = None
+        
+        arts = dincae_build_inputs(prepared, pathlib.Path(paths["dincae_dir"]), dcfg, clouds_index_nc=clouds_index_path)
         arts = dincae_run(dcfg, arts)
         # Write a DINEOF-shaped product to dincae_results, then the post stage reads that
         shaped_nc = pathlib.Path(paths["dincae_dir"]) / "dincae_results.nc"
@@ -654,7 +668,7 @@ def do_paths(conf_path: str, row: int):
         print(f"# row {row} OOB", file=sys.stderr); sys.exit(1)
     lake_id, _, alpha = grid[row]
     P = _resolve_paths(conf, lake_id, alpha)
-    for k in ("prepared_nc","results_nc_dineof","results_nc_dincae","post_dineof","post_dincae",
+    for k in ("prepared_nc","clouds_index_nc","results_nc_dineof","results_nc_dincae","post_dineof","post_dincae",
               "lake_ts","clim_nc","dineof_dir","dincae_dir","prepared_dir","post_dir"):
         print(f'{k}={P[k]}')
 
