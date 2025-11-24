@@ -53,6 +53,9 @@ slurm_gpus      = {int(cfg.get('slurm', {}).get('gpus', 1))}
 slurm_cpus      = {int(cfg.get('slurm', {}).get('cpus', 4))}
 slurm_mem       = "{cfg.get('slurm', {}).get('mem', '128G')}"
 slurm_exclude   = "{cfg.get('slurm', {}).get('exclude', 'gpuhost007,gpuhost012,gpuhost016')}"
+julia_exe       = "{cfg.get('runner', {}).get('julia_exe', 'julia')}"
+conda_activate  = "{cfg.get('env', {}).get('dincae', {}).get('activate', '')}"
+julia_depot     = "{cfg.get('runner', {}).get('julia_depot', '$HOME/.julia_cuda_depot')}"
 
 save_epochs = collect(save_int:save_int:epochs)
 Atype = CuArray{{Float32}}
@@ -194,9 +197,7 @@ if enable_plotting
     @info "Spawning background plotting"
     @info "  Script: $plot_script"
     @info "  Log: $plot_log"
-    
-    julia_path = joinpath(Sys.BINDIR, "julia")
-    @info "  To run manually: $julia_path $plot_script"
+    @info "  To run manually: $julia_exe $plot_script"
     
     # Submit as separate SLURM job (uses same config as main DINCAE job)
     slurm_script = joinpath(outdir, "run_cv_plots.slurm")
@@ -215,8 +216,17 @@ if enable_plotting
         if !isempty(slurm_exclude)
             println(io, "#SBATCH --exclude=$slurm_exclude")
         end
+        println(io, "#SBATCH --chdir=$outdir")
         println(io, "")
-        println(io, "$julia_path $plot_script")
+        # Environment setup (same as main job)
+        if !isempty(conda_activate)
+            println(io, conda_activate)
+        end
+        println(io, "export JULIA_DEPOT_PATH=\\"$julia_depot\\"")
+        println(io, "export CUDA_DEVICE_ORDER=PCI_BUS_ID")
+        println(io, "export CUDA_PATH=\\"\\\${CONDA_PREFIX}\\"")
+        println(io, "")
+        println(io, "$julia_exe $plot_script")
     end
     
     try
@@ -224,7 +234,7 @@ if enable_plotting
         @info "  Submitted plotting as SLURM job"
     catch e
         @warn "Could not submit SLURM job for plotting" exception=e
-        @info "  Run manually: $julia_path $plot_script"
+        @info "  Run manually: $julia_exe $plot_script"
     end
 else
     @info "CV plotting disabled (enable with dincae.post.enable_cv_plots: true)"
