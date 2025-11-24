@@ -45,6 +45,15 @@ enc_levels  = {int(cfg.get('train', {}).get('enc_levels', 3))}
 obs_err_std = {float(cfg.get('train', {}).get('obs_err_std', 0.2))}
 save_int    = {int(cfg.get('train', {}).get('save_epochs_interval', 10))}
 
+# SLURM config for plotting job
+slurm_partition = "{cfg.get('slurm', {}).get('partition', 'orchid')}"
+slurm_account   = "{cfg.get('slurm', {}).get('account', 'orchid')}"
+slurm_qos       = "{cfg.get('slurm', {}).get('qos', 'orchid')}"
+slurm_gpus      = {int(cfg.get('slurm', {}).get('gpus', 1))}
+slurm_cpus      = {int(cfg.get('slurm', {}).get('cpus', 4))}
+slurm_mem       = "{cfg.get('slurm', {}).get('mem', '128G')}"
+slurm_exclude   = "{cfg.get('slurm', {}).get('exclude', 'gpuhost007,gpuhost012,gpuhost016')}"
+
 save_epochs = collect(save_int:save_int:epochs)
 Atype = CuArray{{Float32}}
 
@@ -186,12 +195,37 @@ if enable_plotting
     @info "  Script: $plot_script"
     @info "  Log: $plot_log"
     
-    # Use shell with nohup and redirection to ensure process survives
     julia_path = joinpath(Sys.BINDIR, "julia")
-    @info "  Julia: $julia_path"
-    bg_cmd = "nohup $julia_path --project $plot_script > $plot_log 2>&1 &"
-    @info "  Command: $bg_cmd"
-    run(`bash -c $bg_cmd`)
+    @info "  To run manually: $julia_path $plot_script"
+    
+    # Submit as separate SLURM job (uses same config as main DINCAE job)
+    slurm_script = joinpath(outdir, "run_cv_plots.slurm")
+    open(slurm_script, "w") do io
+        println(io, "#!/bin/bash")
+        println(io, "#SBATCH --job-name=cv_plots")
+        println(io, "#SBATCH --output=$plot_log")
+        println(io, "#SBATCH --error=$plot_log")
+        println(io, "#SBATCH --time=01:00:00")
+        println(io, "#SBATCH --mem=$slurm_mem")
+        println(io, "#SBATCH --partition=$slurm_partition")
+        println(io, "#SBATCH --account=$slurm_account")
+        println(io, "#SBATCH --qos=$slurm_qos")
+        println(io, "#SBATCH --gres=gpu:$slurm_gpus")
+        println(io, "#SBATCH --cpus-per-task=$slurm_cpus")
+        if !isempty(slurm_exclude)
+            println(io, "#SBATCH --exclude=$slurm_exclude")
+        end
+        println(io, "")
+        println(io, "$julia_path $plot_script")
+    end
+    
+    try
+        run(`sbatch $slurm_script`)
+        @info "  Submitted plotting as SLURM job"
+    catch e
+        @warn "Could not submit SLURM job for plotting" exception=e
+        @info "  Run manually: $julia_path $plot_script"
+    end
 else
     @info "CV plotting disabled (enable with dincae.post.enable_cv_plots: true)"
 end
