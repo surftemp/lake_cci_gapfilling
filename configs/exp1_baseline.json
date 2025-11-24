@@ -114,7 +114,7 @@
       "max_frac_missing": 0.70
     },
     "train": {
-      "epochs": 600,
+      "epochs": 300,
       "batch_size": 32,
       "ntime_win": 1,
       "learning_rate": 0.0001,
