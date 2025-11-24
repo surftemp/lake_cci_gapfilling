@@ -155,9 +155,44 @@ case = (
 cvrms = DINCAE_utils.cvrms(case, fname_rec)
 
 open(joinpath(outdir, "cv_rms.txt"), "w") do io
-    @printf(io, "CV_RMS %0.6f\n", cvrms)
+    @printf(io, "CV_RMS %0.6f\\n", cvrms)
 end
 
+@info "CV_RMS: $cvrms"
+
+# --- Optional: Spawn background plotting (non-blocking) ---
+enable_plotting = {str(cfg.get('post', {}).get('enable_cv_plots', False)).lower()}
+if enable_plotting
+    figdir = joinpath(outdir, "Fig")
+    mkpath(figdir)
+    plot_log = joinpath(outdir, "plotting.log")
+    plot_script = joinpath(outdir, "run_cv_plots.jl")
+    
+    # Write plotting script to file
+    open(plot_script, "w") do io
+        println(io, "using Pkg")
+        jp = get(ENV, "JULIA_PROJECT", "")
+        if !isempty(jp)
+            println(io, "Pkg.activate(\\"$jp\\")")
+        end
+        println(io, "using DINCAE_utils, PyPlot")
+        println(io, "case = (fname_orig=\\"$fname_cleanup\\", fname_cv=\\"$cv_clean\\", varname=\\"$varname\\")")
+        println(io, "@info \\"Starting CV plots...\\"")
+        println(io, "DINCAE_utils.plotres(case, \\"$fname_rec\\"; clim=nothing, figdir=\\"$figdir\\", which_plot=:cv)")
+        println(io, "@info \\"Plotting complete. Figures saved to: $figdir\\"")
+    end
+    
+    @info "Spawning background plotting"
+    @info "  Script: $plot_script"
+    @info "  Log: $plot_log"
+    
+    # Use shell with nohup and redirection to ensure process survives
+    julia_cmd = Base.julia_cmd()
+    shell_cmd = "nohup $julia_cmd --project $plot_script > $plot_log 2>&1 &"
+    run(`bash -c $shell_cmd`)
+else
+    @info "CV plotting disabled (enable with dincae.post.enable_cv_plots: true)"
+end
 
 println("Wrote ", fname_rec); flush(stdout)
 """

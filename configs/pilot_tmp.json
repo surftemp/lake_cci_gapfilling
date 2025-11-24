@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot_tmp_cv_alignment",
-  "description": "pilot_tmp_cv_alignment: baseline",
+  "experiment_name": "pilot_tmp_plotres",
+  "description": "pilot_tmp_plotres: baseline",
   "mode": "anomaly",
-  "note": "pilot_tmp_cv_alignment",
+  "note": "pilot_tmp_plotres",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
@@ -141,7 +141,10 @@
       "log_out": "logs_dincae.out",
       "log_err": "logs_dincae.err"
     },
-    "post": { "write_merged": false }
+    "post": { 
+       "write_merged": false,
+       "enable_cv_plots": true  
+    }
   },
 
   "submission": {
