@@ -43,7 +43,7 @@ from typing import Optional, List
 # Ensure these modules exist under lake_dashboard/dineof_postprocessor/post_steps/
 from .post_steps.base import PostProcessingStep, PostContext
 from .post_steps.merge_outputs import MergeOutputsStep
-from .post_steps.copy_aux_flags import CopyAuxFlagsStep
+from .post_steps.copy_aux_flags import CopyAuxFlagsStep, CopyOriginalVarsStep
 from .post_steps.add_back_trend import AddBackTrendStep
 from .post_steps.add_back_climatology import AddBackClimatologyStep
 from .post_steps.add_metadata_init import AddInitMetadataStep
@@ -172,15 +172,12 @@ class PostProcessor:
         # Merge DINEOF output onto original time axis
         steps.append(MergeOutputsStep())
 
-        # Copy "lake_surface_water_temperature" and "quality_level" from prepared.nc onto merged timeline
-        steps.append(CopyAuxFlagsStep(vars_to_copy=(
-            "lake_surface_water_temperature",
-            "quality_level",
-        )))
+        # Copy lake_surface_water_temperature and quality_level from original lake file
+        steps.append(CopyOriginalVarsStep())
         
-        # Copy aux flags (e.g., 'ice_replaced') from prepared.nc onto merged timeline
+        # Copy aux flags (e.g., 'ice_replaced') from prepared.nc
         if self.options.copy_aux_flags:
-            steps.append(CopyAuxFlagsStep(vars_to_copy=("ice_replaced",)))
+            steps.append(CopyAuxFlagsStep())
 
         # Optional QA plots
         if self.options.run_qa_plots and self.output_html_folder:
