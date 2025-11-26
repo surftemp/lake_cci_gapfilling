@@ -85,6 +85,10 @@ def _resolve_paths(conf, lake_id:int, alpha:float):
 
     lake_ts  = _render(P["lake_ts_template"], tag, lake_id)
     clim_nc  = _render(P["climatology_template"], tag, lake_id)
+    
+    # Ice/LIC file (optional - only if template is provided)
+    ice_tpl = P.get("ice_template")
+    ice_nc  = _render(ice_tpl, tag, lake_id) if ice_tpl else None
 
     prepared_name = P.get("prepared_filename", "prepared.nc")
     prepared_nc   = os.path.join(prep_dir, prepared_name)
@@ -105,7 +109,7 @@ def _resolve_paths(conf, lake_id:int, alpha:float):
         "post_dir": post_dir, "html_dir": html_dir,
         "prepared_nc": prepared_nc, "clouds_index_nc": clouds_index_nc,
         "results_nc_dineof": results_nc_dineof, "results_nc_dincae": results_nc_dincae,
-        "lake_ts": lake_ts, "clim_nc": clim_nc,
+        "lake_ts": lake_ts, "clim_nc": clim_nc, "ice_nc": ice_nc,
         "post_dineof": post_dineof, "post_dincae": post_dincae,
         "alpha_slug": alpha_slug, "front": front
     }
@@ -394,6 +398,10 @@ def do_exec(conf_path:str, row:int, stage:str):
             "climatology_file": paths["clim_nc"], 
             **conf.get("preprocessing_options", {})
         }
+        # Add ice_file only if: (1) ice_template is defined AND (2) replace_ice_zero is True
+        pre_opts = conf.get("preprocessing_options", {})
+        if paths.get("ice_nc") and pre_opts.get("replace_ice_zero", False):
+            pre_conf["ice_file"] = paths["ice_nc"]
         _ensure_test_id(pre_conf, paths["run_tag"])
 
         _ensure_dir(paths["prepared_dir"])

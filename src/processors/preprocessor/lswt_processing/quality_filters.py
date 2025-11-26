@@ -147,24 +147,33 @@ class ZScoreFilterStep(ProcessingStep):
         return "Outlier Filtering"
 
     def _infer_mode(self, config: ProcessingConfig) -> str:
-        # Back-compat: if old flag is set and no explicit mode, treat as 'zscore'
+        """
+        Determine which outlier filtering mode to use.
+        - outlier_mode explicitly set → use that
+        - outlier_mode not set → default to "zscore"
+        """
         mode = (getattr(config, "outlier_mode", None) or "").lower()
         if not mode:
-            if getattr(config, "apply_zscore_filter", False):
-                mode = "zscore"
-            else:
-                mode = "off"
-        if mode not in ("off", "zscore", "robust", "quantile"):
-            print(f"Unknown outlier_mode='{mode}', forcing 'off'")
-            mode = "off"
+            mode = "zscore"  # default mode when switch is on but no mode specified
+        if mode not in ("zscore", "robust", "quantile"):
+            print(f"Unknown outlier_mode='{mode}', defaulting to 'zscore'")
+            mode = "zscore"
         return mode
 
     def should_apply(self, config: ProcessingConfig) -> bool:
+        """
+        Master switch: apply_zscore_filter controls whether filtering runs.
+        - apply_zscore_filter: true → run filtering (mode from outlier_mode or default zscore)
+        - apply_zscore_filter: false/not set → skip filtering
+        - outlier_mode: "off" → also skip filtering (explicit override)
+        """
+        # Check if explicitly disabled via outlier_mode
         mode = getattr(config, "outlier_mode", None)
-        if mode is None:
+        if mode is not None and str(mode).lower() in ("off", "none", "false", "0"):
             return False
-        mode = str(mode).lower()
-        return mode not in ("off", "none", "false", "0")
+        
+        # Master switch
+        return bool(getattr(config, "apply_zscore_filter", False))
 
     def _valid_mask(self, da: xr.DataArray, fillvalue: float) -> xr.DataArray:
         m = ~xr.apply_ufunc(np.isnan, da)
@@ -250,7 +259,7 @@ class ZScoreFilterStep(ProcessingStep):
                       f"remaining_valid={int((~np.isnan(ds[var])).sum().values):,}")                   
                 return ds
 
-            # mode == 'off'
+            # Fallback (should not reach here if _infer_mode works correctly)
             return ds
 
         except Exception as e:

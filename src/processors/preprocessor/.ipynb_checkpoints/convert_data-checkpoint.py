@@ -361,8 +361,10 @@ def main():
     quality_group.add_argument("--quality-threshold", type=int, default=None,
                                help="Quality threshold - use data where quality >= this value")
     quality_group.add_argument("--remove-avhrr-ql3", action="store_true",
+                               default=None,
                                help="Remove AVHRR QL3 pixels for post-2007 data")
     quality_group.add_argument("--apply-zscore-filter", action="store_true",
+                               default=None,
                                help="(Back-compat) Apply z-score filtering toggle")
     quality_group.add_argument("--outlier-mode", type=str, default=None,
                                choices=["zscore", "robust", "quantile", "off"],
@@ -383,6 +385,7 @@ def main():
     temporal_group.add_argument("--end-date", type=str, default=None,
                                 help="End date for time selection (YYYY-MM-DD)")
     temporal_group.add_argument("--remove-empty", action="store_true",
+                                default=None,
                                 help="Remove frames with no valid data")
     temporal_group.add_argument("--remove-threshold", type=float, default=None,
                                 help="Remove frames with less than this fraction of valid values (0-1)")

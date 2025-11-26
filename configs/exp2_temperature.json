@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp2",
-  "description": "exp2: temperature",
+  "experiment_name": "exp2_ice",
+  "description": "exp2_ice: temperature",
   "mode": "temperature",
-  "note": "exp2",
+  "note": "exp2_ice",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
@@ -24,7 +24,8 @@
     "logs_dir_template": "{run_root}/logs",
     "prepared_filename": "prepared.nc",
     "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
-    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc"
+    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc",
+    "ice_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/LIC_mask/ESACCI-LIC-GAPFILLED-LAKEID-{lake_id}-fv3.0.nc"              
   },
 
   "variables": {
@@ -47,8 +48,8 @@
       "module_load": "module load jaspy"
     },
     "dincae": {
-      "module_load": "module load jaspy",
-      "activate": "source ~/miniforge3/bin/activate && conda activate DINCAE_env && conda activate dincae_pipeline"
+      "module_load": "",
+      "activate": "source ~/miniforge3/bin/activate && conda activate julia-cuda"
     },
     "post": {
       "activate": "source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling"
@@ -76,8 +77,10 @@
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
+    "_comment_zscore": "Master switch for outlier filtering, Method: zscore | robust | quantile | off",
     "apply_zscore_filter": true,
-    "remove_shore": 0.0,
+    "outlier_mode": "zscore",
+    "z_threshold": 2.5,
     "distance_to_land_dir": "/home/users/shaerdan/general_purposes/distance_to_land_mask",
     "min_observation_percent": 0.05,
     "detrend_lake_mean": true,
@@ -105,6 +108,7 @@
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
     "cv": {
+      "use_dineof_cv": true,  
       "cv_fraction": 0.05,
       "random_seed": 1234,
       "use_cv": true,
@@ -113,7 +117,7 @@
       "max_frac_missing": 0.70
     },
     "train": {
-      "epochs": 600,
+      "epochs": 300,
       "batch_size": 32,
       "ntime_win": 1,
       "learning_rate": 0.0001,
@@ -124,10 +128,10 @@
     },
     "runner": {
       "mode": "slurm",
-      "julia_exe": "julia",
+      "julia_exe": "/home/users/shaerdan/.juliaup/bin/julia",
       "julia_project": true,
       "skip_existing": true,
-      "JULIA_PROJECT": "/home/users/shaerdan/.julia/environments/v1.11"
+      "julia_depot": "/home/users/shaerdan/miniforge3/envs/julia-cuda/share/julia"
     },
     "slurm": {
       "partition": "orchid",
@@ -140,7 +144,10 @@
       "log_out": "logs_dincae.out",
       "log_err": "logs_dincae.err"
     },
-    "post": { "write_merged": false }
+    "post": { 
+       "write_merged": false,
+       "enable_cv_plots": true  
+    }
   },
 
   "submission": {
