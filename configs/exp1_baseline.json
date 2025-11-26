@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp1_ice",
-  "description": "exp1_ice: baseline",
+  "experiment_name": "exp1",
+  "description": "exp1: baseline",
   "mode": "anomaly",
-  "note": "exp1_ice",
+  "note": "exp1",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
@@ -72,7 +72,6 @@
     "cv_mask_var": "lakeid",
     "cv_data_var": "lake_surface_water_temperature", 
     "cv_fraction_target": 0.05,
-    "cv_absolute_cap": null,    
     "cv_nbclean": 30,       
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,

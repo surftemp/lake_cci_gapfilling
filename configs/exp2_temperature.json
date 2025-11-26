@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp2_ice",
-  "description": "exp2_ice: temperature",
+  "experiment_name": "exp2",
+  "description": "exp2: temperature",
   "mode": "temperature",
-  "note": "exp2_ice",
+  "note": "exp2",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
@@ -72,7 +72,6 @@
     "cv_mask_var": "lakeid",
     "cv_data_var": "lake_surface_water_temperature", 
     "cv_fraction_target": 0.05,
-    "cv_absolute_cap": null,    
     "cv_nbclean": 30,       
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
