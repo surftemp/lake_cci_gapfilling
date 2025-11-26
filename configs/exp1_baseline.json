@@ -118,11 +118,11 @@
     "train": {
       "epochs": 300,
       "batch_size": 32,
-      "ntime_win": 1,
+      "ntime_win": 3,
       "learning_rate": 0.0001,
       "enc_levels": 4,
       "obs_err_std": 0.2,
-      "save_epochs_interval": 10,
+      "save_epochs_interval": 50,
       "use_gpu": true
     },
     "runner": {
