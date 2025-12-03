@@ -468,18 +468,25 @@ class InsituValidationStep(PostProcessingStep):
         }
         
         nc_files = glob(os.path.join(post_dir, "*.nc"))
+        print(f"[InsituValidation] Found {len(nc_files)} NetCDF files in {post_dir}")
+        
         for nc_file in nc_files:
             basename = os.path.basename(nc_file)
             if '_dincae.nc' in basename:
                 outputs['dincae'] = nc_file
+                print(f"[InsituValidation]   dincae -> {basename}")
             elif '_dineof_eof_filtered_interp_full.nc' in basename:
                 outputs['eof_filtered_interp_full'] = nc_file
+                print(f"[InsituValidation]   eof_filtered_interp_full -> {basename}")
             elif '_dineof_eof_filtered.nc' in basename:
                 outputs['eof_filtered'] = nc_file
+                print(f"[InsituValidation]   eof_filtered -> {basename}")
             elif '_dineof_eof_interp_full.nc' in basename:
                 outputs['interp_full'] = nc_file
+                print(f"[InsituValidation]   interp_full -> {basename}")
             elif '_dineof.nc' in basename:
                 outputs['dineof'] = nc_file
+                print(f"[InsituValidation]   dineof -> {basename}")
         
         return outputs
     
@@ -520,6 +527,13 @@ class InsituValidationStep(PostProcessingStep):
                             ds.close()
                             return
                     
+                    # Debug: print file info and sample data
+                    temp_pixel = ds['temp_filled'].isel(lat=grid_idx[0], lon=grid_idx[1]).values
+                    valid_temps = temp_pixel[~np.isnan(temp_pixel)]
+                    print(f"[InsituValidation] {method_name}: file has {len(temp_pixel)} timesteps, "
+                          f"{len(valid_temps)} valid values, "
+                          f"sample mean={np.mean(valid_temps):.3f}°C")
+                    
                     # Extract matched temperatures
                     extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates)
                     
@@ -528,6 +542,13 @@ class InsituValidationStep(PostProcessingStep):
                         continue
                     
                     matched_buoy = np.array([buoy_date_temp[d] for d in extracted['matched_dates']])
+                    
+                    # Debug: show matched values
+                    first_3_sat = [f"{t:.2f}" for t in extracted['temps'][:3]]
+                    print(f"[InsituValidation] {method_name}: matched {len(extracted['temps'])} dates, "
+                          f"sat_mean={np.mean(extracted['temps']):.3f}°C, "
+                          f"insitu_mean={np.mean(matched_buoy):.3f}°C, "
+                          f"first 3 sat: [{', '.join(first_3_sat)}]")
                     
                     # Compute statistics
                     diff = extracted['temps'] - matched_buoy
