@@ -1,8 +1,8 @@
 {
-  "experiment_name": "pilot_tmp_test_ice",
-  "description": "pilot_tmp_test_ice: baseline",
+  "experiment_name": "pilot_tmp_test_insitu",
+  "description": "pilot_tmp_test_insitu: baseline",
   "mode": "anomaly",
-  "note": "pilot_tmp_test_ice",
+  "note": "pilot_tmp_test_insitu",
   "_note_engine_mode": "dineof | dincae | both",
   "engine_mode": "both",
 
