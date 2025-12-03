@@ -54,6 +54,7 @@ from .post_steps.filter_eofs import FilterTemporalEOFsStep
 from .post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
 from .post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
 from .post_steps.lswt_plots import LSWTPlotsStep
+from .post_steps.insitu_validation import InsituValidationStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -586,6 +587,7 @@ class PostProcessor:
             self.ctx.output_html_folder = orig_html
         
         LSWTPlotsStep(original_ts_path=self.lake_path).apply(self.ctx, None)
+        InsituValidationStep().apply(self.ctx, None)
 
 
 # ===== CLI =====

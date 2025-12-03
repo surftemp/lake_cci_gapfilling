@@ -568,14 +568,15 @@ class InsituValidator:
         Generate validation plots using pipeline-style formatting.
         
         Plot structure:
-        1. Sparse methods comparison (dineof, dincae, eof_filtered) - matched points only
-        2. Difference plots for each sparse method
-        3. For each interpolated method: 2-panel full daily time series with in-situ overlay
-        4. Spaghetti plots (if --all-pixels enabled)
+        1. Sparse methods comparison - satellite at observation dates, ALL in-situ dates
+        2. Difference plots for each sparse method (matched dates only)
+        3. For each interpolated method: 2-panel full daily time series with ALL in-situ overlay
+        4. Difference plots for each interpolated method (matched dates only)
+        5. Spaghetti plots (if --all-pixels enabled)
         
-        NOTE: Interpolated methods are NOT included in the sparse comparison plot
-        because they have daily data - plotting them at sparse matched points
-        creates misleading straight lines.
+        Key principle:
+        - Time series plots show ALL in-situ dates to see full buoy coverage
+        - Difference plots only show matched dates (where both sat and in-situ exist)
         """
         lake_id = results['lake_id']
         site_id = results['site_id']
@@ -622,9 +623,15 @@ class InsituValidator:
         plot_idx = 0
         
         # ============ SPARSE METHODS ONLY ============
+        # For sparse methods, show satellite at observation dates, but show ALL in-situ dates
+        all_insitu_dates = list(results['buoy_date_temp'].keys())
+        all_insitu_temps = list(results['buoy_date_temp'].values())
+        print(f"  Total in-situ dates available: {len(all_insitu_dates)}")
+        
         if sparse_methods:
-            # Plot 1: Sparse methods comparison (matched points)
-            # NOTE: Interpolated methods excluded - they have daily data
+            # Plot 1: Sparse methods comparison
+            # - Satellite: plotted at dates where observations exist (matched dates)
+            # - In-situ: plotted at ALL dates (to show full buoy coverage)
             ax = axes[plot_idx]
             plot_idx += 1
             
@@ -635,18 +642,18 @@ class InsituValidator:
                        marker='o', linestyle='-', color=colors.get(method_name, 'gray'), 
                        markersize=3, alpha=0.8, linewidth=0.8)
             
-            # In-situ
-            first_method = list(sparse_methods.values())[0]
-            ax.plot(first_method['dates'], first_method['insitu_temps'], 
-                   label='In-situ', marker='x', linestyle='None', 
-                   color=colors['insitu'], markersize=5)
+            # In-situ: plot ALL dates (not just matched)
+            ax.plot(all_insitu_dates, all_insitu_temps, 
+                   label=f'In-situ ({len(all_insitu_dates)} pts)', 
+                   marker='x', linestyle='None', 
+                   color=colors['insitu'], markersize=5, alpha=0.7)
             
             ax.set_ylabel('Temperature (°C)')
-            ax.set_title(f'Lake {lake_id} Site {site_id} ({year_str}) - Sparse Methods vs In-Situ')
+            ax.set_title(f'Lake {lake_id} Site {site_id} ({year_str}) - Sparse Methods vs In-Situ (all buoy dates)')
             ax.legend(loc='best', fontsize=8)
             ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
             
-            # Difference plots for sparse methods
+            # Difference plots for sparse methods (only matched dates - where both exist)
             for method_name, method_data in sparse_methods.items():
                 ax = axes[plot_idx]
                 plot_idx += 1
@@ -661,14 +668,13 @@ class InsituValidator:
                 ax.set_ylabel('Difference (°C)')
                 ax.set_title(f'{method_name}: RMSE={method_data["rmse"]:.3f}°C, '
                             f'Bias={method_data["bias"]:.3f}°C, R={method_data["correlation"]:.3f}, '
-                            f'N={method_data["n_matches"]}')
+                            f'N={method_data["n_matches"]} (matched dates only)')
                 ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
         
         # ============ INTERPOLATED METHODS (Full Daily Time Series) ============
-        # Get insitu data for overlay from any method
-        any_method = list(methods.values())[0]
-        insitu_dates = any_method['dates']
-        insitu_temps = any_method['insitu_temps']
+        # For interpolated methods, use ALL in-situ dates (not just matched with sparse)
+        # The interpolated data is daily, so it should have values for most in-situ dates
+        print(f"  Plotting with ALL {len(all_insitu_dates)} in-situ dates for overlays")
         
         for method_name, method_data in interp_methods.items():
             if 'full_timeseries' not in method_data:
@@ -690,9 +696,9 @@ class InsituValidator:
             pos0, lab0 = compute_year_ticks(tt0)
             pos1, lab1 = compute_year_ticks(tt1)
             
-            # Compute y-limits from both satellite and in-situ
+            # Compute y-limits from both satellite and ALL in-situ
             finite_temps = temps[np.isfinite(temps)]
-            finite_insitu = np.array([t for t in insitu_temps if np.isfinite(t)])
+            finite_insitu = np.array([t for t in all_insitu_temps if np.isfinite(t)])
             all_vals = np.concatenate([finite_temps, finite_insitu]) if len(finite_temps) > 0 else finite_insitu
             if len(all_vals) > 0:
                 y_min, y_max = np.min(all_vals), np.max(all_vals)
@@ -704,7 +710,7 @@ class InsituValidator:
             # Get all_pixels if available (for spaghetti background)
             all_pixels = method_data.get('all_pixels', {}).get('temps_all', None)
             
-            # First half panel - FULL DAILY DATA
+            # First half panel - FULL DAILY DATA with ALL in-situ overlay
             ax = axes[plot_idx]
             plot_idx += 1
             
@@ -712,10 +718,10 @@ class InsituValidator:
                       pos0, lab0, 
                       f'{method_name}: Full Daily ({times[i0].year}-{mid_year})',
                       show_legend=True,
-                      insitu_dates=insitu_dates, insitu_temps=insitu_temps)
+                      insitu_dates=all_insitu_dates, insitu_temps=all_insitu_temps)
             ax.set_ylabel('LSWT (°C)')
             
-            # Second half panel - FULL DAILY DATA
+            # Second half panel - FULL DAILY DATA with ALL in-situ overlay
             ax = axes[plot_idx]
             plot_idx += 1
             
@@ -723,24 +729,25 @@ class InsituValidator:
                       pos1, lab1,
                       f'{method_name}: Full Daily ({mid_year+1}-{times[-1].year})',
                       show_legend=False,
-                      insitu_dates=insitu_dates, insitu_temps=insitu_temps)
+                      insitu_dates=all_insitu_dates, insitu_temps=all_insitu_temps)
             ax.set_ylabel('LSWT (°C)')
             
-            # Difference plot for this interpolated method (matched points)
+            # Difference plot - ONLY matched dates (where both satellite and in-situ exist)
             ax = axes[plot_idx]
             plot_idx += 1
             
-            dates = method_data['dates']
+            # Use matched dates for difference calculation
+            matched_dates = method_data['dates']
             diff = method_data['difference']
             
-            ax.plot(dates, diff, marker='s', linestyle='-', 
+            ax.plot(matched_dates, diff, marker='s', linestyle='-', 
                    color=colors.get(method_name, 'gray'), markersize=3, linewidth=0.8)
             ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-            ax.fill_between(dates, diff, 0, alpha=0.3, color=colors.get(method_name, 'gray'))
+            ax.fill_between(matched_dates, diff, 0, alpha=0.3, color=colors.get(method_name, 'gray'))
             ax.set_ylabel('Difference (°C)')
             ax.set_title(f'{method_name} Difference: RMSE={method_data["rmse"]:.3f}°C, '
                         f'Bias={method_data["bias"]:.3f}°C, R={method_data["correlation"]:.3f}, '
-                        f'N={method_data["n_matches"]}')
+                        f'N={method_data["n_matches"]} (matched dates only)')
             ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
         
         # ============ SPAGHETTI PLOTS (if --all-pixels) ============
@@ -774,9 +781,9 @@ class InsituValidator:
                 ax.plot(times[valid], buoy_temps[valid], '-', color='red', lw=0.8, 
                        label='Buoy pixel (satellite)')
             
-            # In-situ overlay (blue markers)
-            ax.plot(insitu_dates, insitu_temps, 'o', color='blue', markersize=4,
-                   alpha=0.8, label='In-situ', zorder=10)
+            # In-situ overlay - use ALL in-situ dates (blue markers)
+            ax.plot(all_insitu_dates, all_insitu_temps, 'o', color='blue', markersize=4,
+                   alpha=0.8, label=f'In-situ ({len(all_insitu_dates)} pts)', zorder=10)
             
             ax.set_ylabel('LSWT (°C)')
             ax.set_title(f'{method_name}: All Lake Pixels (spaghetti) with Buoy Pixel and In-Situ')
