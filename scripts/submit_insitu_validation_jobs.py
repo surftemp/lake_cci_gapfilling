@@ -2,6 +2,8 @@
 """
 submit_insitu_validation_jobs.py - Submit SLURM jobs to run in-situ validation in parallel
 
+Location: lake_cci_gapfilling-main/scripts/
+
 Usage:
     # Using default buoy paths
     python submit_insitu_validation_jobs.py \\
@@ -21,6 +23,14 @@ Usage:
     python submit_insitu_validation_jobs.py \\
         --run-root /path/to/exp1 \\
         --lake-ids 4503 3007 1234
+
+File structure expected:
+    lake_cci_gapfilling-main/
+    ├── scripts/
+    │   ├── run_insitu_validation.py      <- standalone runner
+    │   └── submit_insitu_validation_jobs.py  <- this script
+    └── src/processors/postprocessor/post_steps/
+        └── insitu_validation.py          <- core validation logic
 
 Author: Shaerdan / NCEO / University of Reading
 """
@@ -125,7 +135,7 @@ Examples:
     validation_script = os.path.join(script_dir, "run_insitu_validation.py")
     if not os.path.exists(validation_script):
         print(f"ERROR: run_insitu_validation.py not found in {script_dir}")
-        print("Make sure both run_insitu_validation.py and insitu_validation_step.py are in the script directory")
+        print("Make sure run_insitu_validation.py is in the scripts/ directory")
         return 1
     
     # Build config argument

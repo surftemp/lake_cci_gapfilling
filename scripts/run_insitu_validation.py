@@ -25,15 +25,23 @@ from glob import glob
 from dataclasses import dataclass
 from typing import Optional, List
 
-# Add the step file location to path if running standalone
-# (adjust this path if needed)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add pipeline src to path for importing insitu_validation from post_steps
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_ROOT = os.path.dirname(SCRIPT_DIR)  # scripts/ -> pipeline root
+SRC_PATH = os.path.join(PIPELINE_ROOT, "src", "processors", "postprocessor", "post_steps")
+
+if os.path.exists(SRC_PATH):
+    sys.path.insert(0, SRC_PATH)
+else:
+    # Fallback: try current directory
+    sys.path.insert(0, SCRIPT_DIR)
 
 try:
-    from insitu_validation_step import InsituValidationStep, INSITU_CONFIG
-except ImportError:
-    print("Error: insitu_validation_step.py not found in current directory")
-    print("Make sure insitu_validation_step.py is in the same folder as this script")
+    from insitu_validation import InsituValidationStep, INSITU_CONFIG
+except ImportError as e:
+    print(f"Error: Could not import insitu_validation: {e}")
+    print(f"Looked in: {SRC_PATH}")
+    print(f"Make sure insitu_validation.py exists in src/processors/postprocessor/post_steps/")
     sys.exit(1)
 
 
@@ -42,6 +50,7 @@ class MockPostContext:
     """Minimal context to satisfy InsituValidationStep requirements."""
     lake_id: int
     output_path: str
+    experiment_config_path: Optional[str] = None
     lake_path: Optional[str] = None
     dineof_input_path: Optional[str] = None
     dineof_output_path: Optional[str] = None

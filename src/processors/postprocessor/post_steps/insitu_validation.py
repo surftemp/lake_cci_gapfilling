@@ -31,7 +31,37 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from .base import PostProcessingStep, PostContext
+try:
+    # When used as part of pipeline (from post_steps package)
+    from .base import PostProcessingStep, PostContext
+except ImportError:
+    # When used standalone - define minimal versions
+    from dataclasses import dataclass
+    from typing import Optional
+    
+    @dataclass
+    class PostContext:
+        """Minimal PostContext for standalone use."""
+        lake_id: Optional[int] = None
+        output_path: Optional[str] = None
+        experiment_config_path: Optional[str] = None
+        lake_path: Optional[str] = None
+        dineof_input_path: Optional[str] = None
+        dineof_output_path: Optional[str] = None
+        output_html_folder: Optional[str] = None
+        climatology_path: Optional[str] = None
+    
+    class PostProcessingStep:
+        """Minimal base class for standalone use."""
+        @property
+        def name(self) -> str:
+            return self.__class__.__name__
+        
+        def should_apply(self, ctx, ds) -> bool:
+            return True
+        
+        def apply(self, ctx, ds):
+            raise NotImplementedError
 
 
 # ============================================================================
@@ -223,17 +253,40 @@ class InsituValidationStep(PostProcessingStep):
         return self._selection_df
     
     def _get_lake_sites(self, lake_id_cci: int) -> pd.DataFrame:
-        """Get all sites for a given lake_id_cci."""
+        """Get all unique sites for a given lake_id_cci from selection CSV."""
         df = self._load_selection_csv()
-        return df[df['lake_id_cci'] == lake_id_cci][['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates()
+        lake_df = df[df['lake_id_cci'] == lake_id_cci]
+        
+        if lake_df.empty:
+            return pd.DataFrame()
+        
+        # Drop duplicates based on lake_id and site_id only (lat/lon may have tiny variations)
+        sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
+            subset=['lake_id', 'site_id']
+        ).copy()
+        
+        # Convert to int (may be read as float from CSV)
+        sites['lake_id'] = sites['lake_id'].astype(int)
+        sites['site_id'] = sites['site_id'].astype(int)
+        
+        return sites.sort_values('site_id').reset_index(drop=True)
     
     def _get_buoy_filepath(self, lake_id: int, site_id: int) -> Optional[str]:
         """Construct path to buoy CSV file."""
+        # Ensure int types for proper string formatting
+        lake_id = int(lake_id)
+        site_id = int(site_id)
+        
         buoy_file = os.path.join(
             self.config["buoy_dir"], 
             f"ID{str(lake_id).zfill(6)}{str(site_id).zfill(2)}.csv"
         )
-        return buoy_file if os.path.exists(buoy_file) else None
+        
+        if os.path.exists(buoy_file):
+            return buoy_file
+        else:
+            print(f"[InsituValidation] Buoy file not found: {os.path.basename(buoy_file)}")
+            return None
     
     def _determine_representative_hour(self, lake_id: int, site_id: int) -> Optional[int]:
         """Find representative hour for satellite overpasses."""
