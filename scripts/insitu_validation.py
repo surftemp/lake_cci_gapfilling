@@ -19,8 +19,10 @@ from datetime import datetime
 from glob import glob
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.dates as mdates
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -41,6 +43,102 @@ DEFAULT_CONFIG = {
 # ============================================================================
 
 
+# ============================================================================
+# Plotting Helper Functions (adapted from pipeline lswt_plots.py)
+# ============================================================================
+
+def compute_year_ticks(time: pd.DatetimeIndex) -> Tuple[List, List]:
+    """Compute yearly tick positions and labels."""
+    years = np.unique(time.year)
+    y_start = years.min()
+    y_end = years.max()
+    
+    positions, labels = [], []
+    for y in range(y_start, y_end + 1):
+        if y in years:
+            target = pd.Timestamp(y, 1, 1, 12)
+            idx = int(np.argmin(np.abs(time - target)))
+            positions.append(time[idx])
+            labels.append(str(y))
+    
+    return positions, labels
+
+
+def split_timeline(time: pd.DatetimeIndex) -> Tuple[int, int, int]:
+    """Split timeline into first and second half. Returns (i0, i1, mid_year)."""
+    years = np.unique(time.year)
+    y_start = years.min()
+    y_end = years.max()
+    mid_year = y_start + (y_end - y_start) // 2
+    
+    i0 = int(np.searchsorted(time.values, np.datetime64(f"{y_start}-01-01")))
+    i1 = int(np.searchsorted(time.values, np.datetime64(f"{mid_year + 1}-01-01")))
+    
+    return i0, i1, mid_year
+
+
+def plot_panel(ax, x_vals, all_pixels, center_pixel, seg_slice, y_lim, 
+               tick_pos, tick_lab, title, show_legend=False, 
+               insitu_dates=None, insitu_temps=None):
+    """
+    Plot a single panel with pipeline-style formatting.
+    
+    Args:
+        ax: matplotlib axis
+        x_vals: time index
+        all_pixels: (time, n_pixels) array, or None to skip
+        center_pixel: (time,) array for center/buoy pixel
+        seg_slice: slice for this panel
+        y_lim: (ymin, ymax)
+        tick_pos, tick_lab: tick positions and labels
+        title: panel title
+        show_legend: whether to show legend
+        insitu_dates, insitu_temps: optional in-situ overlay
+    """
+    ax.yaxis.grid(True, linestyle='--', linewidth=0.3)
+    ax.xaxis.grid(True, linestyle='--', linewidth=0.3)
+    ax.set_ylim(*y_lim)
+    ax.set_title(title, fontsize=10)
+    ax.set_xticks(tick_pos)
+    ax.set_xticklabels(tick_lab, fontsize=8)
+    
+    x_seg = x_vals[seg_slice]
+    center = center_pixel[seg_slice]
+    
+    # All pixels (faint black lines)
+    if all_pixels is not None:
+        arr = all_pixels[seg_slice, :]
+        for j in range(arr.shape[1]):
+            col = arr[:, j]
+            valid = np.isfinite(col)
+            if valid.any():
+                ax.plot(x_seg[valid], col[valid], '-', color='black', alpha=0.15, lw=0.3)
+    
+    # Center/buoy pixel (bold red line)
+    valid_c = np.isfinite(center)
+    if valid_c.any():
+        ax.plot(x_seg[valid_c], center[valid_c], '-', color='red', lw=0.8, label='Satellite (buoy pixel)')
+    
+    # In-situ overlay (blue markers)
+    if insitu_dates is not None and insitu_temps is not None:
+        # Filter insitu to this segment
+        seg_start = x_seg.min()
+        seg_end = x_seg.max()
+        in_seg = [(d, t) for d, t in zip(insitu_dates, insitu_temps) 
+                  if pd.Timestamp(d) >= seg_start and pd.Timestamp(d) <= seg_end]
+        if in_seg:
+            seg_dates, seg_temps = zip(*in_seg)
+            ax.plot(seg_dates, seg_temps, 'o', color='blue', markersize=4, 
+                   alpha=0.8, label='In-situ', zorder=10)
+    
+    if show_legend:
+        ax.legend(fontsize=8, loc='best')
+
+
+# ============================================================================
+# Main Validator Class
+# ============================================================================
+
 class InsituValidator:
     """
     Validates gap-filled LSWT against in-situ buoy measurements.
@@ -54,8 +152,8 @@ class InsituValidator:
         self.output_dir = config["output_dir"]
         self.distance_threshold = config.get("distance_threshold", 0.05)
         self.quality_threshold = config.get("quality_threshold", 3)
-        self.plot_all_pixels = config.get("plot_all_pixels", False)  # Plot all lake pixels as spaghetti
-        self.max_pixels_to_plot = config.get("max_pixels_to_plot", 500)  # Max pixels for spaghetti plot
+        self.plot_all_pixels = config.get("plot_all_pixels", False)
+        self.max_pixels_to_plot = config.get("max_pixels_to_plot", 500)
         
         # Load selection CSV
         self.selection_df = self._load_selection_csv()
@@ -66,9 +164,8 @@ class InsituValidator:
     def _load_selection_csv(self) -> pd.DataFrame:
         """Load and clean the selection CSV."""
         df = pd.read_csv(self.selection_csv_path)
-        df.columns = df.columns.str.strip()  # Remove trailing spaces
+        df.columns = df.columns.str.strip()
         
-        # Ensure time_IS is parsed as datetime
         time_col = [c for c in df.columns if 'time_IS' in c][0]
         if time_col != 'time_IS':
             df = df.rename(columns={time_col: 'time_IS'})
@@ -84,11 +181,7 @@ class InsituValidator:
         return df[['lake_id', 'lake_id_cci', 'site_id']].drop_duplicates()
     
     def find_pipeline_outputs(self, lake_id_cci: int) -> Dict[str, Optional[str]]:
-        """
-        Find all pipeline output files for a lake.
-        
-        Returns dict with keys: dineof, dincae, eof_filtered, interp_full, eof_filtered_interp_full
-        """
+        """Find all pipeline output files for a lake."""
         lake_id_str = str(lake_id_cci).zfill(9)
         post_dir = os.path.join(self.run_root, 'post', lake_id_str, self.alpha_slug)
         
@@ -132,10 +225,7 @@ class InsituValidator:
         return None
     
     def determine_representative_hour(self, lake_id: int, site_id: int) -> Optional[int]:
-        """
-        Find the hour of day when satellite overpasses most commonly occur
-        for this lake/site combination.
-        """
+        """Find the representative hour for satellite overpasses."""
         subset = self.selection_df[
             (self.selection_df['lake_id'] == lake_id) & 
             (self.selection_df['site_id'] == site_id)
@@ -148,7 +238,6 @@ class InsituValidator:
         subset['date'] = subset['time_IS'].dt.date
         subset['hour'] = subset['time_floor'].dt.hour
         
-        # Count unique days per hour
         hour_day_counts = subset.groupby('hour')['date'].nunique()
         
         if hour_day_counts.empty:
@@ -163,16 +252,7 @@ class InsituValidator:
     def load_buoy_data(self, lake_id: int, site_id: int, 
                        year_start: Optional[int], year_end: Optional[int],
                        representative_hour: Optional[int]) -> Optional[pd.DataFrame]:
-        """
-        Load and filter buoy CSV data.
-        
-        Args:
-            lake_id: Lake ID for buoy file lookup
-            site_id: Site ID for buoy file lookup
-            year_start: Start year (None = no lower limit)
-            year_end: End year (None = no upper limit)
-            representative_hour: Hour to filter for (None = skip hour filtering, e.g., for daily data)
-        """
+        """Load and filter buoy CSV data."""
         buoy_path = self.get_buoy_filepath(lake_id, site_id)
         if buoy_path is None:
             print(f"  Buoy file not found for lake {lake_id}, site {site_id}")
@@ -186,7 +266,7 @@ class InsituValidator:
         
         initial_count = len(df)
         
-        # Detect if data is daily (one reading per day) vs hourly
+        # Detect daily vs hourly data
         readings_per_day = df.groupby(df['dateTime'].dt.date).size()
         median_readings_per_day = readings_per_day.median()
         is_daily_data = median_readings_per_day <= 1.5
@@ -204,29 +284,25 @@ class InsituValidator:
                 print(f"  After year range {year_start}-{year_end} filter: {len(df)} rows")
             elif year_start is not None:
                 df = df[years >= year_start]
-                print(f"  After year >= {year_start} filter: {len(df)} rows")
             else:
                 df = df[years <= year_end]
-                print(f"  After year <= {year_end} filter: {len(df)} rows")
         
         # Filter for representative hour (only for hourly data)
         if representative_hour is not None and not is_daily_data:
             df['hour'] = df['dateTime'].dt.hour
             df = df[df['hour'] == representative_hour]
             print(f"  After hour {representative_hour} filter: {len(df)} rows")
-        else:
-            if is_daily_data:
-                print(f"  Skipping hour filter (daily data)")
+        elif is_daily_data:
+            print(f"  Skipping hour filter (daily data)")
         
         # Apply quality filter
         if 'qcFlag' in df.columns:
             df = df[df['qcFlag'] == 0]
         elif 'q' in df.columns:
             df = df[df['q'] == 0]
-        quality_count = len(df)
-        print(f"  After quality filter: {quality_count} rows")
+        print(f"  After quality filter: {len(df)} rows")
         
-        print(f"  Buoy data summary: {initial_count} total → {quality_count} after all filters")
+        print(f"  Buoy data summary: {initial_count} total → {len(df)} after all filters")
         
         if df.empty:
             return None
@@ -242,178 +318,110 @@ class InsituValidator:
         min_distance = np.min(distance)
         return index, min_distance
     
-    def extract_temperatures(self, ds: xr.Dataset, grid_idx: Tuple[int, int],
-                             dates: List[datetime.date]) -> Dict:
-        """
-        Extract gap-filled temperatures from a NetCDF dataset for specific dates and grid point.
-        
-        This only extracts the single pixel time series - very fast!
-        
-        Returns dict with 'temps' (array of temps), 'matched_dates' (list of dates that were found).
-        """
-        print(f"      Building date-to-index mapping...")
-        
-        # Build date-to-index mapping
+    def extract_matched_temperatures(self, ds: xr.Dataset, grid_idx: Tuple[int, int],
+                                      buoy_dates: List) -> Dict:
+        """Extract temperatures for dates that match buoy data."""
         time_vals = pd.to_datetime(ds['time'].values)
         date_to_idx = {t.date(): i for i, t in enumerate(time_vals)}
         
-        print(f"      NetCDF has {len(date_to_idx)} unique dates")
-        print(f"      Buoy has {len(dates)} unique dates to match")
-        
-        # Get lake size for reference
         lakeid = ds['lakeid'].values
         lake_size = np.count_nonzero(lakeid == 1)
-        print(f"      Lake size: {lake_size} pixels")
         
-        # Extract ONLY the single pixel time series - this is fast!
-        print(f"      Loading pixel time series at grid_idx={grid_idx}...")
         temp_filled_pixel = ds['temp_filled'].isel(lat=grid_idx[0], lon=grid_idx[1]).values
-        print(f"      Loaded temp_filled for pixel (shape: {temp_filled_pixel.shape})")
         
-        # Count how many dates we can match
-        matchable_dates = [d for d in dates if d in date_to_idx]
-        print(f"      {len(matchable_dates)}/{len(dates)} buoy dates exist in NetCDF")
+        matchable_dates = [d for d in buoy_dates if d in date_to_idx]
         
         temps = []
         matched_dates = []
+        skipped_nan = 0
         
-        print(f"      Extracting temperatures...")
         for d in matchable_dates:
             idx = date_to_idx[d]
             temp = temp_filled_pixel[idx]
             
             if np.isnan(temp):
+                skipped_nan += 1
                 continue
             
             temps.append(temp)
             matched_dates.append(d)
         
-        print(f"      Extraction complete: {len(matched_dates)} valid matches (excluding NaN)")
-        
         return {
             'temps': np.array(temps),
             'matched_dates': matched_dates,
-            'lake_size': lake_size
+            'lake_size': lake_size,
+            'n_matchable': len(matchable_dates),
+            'n_skipped_nan': skipped_nan
         }
     
-    def extract_full_pixel_timeseries(self, ds: xr.Dataset, grid_idx: Tuple[int, int]) -> Dict:
-        """
-        Extract the FULL time series for a single pixel (for interpolated daily files).
-        
-        Returns dict with 'times' (datetime array), 'temps' (temperature array).
-        """
-        print(f"      Loading full pixel time series at grid_idx={grid_idx}...")
-        
+    def extract_full_timeseries(self, ds: xr.Dataset, grid_idx: Tuple[int, int]) -> Dict:
+        """Extract full time series for a pixel (for interpolated daily data)."""
         time_vals = pd.to_datetime(ds['time'].values)
         temp_filled_pixel = ds['temp_filled'].isel(lat=grid_idx[0], lon=grid_idx[1]).values
-        
-        print(f"      Loaded {len(time_vals)} time steps")
         
         return {
             'times': time_vals,
             'temps': temp_filled_pixel
         }
     
-    def extract_all_lake_pixels_timeseries(self, ds: xr.Dataset, 
-                                            max_pixels: int = 500) -> Dict:
-        """
-        Extract time series for all lake pixels (or a random subset if too many).
-        
-        Args:
-            ds: xarray Dataset
-            max_pixels: Maximum number of pixels to extract (random sample if exceeded)
-        
-        Returns dict with 'times', 'temps_all' (2D array: n_pixels x n_times), 
-        'pixel_indices', 'n_total_pixels'.
-        """
-        print(f"      Extracting all lake pixel time series...")
-        
-        # Get lake mask
+    def extract_all_lake_pixels(self, ds: xr.Dataset, max_pixels: int = 500) -> Dict:
+        """Extract time series for all lake pixels (for spaghetti plot)."""
         lakeid = ds['lakeid'].values
         lake_mask = lakeid == 1
         n_total_pixels = np.count_nonzero(lake_mask)
-        print(f"      Total lake pixels: {n_total_pixels}")
         
-        # Get indices of lake pixels
-        lake_indices = np.argwhere(lake_mask)  # (n_pixels, 2) array of (lat_idx, lon_idx)
+        lake_indices = np.argwhere(lake_mask)
         
-        # Sample if too many pixels
         if n_total_pixels > max_pixels:
-            print(f"      Sampling {max_pixels} random pixels (out of {n_total_pixels})")
-            rng = np.random.default_rng(42)  # Fixed seed for reproducibility
+            rng = np.random.default_rng(42)
             sample_idx = rng.choice(n_total_pixels, size=max_pixels, replace=False)
             lake_indices = lake_indices[sample_idx]
         
         n_pixels = len(lake_indices)
-        print(f"      Extracting {n_pixels} pixel time series...")
-        
         time_vals = pd.to_datetime(ds['time'].values)
         n_times = len(time_vals)
         
-        # Extract all selected pixels
-        temps_all = np.zeros((n_pixels, n_times), dtype=np.float32)
+        temps_all = np.zeros((n_times, n_pixels), dtype=np.float32)
         for i, (lat_idx, lon_idx) in enumerate(lake_indices):
-            temps_all[i, :] = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
-            if (i + 1) % 100 == 0:
-                print(f"        Extracted {i + 1}/{n_pixels} pixels...")
-        
-        print(f"      Extraction complete")
+            temps_all[:, i] = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
         
         return {
             'times': time_vals,
             'temps_all': temps_all,
-            'pixel_indices': lake_indices,
             'n_total_pixels': n_total_pixels,
             'n_sampled_pixels': n_pixels
         }
     
     def _get_year_suffix(self, year_start: Optional[int], year_end: Optional[int]) -> str:
-        """Generate a string suffix for filenames based on year range."""
         if year_start is None and year_end is None:
             return "all"
         elif year_start == year_end:
             return str(year_start)
         elif year_start is not None and year_end is not None:
             return f"{year_start}-{year_end}"
-        elif year_start is not None:
-            return f"{year_start}-present"
         else:
-            return f"upto-{year_end}"
+            return "partial"
     
     def _get_year_str(self, year_start: Optional[int], year_end: Optional[int]) -> str:
-        """Generate a human-readable string for year range."""
         if year_start is None and year_end is None:
             return "All Years"
         elif year_start == year_end:
             return str(year_start)
         elif year_start is not None and year_end is not None:
             return f"{year_start}-{year_end}"
-        elif year_start is not None:
-            return f"{year_start} onwards"
         else:
-            return f"up to {year_end}"
+            return "partial"
     
     def validate_lake_site(self, lake_id: int, lake_id_cci: int, site_id: int,
                            year_start: Optional[int] = None,
                            year_end: Optional[int] = None) -> Optional[Dict]:
-        """
-        Main validation function for a single lake/site combination.
-        
-        Args:
-            lake_id: Lake ID (for buoy file lookup)
-            lake_id_cci: Lake CCI ID (for NetCDF file lookup)
-            site_id: Site ID
-            year_start: Start year (None = no lower limit)
-            year_end: End year (None = no upper limit)
-        
-        Returns a dict with matched data for all methods.
-        """
+        """Main validation function for a single lake/site combination."""
         year_str = self._get_year_str(year_start, year_end)
         print(f"\n{'='*60}")
         print(f"Processing Lake ID: {lake_id} (CCI: {lake_id_cci}), Site: {site_id}, Year: {year_str}")
         print(f"{'='*60}")
         
-        # Step 1: Get representative hour (may be None if no selection data)
+        # Step 1: Get representative hour
         rep_hour = self.determine_representative_hour(lake_id, site_id)
         if rep_hour is None:
             print(f"  Could not determine representative hour from selection CSV.")
@@ -425,7 +433,7 @@ class InsituValidator:
             print(f"  No buoy data available. Skipping.")
             return None
         
-        # Step 3: Get site coordinates - try selection CSV first, then buoy file
+        # Step 3: Get site coordinates
         site_info = self.selection_df[
             (self.selection_df['lake_id'] == lake_id) & 
             (self.selection_df['site_id'] == site_id)
@@ -436,7 +444,6 @@ class InsituValidator:
             site_lon = site_info.iloc[0]['longitude']
             print(f"  Site coordinates (from selection CSV): lat={site_lat:.4f}, lon={site_lon:.4f}")
         else:
-            # Fall back to buoy file coordinates
             site_lat = buoy_df.iloc[0]['lat']
             site_lon = buoy_df.iloc[0]['lon']
             print(f"  Site coordinates (from buoy file): lat={site_lat:.4f}, lon={site_lon:.4f}")
@@ -449,14 +456,10 @@ class InsituValidator:
         
         print(f"  Found outputs: {[k for k, v in outputs.items() if v]}")
         
-        # Step 5: Get buoy dates and temperatures
-        buoy_dates = buoy_df['dateTime'].dt.date.tolist()
-        buoy_temps = buoy_df['Tw'].values
-        
-        # Create a date-to-temp mapping for buoy data
-        # Handle multiple readings on same date by averaging
+        # Step 5: Prepare buoy data
         buoy_date_temp = buoy_df.groupby(buoy_df['dateTime'].dt.date)['Tw'].mean().to_dict()
         unique_buoy_dates = list(buoy_date_temp.keys())
+        print(f"  Buoy has {len(unique_buoy_dates)} unique dates after grouping")
         
         # Step 6: Process each output file
         results = {
@@ -468,7 +471,8 @@ class InsituValidator:
             'year_str': year_str,
             'site_lat': site_lat,
             'site_lon': site_lon,
-            'representative_hour': rep_hour,  # May be None if daily data or no selection info
+            'representative_hour': rep_hour,
+            'buoy_date_temp': buoy_date_temp,
             'methods': {}
         }
         
@@ -478,17 +482,19 @@ class InsituValidator:
             if nc_path is None:
                 continue
             
-            print(f"\n  Processing {method_name}...")
+            is_interpolated = 'interp' in method_name
+            
+            print(f"\n  Processing {method_name}{'(interpolated daily)' if is_interpolated else '(sparse)'}...")
             print(f"    Opening: {os.path.basename(nc_path)}")
             
             try:
                 ds = xr.open_dataset(nc_path)
-                print(f"    Dataset opened. Dims: time={ds.sizes['time']}, lat={ds.sizes['lat']}, lon={ds.sizes['lon']}")
+                print(f"    Dataset: time={ds.sizes['time']}, lat={ds.sizes['lat']}, lon={ds.sizes['lon']}")
             except Exception as e:
                 print(f"    Error opening {nc_path}: {e}")
                 continue
             
-            # Find nearest grid point (only need to do this once)
+            # Find nearest grid point (once)
             if grid_idx is None:
                 lat_array = ds['lat'].values
                 lon_array = ds['lon'].values
@@ -504,15 +510,14 @@ class InsituValidator:
                 results['grid_idx'] = grid_idx
                 results['grid_distance'] = distance
             
-            # Extract temperatures at buoy pixel
-            extracted = self.extract_temperatures(ds, grid_idx, unique_buoy_dates)
+            # Extract matched temperatures for statistics
+            extracted = self.extract_matched_temperatures(ds, grid_idx, unique_buoy_dates)
             
             if len(extracted['matched_dates']) == 0:
                 print(f"    No matching dates found.")
                 ds.close()
                 continue
             
-            # Get corresponding buoy temps for matched dates
             matched_buoy_temps = np.array([buoy_date_temp[d] for d in extracted['matched_dates']])
             
             # Compute statistics
@@ -533,23 +538,20 @@ class InsituValidator:
                 'bias': bias,
                 'std': std,
                 'correlation': corr,
+                'is_interpolated': is_interpolated,
             }
             
-            # For interpolated files (daily data), extract full time series for plotting
-            is_interpolated = 'interp' in method_name
+            # For interpolated files, extract FULL time series
             if is_interpolated:
-                print(f"    Extracting full time series for interpolated data...")
-                full_ts = self.extract_full_pixel_timeseries(ds, grid_idx)
-                results['methods'][method_name]['full_timeseries'] = {
-                    'times': full_ts['times'],
-                    'temps': full_ts['temps']
-                }
-            
-            # Extract all lake pixels if requested (for spaghetti plot)
-            if self.plot_all_pixels:
-                print(f"    Extracting all lake pixel time series...")
-                all_pixels = self.extract_all_lake_pixels_timeseries(ds, self.max_pixels_to_plot)
-                results['methods'][method_name]['all_pixels'] = all_pixels
+                print(f"    Extracting full daily time series...")
+                full_ts = self.extract_full_timeseries(ds, grid_idx)
+                results['methods'][method_name]['full_timeseries'] = full_ts
+                
+                # Extract all lake pixels if requested
+                if self.plot_all_pixels:
+                    print(f"    Extracting all lake pixel time series...")
+                    all_pixels = self.extract_all_lake_pixels(ds, self.max_pixels_to_plot)
+                    results['methods'][method_name]['all_pixels'] = all_pixels
             
             ds.close()
             
@@ -562,28 +564,47 @@ class InsituValidator:
         return results
     
     def plot_validation(self, results: Dict, save_path: Optional[str] = None):
-        """Generate validation plots."""
+        """
+        Generate validation plots using pipeline-style formatting.
+        
+        Plot structure:
+        1. Sparse methods comparison (dineof, dincae, eof_filtered) - matched points only
+        2. Difference plots for each sparse method
+        3. For each interpolated method: 2-panel full daily time series with in-situ overlay
+        4. Spaghetti plots (if --all-pixels enabled)
+        
+        NOTE: Interpolated methods are NOT included in the sparse comparison plot
+        because they have daily data - plotting them at sparse matched points
+        creates misleading straight lines.
+        """
         lake_id = results['lake_id']
         site_id = results['site_id']
         year_str = results['year_str']
         
         methods = results['methods']
-        n_methods = len(methods)
-        
-        if n_methods == 0:
+        if not methods:
             return
         
-        # Check what data we have
-        has_full_ts = any('full_timeseries' in m for m in methods.values())
-        has_all_pixels = any('all_pixels' in m for m in methods.values())
+        # Separate sparse and interpolated methods
+        sparse_methods = {k: v for k, v in methods.items() if not v.get('is_interpolated', False)}
+        interp_methods = {k: v for k, v in methods.items() if v.get('is_interpolated', False)}
         
-        # Determine number of plots
-        # 1: Matched comparison (all methods)
-        # 2-N: Per-method difference plots
-        # +1: Full time series plot (if has_full_ts)
-        # +1: All pixels spaghetti plot (if has_all_pixels)
-        n_extra = (1 if has_full_ts else 0) + (1 if has_all_pixels else 0)
-        n_plots = 1 + n_methods + n_extra
+        # Count plots needed
+        n_sparse = len(sparse_methods)
+        n_interp = len(interp_methods)
+        n_spaghetti = sum(1 for v in interp_methods.values() if 'all_pixels' in v)
+        
+        # Calculate total plots:
+        # - Sparse: 1 comparison + N diff plots (only if sparse methods exist)
+        # - Interp: 2 panels (full time series) + 1 diff plot per method = 3 per method
+        # - Spaghetti: 1 per interp method with all_pixels
+        
+        n_sparse_plots = (1 + n_sparse) if n_sparse > 0 else 0
+        n_interp_plots = 3 * n_interp  # 2 panels + 1 diff plot each
+        n_plots = n_sparse_plots + n_interp_plots + n_spaghetti
+        
+        if n_plots == 0:
+            return
         
         fig, axes = plt.subplots(n_plots, 1, figsize=(14, 4 * n_plots))
         if n_plots == 1:
@@ -600,130 +621,175 @@ class InsituValidator:
         
         plot_idx = 0
         
-        # Plot 1: Matched temperature comparison for all methods
-        ax = axes[plot_idx]
-        plot_idx += 1
+        # ============ SPARSE METHODS ONLY ============
+        if sparse_methods:
+            # Plot 1: Sparse methods comparison (matched points)
+            # NOTE: Interpolated methods excluded - they have daily data
+            ax = axes[plot_idx]
+            plot_idx += 1
+            
+            for method_name, method_data in sparse_methods.items():
+                dates = method_data['dates']
+                sat_temps = method_data['satellite_temps']
+                ax.plot(dates, sat_temps, label=method_name, 
+                       marker='o', linestyle='-', color=colors.get(method_name, 'gray'), 
+                       markersize=3, alpha=0.8, linewidth=0.8)
+            
+            # In-situ
+            first_method = list(sparse_methods.values())[0]
+            ax.plot(first_method['dates'], first_method['insitu_temps'], 
+                   label='In-situ', marker='x', linestyle='None', 
+                   color=colors['insitu'], markersize=5)
+            
+            ax.set_ylabel('Temperature (°C)')
+            ax.set_title(f'Lake {lake_id} Site {site_id} ({year_str}) - Sparse Methods vs In-Situ')
+            ax.legend(loc='best', fontsize=8)
+            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
+            
+            # Difference plots for sparse methods
+            for method_name, method_data in sparse_methods.items():
+                ax = axes[plot_idx]
+                plot_idx += 1
+                
+                dates = method_data['dates']
+                diff = method_data['difference']
+                
+                ax.plot(dates, diff, marker='s', linestyle='-', 
+                       color=colors.get(method_name, 'gray'), markersize=3, linewidth=0.8)
+                ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+                ax.fill_between(dates, diff, 0, alpha=0.3, color=colors.get(method_name, 'gray'))
+                ax.set_ylabel('Difference (°C)')
+                ax.set_title(f'{method_name}: RMSE={method_data["rmse"]:.3f}°C, '
+                            f'Bias={method_data["bias"]:.3f}°C, R={method_data["correlation"]:.3f}, '
+                            f'N={method_data["n_matches"]}')
+                ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
         
-        for method_name, method_data in methods.items():
-            dates = method_data['dates']
-            sat_temps = method_data['satellite_temps']
-            ax.plot(dates, sat_temps, label=f'{method_name}', 
-                   marker='o', linestyle='-', color=colors.get(method_name, 'gray'), 
-                   markersize=4, alpha=0.8)
+        # ============ INTERPOLATED METHODS (Full Daily Time Series) ============
+        # Get insitu data for overlay from any method
+        any_method = list(methods.values())[0]
+        insitu_dates = any_method['dates']
+        insitu_temps = any_method['insitu_temps']
         
-        # Plot in-situ (use first method's dates for reference)
-        first_method = list(methods.values())[0]
-        ax.plot(first_method['dates'], first_method['insitu_temps'], 
-               label='In-situ', marker='x', linestyle='None', 
-               color=colors['insitu'], markersize=6)
-        
-        ax.set_ylabel('Temperature (°C)')
-        ax.set_title(f'Lake {lake_id} Site {site_id} ({year_str}) - Matched Temperature Comparison')
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        
-        # Plots 2-N: Difference for each method
-        for method_name, method_data in methods.items():
+        for method_name, method_data in interp_methods.items():
+            if 'full_timeseries' not in method_data:
+                continue
+            
+            full_ts = method_data['full_timeseries']
+            # Ensure times is a DatetimeIndex for proper handling
+            times = pd.DatetimeIndex(full_ts['times'])
+            temps = full_ts['temps']
+            
+            # Split timeline into two halves
+            i0, i1, mid_year = split_timeline(times)
+            
+            if i1 >= len(times) or i0 >= i1:
+                # Not enough data to split - skip
+                continue
+            
+            tt0, tt1 = times[i0:i1], times[i1:]
+            pos0, lab0 = compute_year_ticks(tt0)
+            pos1, lab1 = compute_year_ticks(tt1)
+            
+            # Compute y-limits from both satellite and in-situ
+            finite_temps = temps[np.isfinite(temps)]
+            finite_insitu = np.array([t for t in insitu_temps if np.isfinite(t)])
+            all_vals = np.concatenate([finite_temps, finite_insitu]) if len(finite_temps) > 0 else finite_insitu
+            if len(all_vals) > 0:
+                y_min, y_max = np.min(all_vals), np.max(all_vals)
+                pad = 0.05 * max(1.0, y_max - y_min)
+                y_lim = (y_min - pad, y_max + pad)
+            else:
+                y_lim = (0, 30)
+            
+            # Get all_pixels if available (for spaghetti background)
+            all_pixels = method_data.get('all_pixels', {}).get('temps_all', None)
+            
+            # First half panel - FULL DAILY DATA
+            ax = axes[plot_idx]
+            plot_idx += 1
+            
+            plot_panel(ax, times, all_pixels, temps, slice(i0, i1), y_lim,
+                      pos0, lab0, 
+                      f'{method_name}: Full Daily ({times[i0].year}-{mid_year})',
+                      show_legend=True,
+                      insitu_dates=insitu_dates, insitu_temps=insitu_temps)
+            ax.set_ylabel('LSWT (°C)')
+            
+            # Second half panel - FULL DAILY DATA
+            ax = axes[plot_idx]
+            plot_idx += 1
+            
+            plot_panel(ax, times, all_pixels, temps, slice(i1, None), y_lim,
+                      pos1, lab1,
+                      f'{method_name}: Full Daily ({mid_year+1}-{times[-1].year})',
+                      show_legend=False,
+                      insitu_dates=insitu_dates, insitu_temps=insitu_temps)
+            ax.set_ylabel('LSWT (°C)')
+            
+            # Difference plot for this interpolated method (matched points)
             ax = axes[plot_idx]
             plot_idx += 1
             
             dates = method_data['dates']
             diff = method_data['difference']
             
-            ax.plot(dates, diff, label=f'Diff (Satellite - Insitu)', 
-                   marker='s', linestyle='-', color=colors.get(method_name, 'gray'),
-                   markersize=4)
+            ax.plot(dates, diff, marker='s', linestyle='-', 
+                   color=colors.get(method_name, 'gray'), markersize=3, linewidth=0.8)
             ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
             ax.fill_between(dates, diff, 0, alpha=0.3, color=colors.get(method_name, 'gray'))
             ax.set_ylabel('Difference (°C)')
-            ax.set_title(f'{method_name}: RMSE={method_data["rmse"]:.3f}°C, '
-                        f'Bias={method_data["bias"]:.3f}°C, R={method_data["correlation"]:.3f}')
-            ax.legend(loc='upper left')
-            ax.grid(True, alpha=0.3)
+            ax.set_title(f'{method_name} Difference: RMSE={method_data["rmse"]:.3f}°C, '
+                        f'Bias={method_data["bias"]:.3f}°C, R={method_data["correlation"]:.3f}, '
+                        f'N={method_data["n_matches"]}')
+            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
         
-        # Full time series plot (for interpolated data)
-        if has_full_ts:
+        # ============ SPAGHETTI PLOTS (if --all-pixels) ============
+        for method_name, method_data in interp_methods.items():
+            if 'all_pixels' not in method_data:
+                continue
+            
             ax = axes[plot_idx]
             plot_idx += 1
             
-            for method_name, method_data in methods.items():
-                if 'full_timeseries' not in method_data:
-                    continue
-                
+            all_pix = method_data['all_pixels']
+            times = pd.DatetimeIndex(all_pix['times'])
+            temps_all = all_pix['temps_all']  # (time, n_pixels)
+            n_sampled = all_pix['n_sampled_pixels']
+            n_total = all_pix['n_total_pixels']
+            
+            # All pixels (faint black lines - pipeline style)
+            for i in range(temps_all.shape[1]):
+                col = temps_all[:, i]
+                valid = np.isfinite(col)
+                if valid.any():
+                    label = f'Lake pixels ({n_sampled}/{n_total} sampled)' if i == 0 else None
+                    ax.plot(times[valid], col[valid], '-', color='black', 
+                           alpha=0.15, lw=0.3, label=label)
+            
+            # Buoy pixel (bold red line)
+            if 'full_timeseries' in method_data:
                 full_ts = method_data['full_timeseries']
-                times = full_ts['times']
-                temps = full_ts['temps']
-                
-                color = colors.get(method_name, 'gray')
-                ax.plot(times, temps, label=f'{method_name} (daily)', 
-                       linestyle='-', color=color, linewidth=0.8, alpha=0.8)
+                buoy_temps = full_ts['temps']
+                valid = np.isfinite(buoy_temps)
+                ax.plot(times[valid], buoy_temps[valid], '-', color='red', lw=0.8, 
+                       label='Buoy pixel (satellite)')
             
-            # Overlay in-situ as markers
-            ax.plot(first_method['dates'], first_method['insitu_temps'], 
-                   label='In-situ', marker='o', linestyle='None', 
-                   color=colors['insitu'], markersize=5, zorder=10)
+            # In-situ overlay (blue markers)
+            ax.plot(insitu_dates, insitu_temps, 'o', color='blue', markersize=4,
+                   alpha=0.8, label='In-situ', zorder=10)
             
-            ax.set_ylabel('Temperature (°C)')
-            ax.set_title(f'Full Daily Time Series with In-Situ Overlay')
-            ax.legend(loc='best')
-            ax.grid(True, alpha=0.3)
+            ax.set_ylabel('LSWT (°C)')
+            ax.set_title(f'{method_name}: All Lake Pixels (spaghetti) with Buoy Pixel and In-Situ')
+            ax.legend(loc='best', fontsize=8)
+            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.3)
         
-        # All pixels spaghetti plot
-        if has_all_pixels:
-            ax = axes[plot_idx]
-            plot_idx += 1
-            
-            # Find a method with all_pixels data
-            for method_name, method_data in methods.items():
-                if 'all_pixels' not in method_data:
-                    continue
-                
-                all_pix = method_data['all_pixels']
-                times = all_pix['times']
-                temps_all = all_pix['temps_all']  # (n_pixels, n_times)
-                n_sampled = all_pix['n_sampled_pixels']
-                n_total = all_pix['n_total_pixels']
-                
-                # Plot all pixel time series with low alpha
-                for i in range(temps_all.shape[0]):
-                    if i == 0:
-                        ax.plot(times, temps_all[i, :], color='lightgray', 
-                               linewidth=0.5, alpha=0.3, 
-                               label=f'Lake pixels ({n_sampled}/{n_total} sampled)')
-                    else:
-                        ax.plot(times, temps_all[i, :], color='lightgray', 
-                               linewidth=0.5, alpha=0.3)
-                
-                # Plot the buoy pixel in darker color
-                if 'full_timeseries' in method_data:
-                    full_ts = method_data['full_timeseries']
-                    ax.plot(full_ts['times'], full_ts['temps'], 
-                           color=colors.get(method_name, 'blue'), linewidth=1.5,
-                           label=f'Buoy pixel ({method_name})')
-                
-                break  # Only need one method for all pixels
-            
-            # Overlay in-situ
-            ax.plot(first_method['dates'], first_method['insitu_temps'], 
-                   label='In-situ', marker='o', linestyle='None', 
-                   color=colors['insitu'], markersize=6, zorder=10)
-            
-            ax.set_ylabel('Temperature (°C)')
-            ax.set_title(f'All Lake Pixels (spaghetti) with Buoy Pixel and In-Situ Overlay')
-            ax.legend(loc='best')
-            ax.grid(True, alpha=0.3)
-        
-        # Format x-axis for all plots
-        for ax in axes:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-        
+        # Final formatting
         axes[-1].set_xlabel('Date')
         
         plt.tight_layout()
         
         if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            plt.savefig(save_path, dpi=200, bbox_inches='tight')
             print(f"  Saved plot: {save_path}")
         else:
             plt.show()
@@ -740,8 +806,6 @@ class InsituValidator:
                     'lake_id': results['lake_id'],
                     'lake_id_cci': results['lake_id_cci'],
                     'site_id': results['site_id'],
-                    'year_start': results['year_start'],
-                    'year_end': results['year_end'],
                     'date': date,
                     'method': method_name,
                     'satellite_temp_C': method_data['satellite_temps'][i],
@@ -763,8 +827,6 @@ class InsituValidator:
                     'lake_id': results['lake_id'],
                     'lake_id_cci': results['lake_id_cci'],
                     'site_id': results['site_id'],
-                    'year_start': results['year_start'],
-                    'year_end': results['year_end'],
                     'site_lat': results['site_lat'],
                     'site_lon': results['site_lon'],
                     'method': method_name,
@@ -782,14 +844,7 @@ class InsituValidator:
     
     def run(self, lake_ids: Optional[List[int]] = None, 
             year_start: Optional[int] = None, year_end: Optional[int] = None):
-        """
-        Run validation for specified lakes or all lakes in selection CSV.
-        
-        Args:
-            lake_ids: List of lake IDs to process (None = all in selection CSV)
-            year_start: Start year (None = no lower limit)
-            year_end: End year (None = no upper limit)
-        """
+        """Run validation for specified lakes."""
         pairs = self.get_lake_site_pairs(lake_ids)
         year_str = self._get_year_str(year_start, year_end)
         print(f"Processing {len(pairs)} lake/site pairs for {year_str}")
@@ -806,26 +861,22 @@ class InsituValidator:
             if results is not None:
                 all_results.append(results)
                 
-                # Save individual results
                 year_suffix = self._get_year_suffix(year_start, year_end)
                 base_name = f"lake{lake_id}_site{site_id}_{year_suffix}"
                 
-                # Plot
                 plot_path = os.path.join(self.output_dir, f"{base_name}_comparison.png")
                 self.plot_validation(results, plot_path)
                 
-                # CSV
                 csv_path = os.path.join(self.output_dir, f"{base_name}_matched.csv")
                 self.save_results_csv(results, csv_path)
         
-        # Save summary
         if all_results:
             year_suffix = self._get_year_suffix(year_start, year_end)
             summary_path = os.path.join(self.output_dir, f"validation_summary_{year_suffix}.csv")
             self.save_summary_csv(all_results, summary_path)
         
         print(f"\n{'='*60}")
-        print(f"Validation complete: {len(all_results)} lakes processed successfully")
+        print(f"Validation complete: {len(all_results)} lakes processed")
         print(f"Output directory: {self.output_dir}")
         print(f"{'='*60}")
         
@@ -838,45 +889,26 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Validate specific lake/site for a specific year
     python insitu_validation.py --lake-id 2 --year 2010
-    
-    # Validate for a range of years (2004 to 2022 inclusive)
-    python insitu_validation.py --lake-id 2 --year 2004 2022
-    
-    # Validate specific lake/site for ALL years in buoy data
-    python insitu_validation.py --lake-id 2 --year all
-    
-    # Validate using lake_id_cci directly (for lakes not in selection CSV)
-    python insitu_validation.py --lake-id-cci 20 --site-id 1 --year 2019 2022
-    
-    # Plot all lake pixels as spaghetti plot with in-situ on top
-    python insitu_validation.py --lake-id-cci 20 --site-id 1 --year 2019 2022 --all-pixels
-    
-    # Limit pixels in spaghetti plot (for very large lakes)
-    python insitu_validation.py --lake-id-cci 20 --site-id 1 --all-pixels --max-pixels 200
-    
-    # Validate all lakes in selection CSV
+    python insitu_validation.py --lake-id-cci 4503 --site-id 1 --year 2019 2022
+    python insitu_validation.py --lake-id-cci 4503 --site-id 1 --year 2019 2022 --all-pixels
     python insitu_validation.py --all --year 2010
-    
-    # Use custom config
-    python insitu_validation.py --config my_config.json --lake-id 2
         """
     )
     
     parser.add_argument('--config', type=str, help='Path to JSON config file')
-    parser.add_argument('--lake-id', type=int, nargs='+', help='Lake ID(s) to validate (uses selection CSV)')
-    parser.add_argument('--lake-id-cci', type=int, help='Direct lake_id_cci (bypasses selection CSV)')
-    parser.add_argument('--site-id', type=int, default=1, help='Site ID (used with --lake-id-cci, default: 1)')
+    parser.add_argument('--lake-id', type=int, nargs='+', help='Lake ID(s) (uses selection CSV)')
+    parser.add_argument('--lake-id-cci', type=int, help='Direct lake_id_cci')
+    parser.add_argument('--site-id', type=int, default=1, help='Site ID (default: 1)')
     parser.add_argument('--year', type=str, nargs='+', default=['all'], 
-                        help='Target year(s): single year (2010), range (2004 2022), or "all" (default: all)')
+                        help='Year(s): single, range (2004 2022), or "all"')
     parser.add_argument('--all', action='store_true', help='Validate all lakes in selection CSV')
     parser.add_argument('--run-root', type=str, help='Override run root directory')
     parser.add_argument('--output-dir', type=str, help='Override output directory')
     parser.add_argument('--all-pixels', action='store_true', 
-                        help='Plot all lake pixel time series (spaghetti plot) with insitu overlay')
+                        help='Include spaghetti plots showing all lake pixels')
     parser.add_argument('--max-pixels', type=int, default=500,
-                        help='Max pixels to sample for spaghetti plot (default: 500)')
+                        help='Max pixels for spaghetti plot (default: 500)')
     
     args = parser.parse_args()
     
@@ -887,7 +919,6 @@ Examples:
         with open(args.config) as f:
             config.update(json.load(f))
     
-    # Override with CLI args
     if args.run_root:
         config['run_root'] = args.run_root
     if args.output_dir:
@@ -897,39 +928,30 @@ Examples:
     if args.max_pixels:
         config['max_pixels_to_plot'] = args.max_pixels
     
-    # Parse year argument
+    # Parse year
     year_args = args.year
     if len(year_args) == 1 and year_args[0].lower() == 'all':
         year_start = None
         year_end = None
     elif len(year_args) == 1:
-        try:
-            year_start = int(year_args[0])
-            year_end = year_start
-        except ValueError:
-            print(f"ERROR: Invalid year '{year_args[0]}'. Use a number, range (2004 2022), or 'all'.")
-            sys.exit(1)
+        year_start = int(year_args[0])
+        year_end = year_start
     elif len(year_args) == 2:
-        try:
-            year_start = int(year_args[0])
-            year_end = int(year_args[1])
-            if year_start > year_end:
-                year_start, year_end = year_end, year_start  # Swap if reversed
-        except ValueError:
-            print(f"ERROR: Invalid year range '{year_args}'. Use two numbers like '2004 2022'.")
-            sys.exit(1)
+        year_start = int(year_args[0])
+        year_end = int(year_args[1])
+        if year_start > year_end:
+            year_start, year_end = year_end, year_start
     else:
-        print(f"ERROR: Invalid year specification. Use single year, range (2004 2022), or 'all'.")
+        print("ERROR: Invalid year specification")
         sys.exit(1)
     
     # Initialize validator
     validator = InsituValidator(config)
     
-    # Handle direct lake_id_cci mode (bypasses selection CSV)
+    # Handle direct lake_id_cci mode
     if args.lake_id_cci:
         lake_id_cci = args.lake_id_cci
         site_id = args.site_id
-        # For direct mode, assume lake_id == lake_id_cci (user can check buoy files)
         lake_id = lake_id_cci
         
         print(f"Direct mode: lake_id_cci={lake_id_cci}, site_id={site_id}")
@@ -949,7 +971,7 @@ Examples:
             return 0
         return 1
     
-    # Standard mode: use selection CSV
+    # Standard mode
     lake_ids = None
     if args.lake_id:
         lake_ids = args.lake_id
@@ -958,7 +980,6 @@ Examples:
         parser.print_help()
         sys.exit(1)
     
-    # Run validation
     results = validator.run(lake_ids=lake_ids, year_start=year_start, year_end=year_end)
     
     return 0 if results else 1
