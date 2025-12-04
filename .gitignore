@@ -8,6 +8,8 @@ build/
 dist/
 .installed.cfg
 *.log
+*.err
+*.out
 
 # Jupyter
 .ipynb_checkpoints/

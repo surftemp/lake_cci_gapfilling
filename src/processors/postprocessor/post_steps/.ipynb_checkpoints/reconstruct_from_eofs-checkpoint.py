@@ -1,4 +1,5 @@
 # post_steps/reconstruct_from_eofs.py
+# FIXED: Adds back the mean offset that DINEOF subtracts before SVD
 from __future__ import annotations
 
 import os
@@ -19,6 +20,9 @@ class ReconstructFromEOFsStep(PostProcessingStep):
       - 'filtered'        -> reads eofs_filtered.nc, writes dineof_results_eof_filtered.nc
       - 'interp'          -> reads eofs_interpolated.nc, writes dineof_results_eof_interp_full.nc
       - 'filtered_interp' -> reads eofs_filtered_interpolated.nc, writes dineof_results_eof_filtered_interp_full.nc
+
+    FIXED: Now computes and adds back the mean offset that DINEOF subtracts before SVD.
+    This ensures reconstructed outputs match the original DINEOF output when no filtering is applied.
 
     Notes:
       - Does NOT modify the main merged ds. Operates on disk side artifacts.
@@ -54,6 +58,11 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         if eofs_path is None:
             print(f"[{self.name}] No EOFs file found for source_mode={self.source_mode}; skipping.")
             return ds if ds is not None else xr.Dataset()
+
+        # --- Compute mean offset from original DINEOF output ---
+        mean_offset = self._compute_mean_offset(ctx, base_dir)
+        if mean_offset is not None:
+            print(f"[{self.name}] Mean offset to add back: {mean_offset:.6f}")
 
         # --- open EOFs
         try:
@@ -116,6 +125,10 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         # --- reconstruct via tensordot: (t,K) · (K,y,x) -> (t,y,x)
         recon = np.tensordot(T_scaled, S, axes=([1], [0]))             # (t, y, x)
 
+        # --- ADD BACK MEAN OFFSET ---
+        if mean_offset is not None:
+            recon = recon + mean_offset
+
         # --- wrap in DataArray with coords
         y_name, x_name = self._infer_yx_names(eofs)
         da_recon = xr.DataArray(
@@ -134,7 +147,7 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         # --- mirror original dineof_results.nc structure
         try:
             with xr.open_dataset(ctx.dineof_output_path) as orig:
-                # align to template using 'temp_filled' (if orig doesn’t have it, this still works)
+                # align to template using 'temp_filled' (if orig doesn't have it, this still works)
                 da_recon = self._align_to_template(da_recon, orig, "temp_filled")
             
                 ds_out = xr.Dataset({"temp_filled": da_recon})
@@ -144,6 +157,10 @@ class ReconstructFromEOFsStep(PostProcessingStep):
                 # copy var attrs if present on the original
                 if "temp_filled" in orig:
                     ds_out["temp_filled"].attrs = dict(orig["temp_filled"].attrs)
+                
+                # Add attr to track mean offset correction
+                if mean_offset is not None:
+                    ds_out.attrs["mean_offset_applied"] = float(mean_offset)
             
                 enc = {"temp_filled": {"dtype": "float32", "zlib": True, "complevel": 4}}
                 ds_out.to_netcdf(target_path, encoding=enc)
@@ -154,6 +171,33 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         return ds if ds is not None else xr.Dataset()
 
     # ---------- helpers ----------
+
+    def _compute_mean_offset(self, ctx: PostContext, base_dir: str) -> Optional[float]:
+        """
+        Get the mean offset that DINEOF subtracted before SVD.
+        
+        DINEOF stores this in meandata.val in Fortran scientific notation (e.g., 0.3894E-01).
+        
+        Returns:
+            The scalar mean offset to add back, or None if file not found.
+        """
+        meandata_path = os.path.join(base_dir, "meandata.val")
+        
+        if not os.path.isfile(meandata_path):
+            print(f"[{self.name}] meandata.val not found, cannot add mean offset")
+            return None
+        
+        try:
+            with open(meandata_path, 'r') as f:
+                content = f.read().strip()
+            
+            # Parse Fortran scientific notation (e.g., "0.3894E-01")
+            mean_offset = float(content)
+            return mean_offset
+            
+        except Exception as e:
+            print(f"[{self.name}] Failed to read meandata.val: {e}")
+            return None
 
     def _get_eofs_source(self, base_dir: str) -> Optional[str]:
         """Explicit source selection based on source_mode."""

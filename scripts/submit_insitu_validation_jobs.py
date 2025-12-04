@@ -117,10 +117,10 @@ Examples:
     
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
-    parser.add_argument("--qos", default="short", help="SLURM QoS")
+    parser.add_argument("--qos", default="long", help="SLURM QoS")
     parser.add_argument("--account", default="eocis_chuk", help="SLURM account")
-    parser.add_argument("--time", default="00:30:00", help="Time limit per job")
-    parser.add_argument("--mem", default="16G", help="Memory per job")
+    parser.add_argument("--time", default="00:60:00", help="Time limit per job")
+    parser.add_argument("--mem", default="64G", help="Memory per job")
     
     args = parser.parse_args()
     
