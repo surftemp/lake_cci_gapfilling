@@ -81,9 +81,6 @@ class Converter:
 
             # generate cross-validation mask for customised cv
             DineofCVGenerationStep(),
-
-            # safety check to reduce nevs and ncv if either is > min(size(X_data))
-            DineofInitSafetyAdjustStep(),
         ]
 
     def convert(
