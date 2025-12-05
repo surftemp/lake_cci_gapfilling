@@ -18,6 +18,7 @@ from dincae_arm import PreparedNC, build_inputs as dincae_build_inputs
 from dincae_arm import run_dincae as dincae_run
 from dincae_arm import write_dineof_shaped_outputs as dincae_write_out
 import numpy as np
+import xarray as xr
 
 # ---------- small utils ----------
 
@@ -435,6 +436,14 @@ def do_exec(conf_path:str, row:int, stage:str):
         time_var = conf.get("variables", {}).get("time_var", "time")
         dp = conf.get("dineof_parameters", {})
         nev   = dp.get("nev", 50); neini = dp.get("neini", 1); ncv   = dp.get("ncv", nev+7)
+        with xr.open_dataset(paths["prepared_nc"]) as ds_prep:
+            T = ds_prep.dims["time"]
+            N = int(np.count_nonzero(ds_prep[mask_var].values > 0))
+        min_dim = min(T, N)
+        if ncv >= min_dim:
+            offset = ncv - min_dim + 1
+            nev, ncv = nev - offset, ncv - offset
+            print(f"[DINEOF] Safety: reduced nev/ncv by {offset} (min_dim={min_dim}) -> nev={nev}, ncv={ncv}")        
         tol   = dp.get("tol", 1e-8); nitemax = dp.get("nitemax", 300); toliter = dp.get("toliter", 1e-3)
         rec   = dp.get("rec", 1); eof   = dp.get("eof", 1); norm  = dp.get("norm", 0); numit = dp.get("numit", 3)
         seed  = dp.get("seed", 243435)
