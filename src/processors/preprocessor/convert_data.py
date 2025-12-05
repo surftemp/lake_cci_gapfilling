@@ -35,7 +35,6 @@ from .lswt_processing.spatial_filters import (
 from .lswt_processing.frame_filters import EmptyFrameRemovalStep
 from .lswt_processing.finalization import DatasetFinalizerStep
 from .lswt_processing.dineof_cv import DineofCVGenerationStep
-from .lswt_processing.dineof_safety import DineofInitSafetyAdjustStep
 from .lswt_processing.stats import get_recorder
 from .lswt_processing.final_stats import FinalStatsWriteStep
 
