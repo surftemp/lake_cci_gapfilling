@@ -9,7 +9,17 @@
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [2965,6785,12471,13377,300009807,300012341],
+    "custom_lake_ids": [300000140,
+300000311,
+300000579,
+300001118,
+300001141,
+300001625,
+300002883,
+300004882,
+300004974,
+300012284,
+300016649],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
