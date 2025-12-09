@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Standalone In-Situ Validation Runner
+Standalone In-Situ Validation Runner (v2)
 
 Runs the InsituValidationStep on existing pipeline results without
 re-running the full pipeline.
+
+NEW in v2: Supports multiple selection CSVs with cascading fallback.
+    - Lakes are matched against each selection CSV in order
+    - First CSV containing the lake_id_cci is used
+    - Ensures lakes with in-situ data from different time periods are all captured
 
 Usage:
     # Single lake
@@ -14,6 +19,10 @@ Usage:
     
     # Specific lakes
     python run_insitu_validation.py --run-root /path/to/experiment --lake-ids 4503 3007 1234
+    
+    # Custom selection CSVs (in priority order)
+    python run_insitu_validation.py --run-root /path/to/experiment --all \
+        --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
 
 Author: Shaerdan / NCEO / University of Reading
 """
@@ -36,13 +45,19 @@ else:
     # Fallback: try current directory
     sys.path.insert(0, SCRIPT_DIR)
 
+# Try to import v2 first, fall back to original
 try:
-    from insitu_validation import InsituValidationStep, INSITU_CONFIG
-except ImportError as e:
-    print(f"Error: Could not import insitu_validation: {e}")
-    print(f"Looked in: {SRC_PATH}")
-    print(f"Make sure insitu_validation.py exists in src/processors/postprocessor/post_steps/")
-    sys.exit(1)
+    from insitu_validation_v2 import InsituValidationStep, INSITU_CONFIG
+    print("[Runner] Using insitu_validation_v2 (multi-CSV support)")
+except ImportError:
+    try:
+        from insitu_validation import InsituValidationStep, INSITU_CONFIG
+        print("[Runner] Using insitu_validation (single-CSV mode)")
+    except ImportError as e:
+        print(f"Error: Could not import insitu_validation: {e}")
+        print(f"Looked in: {SRC_PATH}")
+        print(f"Make sure insitu_validation.py or insitu_validation_v2.py exists in src/processors/postprocessor/post_steps/")
+        sys.exit(1)
 
 
 @dataclass
@@ -161,7 +176,7 @@ def run_validation_for_lake(run_root: str, lake_id: int, config: dict) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run in-situ validation on existing pipeline results",
+        description="Run in-situ validation on existing pipeline results (v2 - multi-CSV support)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -172,9 +187,9 @@ Examples:
     python run_insitu_validation.py --run-root /path/to/exp1 --all \\
         --config-file /path/to/exp1_baseline.json
     
-    # Override specific paths
+    # Override with custom selection CSVs (searched in order)
     python run_insitu_validation.py --run-root /path/to/exp1 --lake-id 4503 \\
-        --buoy-dir /custom/buoy/path --selection-csv /custom/selection.csv
+        --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
 
 Output:
     Results are saved to: {run_root}/post/{lake_id}/{alpha}/insitu_cv_validation/
@@ -198,8 +213,14 @@ Output:
                         help="Path to experiment JSON config file (reads insitu_validation section)")
     parser.add_argument("--buoy-dir", 
                         help="Path to buoy data directory (overrides config file)")
-    parser.add_argument("--selection-csv",
-                        help="Path to lake selection CSV (overrides config file)")
+    
+    # NEW: Support both single CSV (legacy) and multiple CSVs (v2)
+    csv_group = parser.add_mutually_exclusive_group()
+    csv_group.add_argument("--selection-csv",
+                           help="Path to single lake selection CSV (legacy mode)")
+    csv_group.add_argument("--selection-csvs", nargs="+",
+                           help="Paths to selection CSVs in priority order (v2 mode)")
+    
     parser.add_argument("--distance-threshold", type=float,
                         default=INSITU_CONFIG["distance_threshold"],
                         help="Max distance (degrees) for grid-buoy matching")
@@ -234,8 +255,26 @@ Output:
     # CLI arguments override config file
     if args.buoy_dir:
         config["buoy_dir"] = args.buoy_dir
-    if args.selection_csv:
+    
+    # Handle selection CSV arguments
+    if args.selection_csvs:
+        # v2 mode: multiple CSVs
+        valid_csvs = [c for c in args.selection_csvs if os.path.exists(c)]
+        if not valid_csvs:
+            print(f"Error: None of the provided selection CSVs exist")
+            sys.exit(1)
+        config["selection_csvs"] = valid_csvs
+        config["selection_csv"] = None  # Clear legacy option
+        print(f"Using {len(valid_csvs)} selection CSV(s) in priority order")
+    elif args.selection_csv:
+        # Legacy mode: single CSV
+        if not os.path.exists(args.selection_csv):
+            print(f"Error: Selection CSV not found: {args.selection_csv}")
+            sys.exit(1)
         config["selection_csv"] = args.selection_csv
+        config["selection_csvs"] = None  # Clear v2 option
+        print(f"Using single selection CSV (legacy mode)")
+    
     config["distance_threshold"] = args.distance_threshold
     config["quality_threshold"] = INSITU_CONFIG.get("quality_threshold", 3)
     
@@ -252,14 +291,22 @@ Output:
         print("No lakes to process")
         sys.exit(0)
     
-    # Process each lake
+    # Print configuration summary
     print(f"\n{'='*60}")
-    print(f"In-Situ Validation Runner")
+    print(f"In-Situ Validation Runner (v2)")
     print(f"{'='*60}")
     print(f"Run root: {args.run_root}")
     print(f"Lakes to process: {len(lake_ids)}")
     print(f"Buoy dir: {config['buoy_dir']}")
-    print(f"Selection CSV: {config['selection_csv']}")
+    
+    # Show selection CSV info
+    if config.get("selection_csvs"):
+        print(f"Selection CSVs ({len(config['selection_csvs'])} files, searched in order):")
+        for i, csv_path in enumerate(config['selection_csvs'], 1):
+            print(f"  {i}. {os.path.basename(csv_path)}")
+    elif config.get("selection_csv"):
+        print(f"Selection CSV: {config['selection_csv']}")
+    
     print(f"{'='*60}\n")
     
     success_count = 0

@@ -10,10 +10,20 @@ Configuration (in experiment JSON):
     "insitu_validation": {
         "enable": true,
         "buoy_dir": "/path/to/buoy/data",
-        "selection_csv": "/path/to/selection.csv",
+        "selection_csvs": [
+            "/path/to/2010_selection.csv",
+            "/path/to/2007_selection.csv",
+            "/path/to/2018_selection.csv",
+            "/path/to/2020_selection.csv"
+        ],
         "distance_threshold": 0.05,
         "quality_threshold": 3
     }
+
+NEW in v2: Supports multiple selection CSVs with cascading fallback.
+    - Lakes are matched against each selection CSV in order
+    - First CSV containing the lake_id_cci is used
+    - Ensures lakes with in-situ data from different time periods are all captured
 
 Author: Shaerdan / NCEO / University of Reading
 """
@@ -67,10 +77,22 @@ except ImportError:
 # ============================================================================
 # Default Configuration - Used as fallback if not specified in experiment JSON
 # ============================================================================
+
+# Base directory for selection CSVs
+_SELECTION_CSV_DIR = "/home/users/shaerdan/general_purposes/insitu_cv"
+
 DEFAULT_INSITU_CONFIG = {
     "enable": True,
     "buoy_dir": "/gws/ssde/j25b/nceo_uor/users/lcarrea01/INSITU/Buoy_Laura/ALL_FILES_QC",
-    "selection_csv": "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2010_selection_converted.csv",
+    # NEW: List of selection CSVs in priority order (first match wins)
+    "selection_csvs": [
+        f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2010_selection_converted.csv",
+        f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2007_selection_converted.csv",
+        f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2018_selection_converted.csv",
+        f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2020_selection_converted.csv",
+    ],
+    # DEPRECATED but kept for backward compatibility - single CSV path
+    "selection_csv": None,
     "distance_threshold": 0.05,  # degrees (~5.5 km)
     "quality_threshold": 3,
 }
@@ -187,7 +209,20 @@ class InsituValidationStep(PostProcessingStep):
     2. Passed directly via config parameter (for standalone use)
     3. Falls back to DEFAULT_INSITU_CONFIG if neither provided
     
-    Example JSON config:
+    Example JSON config (NEW format with multiple selection CSVs):
+        "insitu_validation": {
+            "enable": true,
+            "buoy_dir": "/path/to/buoy/data",
+            "selection_csvs": [
+                "/path/to/2010_selection.csv",
+                "/path/to/2007_selection.csv",
+                "/path/to/2018_selection.csv"
+            ],
+            "distance_threshold": 0.05,
+            "quality_threshold": 3
+        }
+    
+    Legacy format (still supported):
         "insitu_validation": {
             "enable": true,
             "buoy_dir": "/path/to/buoy/data",
@@ -201,7 +236,10 @@ class InsituValidationStep(PostProcessingStep):
         super().__init__()
         # Config can be overridden directly, or loaded from experiment JSON in apply()
         self._override_config = config
-        self._selection_df = None
+        # Cache: selection CSV path -> loaded DataFrame
+        self._selection_dfs: Dict[str, pd.DataFrame] = {}
+        # Cache: lake_id_cci -> (selection_csv_path, DataFrame)
+        self._lake_to_selection: Dict[int, Tuple[str, pd.DataFrame]] = {}
     
     @property
     def name(self) -> str:
@@ -216,6 +254,25 @@ class InsituValidationStep(PostProcessingStep):
         experiment_config_path = getattr(ctx, 'experiment_config_path', None)
         return load_insitu_config_from_experiment(experiment_config_path)
     
+    def _get_selection_csv_list(self) -> List[str]:
+        """
+        Get list of selection CSVs to search, in priority order.
+        Supports both new 'selection_csvs' list and legacy 'selection_csv' single path.
+        """
+        # New format: list of CSVs
+        if "selection_csvs" in self.config and self.config["selection_csvs"]:
+            csvs = self.config["selection_csvs"]
+            if isinstance(csvs, list):
+                return [c for c in csvs if c and os.path.exists(c)]
+        
+        # Legacy format: single CSV
+        if "selection_csv" in self.config and self.config["selection_csv"]:
+            csv_path = self.config["selection_csv"]
+            if os.path.exists(csv_path):
+                return [csv_path]
+        
+        return []
+    
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
         """Check if we have buoy data for this lake. Always returns True to let apply() handle gracefully."""
         try:
@@ -226,35 +283,79 @@ class InsituValidationStep(PostProcessingStep):
                 print(f"[InsituValidation] Disabled in config, skipping")
                 return False
             
-            selection_csv = config.get("selection_csv", "")
             buoy_dir = config.get("buoy_dir", "")
             
-            if not selection_csv or not os.path.exists(selection_csv):
-                print(f"[InsituValidation] Selection CSV not found: {selection_csv}, skipping")
-                return False
             if not buoy_dir or not os.path.exists(buoy_dir):
                 print(f"[InsituValidation] Buoy directory not found: {buoy_dir}, skipping")
                 return False
+            
+            # Store config for later use
+            self.config = config
+            
+            # Check that at least one selection CSV exists
+            csv_list = self._get_selection_csv_list()
+            if not csv_list:
+                print(f"[InsituValidation] No valid selection CSVs found, skipping")
+                return False
+            
+            print(f"[InsituValidation] Found {len(csv_list)} selection CSV(s) to search")
             return True
+            
         except Exception as e:
             print(f"[InsituValidation] Error in should_apply: {e}")
             return False
     
-    def _load_selection_csv(self) -> pd.DataFrame:
-        """Load and cache the selection CSV."""
-        if self._selection_df is None:
-            df = pd.read_csv(self.config["selection_csv"])
+    def _load_selection_csv(self, csv_path: str) -> pd.DataFrame:
+        """Load and cache a selection CSV."""
+        if csv_path not in self._selection_dfs:
+            df = pd.read_csv(csv_path)
             df.columns = df.columns.str.strip()
             time_col = [c for c in df.columns if 'time_IS' in c][0]
             if time_col != 'time_IS':
                 df = df.rename(columns={time_col: 'time_IS'})
             df['time_IS'] = pd.to_datetime(df['time_IS'])
-            self._selection_df = df
-        return self._selection_df
+            self._selection_dfs[csv_path] = df
+        return self._selection_dfs[csv_path]
+    
+    def _find_selection_for_lake(self, lake_id_cci: int) -> Optional[Tuple[str, pd.DataFrame]]:
+        """
+        Find which selection CSV contains this lake_id_cci.
+        Searches through selection_csvs in order, returns first match.
+        
+        Returns:
+            Tuple of (csv_path, dataframe) if found, None otherwise
+        """
+        # Check cache first
+        if lake_id_cci in self._lake_to_selection:
+            return self._lake_to_selection[lake_id_cci]
+        
+        # Search through CSVs in priority order
+        csv_list = self._get_selection_csv_list()
+        
+        for csv_path in csv_list:
+            try:
+                df = self._load_selection_csv(csv_path)
+                if lake_id_cci in df['lake_id_cci'].values:
+                    csv_name = os.path.basename(csv_path)
+                    print(f"[InsituValidation] Lake {lake_id_cci} found in {csv_name}")
+                    self._lake_to_selection[lake_id_cci] = (csv_path, df)
+                    return (csv_path, df)
+            except Exception as e:
+                print(f"[InsituValidation] Error loading {csv_path}: {e}")
+                continue
+        
+        # Not found in any CSV
+        print(f"[InsituValidation] Lake {lake_id_cci} not found in any selection CSV")
+        self._lake_to_selection[lake_id_cci] = None
+        return None
     
     def _get_lake_sites(self, lake_id_cci: int) -> pd.DataFrame:
-        """Get all unique sites for a given lake_id_cci from selection CSV."""
-        df = self._load_selection_csv()
+        """Get all unique sites for a given lake_id_cci from the appropriate selection CSV."""
+        result = self._find_selection_for_lake(lake_id_cci)
+        if result is None:
+            return pd.DataFrame()
+        
+        csv_path, df = result
         lake_df = df[df['lake_id_cci'] == lake_id_cci]
         
         if lake_df.empty:
@@ -288,9 +389,16 @@ class InsituValidationStep(PostProcessingStep):
             print(f"[InsituValidation] Buoy file not found: {os.path.basename(buoy_file)}")
             return None
     
-    def _determine_representative_hour(self, lake_id: int, site_id: int) -> Optional[int]:
-        """Find representative hour for satellite overpasses."""
-        df = self._load_selection_csv()
+    def _determine_representative_hour(self, lake_id: int, site_id: int, lake_id_cci: int) -> Optional[int]:
+        """
+        Find representative hour for satellite overpasses.
+        Uses the selection CSV that contains this lake.
+        """
+        result = self._find_selection_for_lake(lake_id_cci)
+        if result is None:
+            return None
+        
+        csv_path, df = result
         subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()
         
         if subset.empty:
@@ -390,11 +498,11 @@ class InsituValidationStep(PostProcessingStep):
             
             print(f"[InsituValidation] Checking for buoy data for lake {lake_id_cci}")
             
-            # Find sites for this lake
+            # Find sites for this lake (now searches across multiple selection CSVs)
             try:
                 sites = self._get_lake_sites(lake_id_cci)
             except Exception as e:
-                print(f"[InsituValidation] Error loading selection CSV: {e}")
+                print(f"[InsituValidation] Error finding sites: {e}")
                 return return_ds
             
             if sites.empty:
@@ -419,8 +527,8 @@ class InsituValidationStep(PostProcessingStep):
                     
                     print(f"[InsituValidation] Processing site {site_id} at ({site_lat:.4f}, {site_lon:.4f})")
                     
-                    # Get representative hour
-                    rep_hour = self._determine_representative_hour(lake_id, site_id)
+                    # Get representative hour (now passes lake_id_cci for proper CSV lookup)
+                    rep_hour = self._determine_representative_hour(lake_id, site_id, lake_id_cci)
                     
                     # Load buoy data
                     buoy_df = self._load_buoy_data(lake_id, site_id, rep_hour)
@@ -468,25 +576,18 @@ class InsituValidationStep(PostProcessingStep):
         }
         
         nc_files = glob(os.path.join(post_dir, "*.nc"))
-        print(f"[InsituValidation] Found {len(nc_files)} NetCDF files in {post_dir}")
-        
         for nc_file in nc_files:
             basename = os.path.basename(nc_file)
             if '_dincae.nc' in basename:
                 outputs['dincae'] = nc_file
-                print(f"[InsituValidation]   dincae -> {basename}")
             elif '_dineof_eof_filtered_interp_full.nc' in basename:
                 outputs['eof_filtered_interp_full'] = nc_file
-                print(f"[InsituValidation]   eof_filtered_interp_full -> {basename}")
             elif '_dineof_eof_filtered.nc' in basename:
                 outputs['eof_filtered'] = nc_file
-                print(f"[InsituValidation]   eof_filtered -> {basename}")
             elif '_dineof_eof_interp_full.nc' in basename:
                 outputs['interp_full'] = nc_file
-                print(f"[InsituValidation]   interp_full -> {basename}")
             elif '_dineof.nc' in basename:
                 outputs['dineof'] = nc_file
-                print(f"[InsituValidation]   dineof -> {basename}")
         
         return outputs
     
@@ -527,13 +628,6 @@ class InsituValidationStep(PostProcessingStep):
                             ds.close()
                             return
                     
-                    # Debug: print file info and sample data
-                    temp_pixel = ds['temp_filled'].isel(lat=grid_idx[0], lon=grid_idx[1]).values
-                    valid_temps = temp_pixel[~np.isnan(temp_pixel)]
-                    print(f"[InsituValidation] {method_name}: file has {len(temp_pixel)} timesteps, "
-                          f"{len(valid_temps)} valid values, "
-                          f"sample mean={np.mean(valid_temps):.3f}°C")
-                    
                     # Extract matched temperatures
                     extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates)
                     
@@ -542,13 +636,6 @@ class InsituValidationStep(PostProcessingStep):
                         continue
                     
                     matched_buoy = np.array([buoy_date_temp[d] for d in extracted['matched_dates']])
-                    
-                    # Debug: show matched values
-                    first_3_sat = [f"{t:.2f}" for t in extracted['temps'][:3]]
-                    print(f"[InsituValidation] {method_name}: matched {len(extracted['temps'])} dates, "
-                          f"sat_mean={np.mean(extracted['temps']):.3f}°C, "
-                          f"insitu_mean={np.mean(matched_buoy):.3f}°C, "
-                          f"first 3 sat: [{', '.join(first_3_sat)}]")
                     
                     # Compute statistics
                     diff = extracted['temps'] - matched_buoy

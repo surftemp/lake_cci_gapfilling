@@ -159,11 +159,16 @@
     },
     "insitu_validation": {
         "enable": true,
-        "buoy_dir": "/gws/ssde/j25b/nceo_uor/users/lcarrea01/INSITU/Buoy_Laura/ALL_FILES_QC",
-        "selection_csv": "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2010_selection_converted.csv",
+        "buoy_dir": "/path/to/buoy/data",
+        "selection_csvs": [
+            "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2010_selection.csv",
+            "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2007_selection.csv",
+            "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2018_selection.csv",
+            "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2020_selection.csv"
+        ],
         "distance_threshold": 0.05,
         "quality_threshold": 3
-    }        
+    }       
   },
 
   "submission": {
