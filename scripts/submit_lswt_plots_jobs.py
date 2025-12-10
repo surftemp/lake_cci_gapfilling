@@ -106,6 +106,12 @@ Examples:
                         help="Template for climatology files. "
                              f"Default: {DEFAULT_CLIMATOLOGY_TEMPLATE}")
     
+    # Quality threshold
+    parser.add_argument("--quality-threshold", type=int, default=3,
+                        help="Quality level threshold for observation filtering. "
+                             "Only observations with quality_level >= threshold are included. "
+                             "Default: 3")
+    
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
     parser.add_argument("--qos", default="short", help="SLURM QoS")
@@ -137,13 +143,14 @@ Examples:
     print("=" * 60)
     print("LSWT Plots SLURM Job Submission")
     print("=" * 60)
-    print(f"Run root:       {args.run_root}")
-    print(f"Script dir:     {script_dir}")
-    print(f"Log dir:        {log_dir}")
-    print(f"Lake TS:        {args.lake_ts_template}")
-    print(f"Climatology:    {args.climatology_template}")
-    print(f"Lakes:          {len(lake_ids)}")
-    print(f"SLURM:          partition={args.partition}, qos={args.qos}, time={args.time}, mem={args.mem}")
+    print(f"Run root:           {args.run_root}")
+    print(f"Script dir:         {script_dir}")
+    print(f"Log dir:            {log_dir}")
+    print(f"Lake TS:            {args.lake_ts_template}")
+    print(f"Climatology:        {args.climatology_template}")
+    print(f"Quality threshold:  >= {args.quality_threshold}")
+    print(f"Lakes:              {len(lake_ids)}")
+    print(f"SLURM:              partition={args.partition}, qos={args.qos}, time={args.time}, mem={args.mem}")
     if args.dry_run:
         print("*** DRY RUN MODE ***")
     print("=" * 60)
@@ -168,7 +175,8 @@ python run_lswt_plots.py \\
     --run-root {{run_root}} \\
     --lake-id {{lake_id}} \\
     --lake-ts-template "{args.lake_ts_template}" \\
-    --climatology-template "{args.climatology_template}"
+    --climatology-template "{args.climatology_template}" \\
+    --quality-threshold {args.quality_threshold}
 """
     
     submitted = 0

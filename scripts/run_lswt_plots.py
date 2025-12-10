@@ -156,7 +156,8 @@ def find_file_from_template(template: str, lake_id: int) -> Optional[str]:
 
 
 def run_plots_for_lake(run_root: str, lake_id: int, 
-                       lake_ts_template: str, climatology_template: str) -> bool:
+                       lake_ts_template: str, climatology_template: str,
+                       quality_threshold: int = 3) -> bool:
     """Run LSWT plots for a single lake."""
     
     # Find alpha folders
@@ -204,7 +205,8 @@ def run_plots_for_lake(run_root: str, lake_id: int,
         print(f"\n  Processing lake {lake_id} / {alpha}...")
         
         # Run the plotting step
-        step = LSWTPlotsStep(original_ts_path=original_ts_path)
+        step = LSWTPlotsStep(original_ts_path=original_ts_path, 
+                            quality_threshold=quality_threshold)
         
         if step.should_apply(ctx, None):
             step.apply(ctx, None)
@@ -266,6 +268,12 @@ Output:
                              "Use {lake_id9} for 9-digit padded lake ID. "
                              f"Default: {DEFAULT_CLIMATOLOGY_TEMPLATE}")
     
+    # Quality threshold
+    parser.add_argument("--quality-threshold", type=int, default=3,
+                        help="Quality level threshold for observation filtering. "
+                             "Only observations with quality_level >= threshold are included. "
+                             "Default: 3")
+    
     args = parser.parse_args()
     
     # Validate run_root
@@ -294,6 +302,7 @@ Output:
     print(f"Lakes to process: {len(lake_ids)}")
     print(f"Lake TS template: {args.lake_ts_template}")
     print(f"Climatology template: {args.climatology_template}")
+    print(f"Quality threshold: {args.quality_threshold}")
     print(f"{'='*60}\n")
     
     success_count = 0
@@ -302,7 +311,8 @@ Output:
     for lake_id in lake_ids:
         print(f"\n[Lake {lake_id}]")
         if run_plots_for_lake(args.run_root, lake_id, 
-                              args.lake_ts_template, args.climatology_template):
+                              args.lake_ts_template, args.climatology_template,
+                              args.quality_threshold):
             success_count += 1
         else:
             skip_count += 1

@@ -108,8 +108,17 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
         return np.isfinite(lakeid_vals) & (lakeid_vals != 0)
 
 
-def extract_lake_series(ds: xr.Dataset, var_name: str) -> Optional[LakeSeries]:
-    """Extract time series from a dataset."""
+def extract_lake_series(ds: xr.Dataset, var_name: str, 
+                        quality_threshold: Optional[int] = None) -> Optional[LakeSeries]:
+    """
+    Extract time series from a dataset.
+    
+    Args:
+        ds: xarray Dataset
+        var_name: variable name to extract
+        quality_threshold: if provided, mask out pixels where quality_level < threshold
+                          (only applies when quality_level variable exists in ds)
+    """
     if var_name not in ds:
         return None
     
@@ -121,6 +130,13 @@ def extract_lake_series(ds: xr.Dataset, var_name: str) -> Optional[LakeSeries]:
         lat2d, lon2d = lat, lon
     
     da = to_celsius(ds[var_name])
+    
+    # Apply quality filter if requested
+    if quality_threshold is not None and "quality_level" in ds:
+        quality_mask = ds["quality_level"] >= quality_threshold
+        da = da.where(quality_mask)
+        print(f"[LSWTPlots] Applied quality_level >= {quality_threshold} filter to {var_name}")
+    
     mask = get_lake_mask(ds)
     
     if not mask.any():
@@ -453,7 +469,7 @@ def plot_comparison(s_left: Optional[LakeSeries], s_right: Optional[LakeSeries],
 
 
 # ==============================================================================
-# Yearly Plotting Functions (NEW)
+# Yearly Plotting Functions
 # ==============================================================================
 
 def plot_yearly_series(series: LakeSeries, lake_id: int, label: str, save_dir: str) -> Optional[str]:
@@ -663,9 +679,11 @@ def plot_yearly_comparison(s_left: Optional[LakeSeries], s_right: Optional[LakeS
 class LSWTPlotsStep(PostProcessingStep):
     """Generate LSWT time series plots at end of postprocessing."""
     
-    def __init__(self, original_ts_path: Optional[str] = None):
+    def __init__(self, original_ts_path: Optional[str] = None, 
+                 quality_threshold: int = 3):
         super().__init__()
         self.original_ts_path = original_ts_path
+        self.quality_threshold = quality_threshold
     
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
         # Always returns True when called directly; we handle missing files gracefully
@@ -677,11 +695,12 @@ class LSWTPlotsStep(PostProcessingStep):
         plot_dir = os.path.join(post_dir, "plots")
         
         print(f"[LSWTPlots] Generating plots for lake {lake_id} in {plot_dir}")
+        print(f"[LSWTPlots] Using quality_threshold >= {self.quality_threshold} for observations")
         
         results = []
         
         # Initialize all series as None
-        original = None
+        observation = None
         climatology = None
         dineof = None              # raw, sparse
         dineof_filtered = None     # filtered, sparse
@@ -759,13 +778,18 @@ class LSWTPlotsStep(PostProcessingStep):
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINCAE: {e}")
         
-        # Load original time series
+        # Load observation time series (with quality filter)
+        observation = None
         if self.original_ts_path and os.path.exists(self.original_ts_path):
             try:
                 with xr.open_dataset(self.original_ts_path) as ds_file:
-                    original = extract_lake_series(ds_file, "lake_surface_water_temperature")
+                    observation = extract_lake_series(
+                        ds_file, "lake_surface_water_temperature",
+                        quality_threshold=self.quality_threshold
+                    )
+                print(f"[LSWTPlots] Loaded Observation from: {os.path.basename(self.original_ts_path)}")
             except Exception as e:
-                print(f"[LSWTPlots] Could not load original: {e}")
+                print(f"[LSWTPlots] Could not load observation: {e}")
         
         # Load climatology
         if ctx.climatology_path and os.path.exists(ctx.climatology_path):
@@ -777,7 +801,7 @@ class LSWTPlotsStep(PostProcessingStep):
         
         # ==================== Individual Plots ====================
         individual_series = [
-            (original, "Original"),
+            (observation, "Observation"),
             (dineof, "DINEOF"),
             (dineof_filtered, "DINEOF_filtered"),
             (dineof_interp, "DINEOF_interp"),
@@ -809,10 +833,10 @@ class LSWTPlotsStep(PostProcessingStep):
             (dineof_interp, dineof_filtered_interp, "DINEOF_interp", "DINEOF_filtered_interp")
         )
         
-        # Original vs outputs
+        # Observation vs outputs
         comparisons.extend([
-            (original, dineof, "Original", "DINEOF"),
-            (original, dincae, "Original", "DINCAE"),
+            (observation, dineof, "Observation", "DINEOF"),
+            (observation, dincae, "Observation", "DINCAE"),
         ])
         
         # DINEOF vs DINCAE (sparse)
