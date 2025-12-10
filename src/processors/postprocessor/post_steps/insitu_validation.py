@@ -938,12 +938,20 @@ class InsituValidationStep(PostProcessingStep):
     
     def _plot_yearly_validation(self, results: Dict, plot_dir: str):
         """
-        Generate yearly breakdown plots.
-        For each year with data, create 4 rows:
+        Generate yearly breakdown plots - one file per method.
+        
+        For each method (dineof, dincae, interp_full, etc.), creates a separate file:
+          LAKE{id}_insitu_validation_yearly_{method}_site{N}.png
+        
+        For sparse methods (with obs): 4 rows per year
           1. Obs vs In-situ
           2. Obs - In-situ difference  
           3. Recon vs In-situ
           4. Recon - In-situ difference
+        
+        For interpolated methods (no obs): 2 rows per year
+          1. Recon vs In-situ
+          2. Recon - In-situ difference
         """
         try:
             lake_id = results['lake_id']
@@ -955,149 +963,145 @@ class InsituValidationStep(PostProcessingStep):
             if not methods:
                 return
             
-            # Find all years with data
-            all_years = set()
+            # Find all years with in-situ data
+            all_insitu_years = set()
             for d in buoy_date_temp.keys():
-                all_years.add(d.year)
-            
-            for method_name, method_data in methods.items():
-                if 'recon' in method_data:
-                    for d in method_data['recon']['dates']:
-                        all_years.add(d.year)
-                if 'obs' in method_data:
-                    for d in method_data['obs']['dates']:
-                        all_years.add(d.year)
-            
-            all_years = sorted(all_years)
-            
-            if not all_years:
-                return
-            
-            # Pick the first sparse method that has both obs and recon
-            # (or fall back to any method with recon)
-            plot_method = None
-            plot_data = None
-            for method_name, method_data in methods.items():
-                if not method_data.get('is_interpolated', False):
-                    if 'obs' in method_data and 'recon' in method_data:
-                        plot_method = method_name
-                        plot_data = method_data
-                        break
-                    elif 'recon' in method_data and plot_method is None:
-                        plot_method = method_name
-                        plot_data = method_data
-            
-            if plot_data is None:
-                print(f"[InsituValidation] No suitable method found for yearly plots")
-                return
-            
-            has_obs = 'obs' in plot_data
-            has_recon = 'recon' in plot_data
-            rows_per_year = (2 if has_obs else 0) + (2 if has_recon else 0)
-            
-            if rows_per_year == 0:
-                return
-            
-            n_years = len(all_years)
-            n_rows = n_years * rows_per_year
-            
-            fig, axes = plt.subplots(n_rows, 1, figsize=(14, 2.5 * n_rows))
-            if n_rows == 1:
-                axes = [axes]
-            
-            colors = {'obs': 'green', 'recon': 'blue', 'insitu': 'red', 'diff': 'purple'}
-            plot_idx = 0
-            
-            for year in all_years:
-                # Filter data for this year
-                year_buoy = {d: t for d, t in buoy_date_temp.items() if d.year == year}
-                year_insitu_dates = list(year_buoy.keys())
-                year_insitu_temps = list(year_buoy.values())
-                
-                # --- Observation panels for this year ---
-                if has_obs:
-                    obs_data = plot_data['obs']
-                    year_obs_mask = [d.year == year for d in obs_data['dates']]
-                    year_obs_dates = [d for d, m in zip(obs_data['dates'], year_obs_mask) if m]
-                    year_obs_temps = obs_data['satellite_temps'][year_obs_mask]
-                    year_obs_insitu = obs_data['insitu_temps'][year_obs_mask]
-                    
-                    if len(year_obs_temps) > 0:
-                        year_obs_diff = year_obs_temps - year_obs_insitu
-                        year_obs_stats = compute_stats(year_obs_temps, year_obs_insitu)
-                    else:
-                        year_obs_diff = np.array([])
-                        year_obs_stats = compute_stats(np.array([]), np.array([]))
-                    
-                    # Panel: Obs vs In-situ
-                    ax = axes[plot_idx]
-                    plot_idx += 1
-                    if len(year_obs_dates) > 0:
-                        ax.plot(year_obs_dates, year_obs_temps, 'o-', color=colors['obs'], markersize=4, label='Obs', alpha=0.8)
-                    if year_insitu_dates:
-                        ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7)
-                    ax.set_ylabel('Temp (°C)')
-                    ax.set_title(f'{year} - {plot_method} Obs vs In-situ (N={year_obs_stats["n_matches"]})')
-                    ax.legend(loc='best', fontsize=7)
-                    ax.grid(True, alpha=0.3)
-                    
-                    # Panel: Obs - In-situ diff
-                    ax = axes[plot_idx]
-                    plot_idx += 1
-                    if len(year_obs_dates) > 0 and len(year_obs_diff) > 0:
-                        ax.plot(year_obs_dates, year_obs_diff, 's-', color=colors['diff'], markersize=3)
-                        ax.fill_between(year_obs_dates, year_obs_diff, 0, alpha=0.3, color=colors['diff'])
-                    ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-                    ax.set_ylabel('Obs-Insitu (°C)')
-                    ax.set_title(format_stats_title(year_obs_stats, f'{year} Obs-Insitu:'))
-                    ax.grid(True, alpha=0.3)
-                
-                # --- Reconstruction panels for this year ---
-                if has_recon:
-                    recon_data = plot_data['recon']
-                    year_recon_mask = [d.year == year for d in recon_data['dates']]
-                    year_recon_dates = [d for d, m in zip(recon_data['dates'], year_recon_mask) if m]
-                    year_recon_temps = recon_data['satellite_temps'][year_recon_mask]
-                    year_recon_insitu = recon_data['insitu_temps'][year_recon_mask]
-                    
-                    if len(year_recon_temps) > 0:
-                        year_recon_diff = year_recon_temps - year_recon_insitu
-                        year_recon_stats = compute_stats(year_recon_temps, year_recon_insitu)
-                    else:
-                        year_recon_diff = np.array([])
-                        year_recon_stats = compute_stats(np.array([]), np.array([]))
-                    
-                    # Panel: Recon vs In-situ
-                    ax = axes[plot_idx]
-                    plot_idx += 1
-                    if len(year_recon_dates) > 0:
-                        ax.plot(year_recon_dates, year_recon_temps, 'o-', color=colors['recon'], markersize=4, label='Recon', alpha=0.8)
-                    if year_insitu_dates:
-                        ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7)
-                    ax.set_ylabel('Temp (°C)')
-                    ax.set_title(f'{year} - {plot_method} Recon vs In-situ (N={year_recon_stats["n_matches"]})')
-                    ax.legend(loc='best', fontsize=7)
-                    ax.grid(True, alpha=0.3)
-                    
-                    # Panel: Recon - In-situ diff
-                    ax = axes[plot_idx]
-                    plot_idx += 1
-                    if len(year_recon_dates) > 0 and len(year_recon_diff) > 0:
-                        ax.plot(year_recon_dates, year_recon_diff, 's-', color=colors['diff'], markersize=3)
-                        ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.3, color=colors['diff'])
-                    ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-                    ax.set_ylabel('Recon-Insitu (°C)')
-                    ax.set_title(format_stats_title(year_recon_stats, f'{year} Recon-Insitu:'))
-                    ax.grid(True, alpha=0.3)
-            
-            axes[-1].set_xlabel('Date')
-            plt.tight_layout()
+                all_insitu_years.add(d.year)
             
             os.makedirs(plot_dir, exist_ok=True)
-            save_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_insitu_validation_yearly_site{site_id}.png")
-            plt.savefig(save_path, dpi=200, bbox_inches='tight')
-            plt.close(fig)
-            print(f"[InsituValidation] Saved: {os.path.basename(save_path)}")
+            colors = {'obs': 'green', 'recon': 'blue', 'insitu': 'red', 'diff': 'purple'}
+            
+            # Generate one plot file per method
+            for method_name, method_data in methods.items():
+                try:
+                    has_obs = 'obs' in method_data
+                    has_recon = 'recon' in method_data
+                    
+                    if not has_recon:
+                        # No reconstruction data, skip this method
+                        continue
+                    
+                    # Find years with data for this method
+                    method_years = set(all_insitu_years)  # Start with in-situ years
+                    if has_recon:
+                        for d in method_data['recon']['dates']:
+                            method_years.add(d.year)
+                    if has_obs:
+                        for d in method_data['obs']['dates']:
+                            method_years.add(d.year)
+                    
+                    method_years = sorted(method_years)
+                    
+                    if not method_years:
+                        continue
+                    
+                    # Calculate rows needed
+                    rows_per_year = (2 if has_obs else 0) + 2  # obs panels + recon panels
+                    n_years = len(method_years)
+                    n_rows = n_years * rows_per_year
+                    
+                    if n_rows == 0:
+                        continue
+                    
+                    fig, axes = plt.subplots(n_rows, 1, figsize=(14, 2.5 * n_rows))
+                    if n_rows == 1:
+                        axes = [axes]
+                    
+                    plot_idx = 0
+                    
+                    for year in method_years:
+                        # Filter in-situ data for this year
+                        year_buoy = {d: t for d, t in buoy_date_temp.items() if d.year == year}
+                        year_insitu_dates = list(year_buoy.keys())
+                        year_insitu_temps = list(year_buoy.values())
+                        
+                        # --- Observation panels for this year (sparse methods only) ---
+                        if has_obs:
+                            obs_data = method_data['obs']
+                            year_obs_mask = np.array([d.year == year for d in obs_data['dates']])
+                            year_obs_dates = [d for d, m in zip(obs_data['dates'], year_obs_mask) if m]
+                            year_obs_temps = obs_data['satellite_temps'][year_obs_mask]
+                            year_obs_insitu = obs_data['insitu_temps'][year_obs_mask]
+                            
+                            if len(year_obs_temps) > 0:
+                                year_obs_diff = year_obs_temps - year_obs_insitu
+                                year_obs_stats = compute_stats(year_obs_temps, year_obs_insitu)
+                            else:
+                                year_obs_diff = np.array([])
+                                year_obs_stats = compute_stats(np.array([]), np.array([]))
+                            
+                            # Panel: Obs vs In-situ
+                            ax = axes[plot_idx]
+                            plot_idx += 1
+                            if len(year_obs_dates) > 0:
+                                ax.plot(year_obs_dates, year_obs_temps, 'o-', color=colors['obs'], markersize=4, label='Obs', alpha=0.8)
+                            if year_insitu_dates:
+                                ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7)
+                            ax.set_ylabel('Temp (°C)')
+                            ax.set_title(f'{year} - {method_name} Obs vs In-situ (N={year_obs_stats["n_matches"]})')
+                            ax.legend(loc='best', fontsize=7)
+                            ax.grid(True, alpha=0.3)
+                            
+                            # Panel: Obs - In-situ diff
+                            ax = axes[plot_idx]
+                            plot_idx += 1
+                            if len(year_obs_dates) > 0 and len(year_obs_diff) > 0:
+                                ax.plot(year_obs_dates, year_obs_diff, 's-', color=colors['diff'], markersize=3)
+                                ax.fill_between(year_obs_dates, year_obs_diff, 0, alpha=0.3, color=colors['diff'])
+                            ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+                            ax.set_ylabel('Obs-Insitu (°C)')
+                            ax.set_title(format_stats_title(year_obs_stats, f'{year} Obs-Insitu:'))
+                            ax.grid(True, alpha=0.3)
+                        
+                        # --- Reconstruction panels for this year ---
+                        recon_data = method_data['recon']
+                        year_recon_mask = np.array([d.year == year for d in recon_data['dates']])
+                        year_recon_dates = [d for d, m in zip(recon_data['dates'], year_recon_mask) if m]
+                        year_recon_temps = recon_data['satellite_temps'][year_recon_mask]
+                        year_recon_insitu = recon_data['insitu_temps'][year_recon_mask]
+                        
+                        if len(year_recon_temps) > 0:
+                            year_recon_diff = year_recon_temps - year_recon_insitu
+                            year_recon_stats = compute_stats(year_recon_temps, year_recon_insitu)
+                        else:
+                            year_recon_diff = np.array([])
+                            year_recon_stats = compute_stats(np.array([]), np.array([]))
+                        
+                        # Panel: Recon vs In-situ
+                        ax = axes[plot_idx]
+                        plot_idx += 1
+                        if len(year_recon_dates) > 0:
+                            ax.plot(year_recon_dates, year_recon_temps, 'o-', color=colors['recon'], markersize=4, label='Recon', alpha=0.8)
+                        if year_insitu_dates:
+                            ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7)
+                        ax.set_ylabel('Temp (°C)')
+                        ax.set_title(f'{year} - {method_name} Recon vs In-situ (N={year_recon_stats["n_matches"]})')
+                        ax.legend(loc='best', fontsize=7)
+                        ax.grid(True, alpha=0.3)
+                        
+                        # Panel: Recon - In-situ diff
+                        ax = axes[plot_idx]
+                        plot_idx += 1
+                        if len(year_recon_dates) > 0 and len(year_recon_diff) > 0:
+                            ax.plot(year_recon_dates, year_recon_diff, 's-', color=colors['diff'], markersize=3)
+                            ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.3, color=colors['diff'])
+                        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+                        ax.set_ylabel('Recon-Insitu (°C)')
+                        ax.set_title(format_stats_title(year_recon_stats, f'{year} Recon-Insitu:'))
+                        ax.grid(True, alpha=0.3)
+                    
+                    axes[-1].set_xlabel('Date')
+                    plt.tight_layout()
+                    
+                    save_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_insitu_validation_yearly_{method_name}_site{site_id}.png")
+                    plt.savefig(save_path, dpi=200, bbox_inches='tight')
+                    plt.close(fig)
+                    print(f"[InsituValidation] Saved: {os.path.basename(save_path)}")
+                    
+                except Exception as e:
+                    print(f"[InsituValidation] Error generating yearly plot for {method_name}: {e}")
+                    plt.close('all')
+                    continue
             
         except Exception as e:
             print(f"[InsituValidation] Error in _plot_yearly_validation: {e}")
