@@ -509,7 +509,8 @@ class InsituValidationStep(PostProcessingStep):
         return index, np.min(distance)
     
     def _extract_matched_temps(self, ds: xr.Dataset, grid_idx: Tuple[int, int],
-                                buoy_dates: List, var_name: str = 'temp_filled') -> Dict:
+                                buoy_dates: List, var_name: str = 'temp_filled',
+                                quality_threshold: Optional[int] = None) -> Dict:
         """
         Extract temperatures for dates matching buoy data.
         
@@ -518,6 +519,8 @@ class InsituValidationStep(PostProcessingStep):
             grid_idx: (lat_idx, lon_idx) tuple
             buoy_dates: list of dates to match
             var_name: variable name to extract ('temp_filled' or 'lake_surface_water_temperature')
+            quality_threshold: if provided, only include pixels where quality_level >= threshold
+                              (only applies when extracting 'lake_surface_water_temperature')
         
         Returns:
             Dict with 'temps' (in Celsius) and 'matched_dates'
@@ -530,14 +533,29 @@ class InsituValidationStep(PostProcessingStep):
         
         temp_pixel = ds[var_name].isel(lat=grid_idx[0], lon=grid_idx[1]).values
         
+        # Get quality level if filtering is requested
+        quality_pixel = None
+        if quality_threshold is not None and 'quality_level' in ds:
+            quality_pixel = ds['quality_level'].isel(lat=grid_idx[0], lon=grid_idx[1]).values
+        
         temps, matched_dates = [], []
         for d in buoy_dates:
             if d not in date_to_idx:
                 continue
-            temp = temp_pixel[date_to_idx[d]]
-            if not np.isnan(temp):
-                temps.append(temp)
-                matched_dates.append(d)
+            idx = date_to_idx[d]
+            temp = temp_pixel[idx]
+            
+            if np.isnan(temp):
+                continue
+            
+            # Apply quality filter if requested
+            if quality_pixel is not None:
+                ql = quality_pixel[idx]
+                if np.isnan(ql) or ql < quality_threshold:
+                    continue
+            
+            temps.append(temp)
+            matched_dates.append(d)
         
         temps_array = np.array(temps)
         
@@ -583,7 +601,10 @@ class InsituValidationStep(PostProcessingStep):
             # Output to insitu_cv_validation subfolder
             plot_dir = os.path.join(post_dir, "insitu_cv_validation")
             
+            # Log quality threshold being used for observation filtering
+            quality_threshold = self.config.get("quality_threshold", 3)
             print(f"[InsituValidation] Checking for buoy data for lake {lake_id_cci}")
+            print(f"[InsituValidation] Using quality_threshold >= {quality_threshold} for observation filtering")
             
             # Find sites for this lake (now searches across multiple selection CSVs)
             try:
@@ -714,11 +735,16 @@ class InsituValidationStep(PostProcessingStep):
                             ds.close()
                             return
                     
-                    # Extract RECONSTRUCTION (temp_filled)
+                    # Extract RECONSTRUCTION (temp_filled) - no quality filter needed, already filtered during preprocessing
                     recon_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'temp_filled')
                     
-                    # Extract OBSERVATION (lake_surface_water_temperature)
-                    obs_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'lake_surface_water_temperature')
+                    # Extract OBSERVATION (lake_surface_water_temperature) with quality filter
+                    # Use quality_threshold from config to match what was used in preprocessing
+                    quality_threshold = self.config.get("quality_threshold", 3)
+                    obs_extracted = self._extract_matched_temps(
+                        ds, grid_idx, unique_buoy_dates, 'lake_surface_water_temperature',
+                        quality_threshold=quality_threshold
+                    )
                     
                     # Store reconstruction data
                     if len(recon_extracted['matched_dates']) > 0:

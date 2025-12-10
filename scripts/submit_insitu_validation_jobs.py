@@ -119,6 +119,10 @@ Examples:
                         help="Selection CSVs in priority order (first match wins). "
                              "Default: 2010, 2007, 2018, 2020 selection files")
     
+    parser.add_argument("--quality-threshold", type=int, default=None,
+                        help="Quality level threshold for satellite observations. "
+                             "If not specified, reads from config file or uses default (3)")
+    
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
     parser.add_argument("--qos", default="long", help="SLURM QoS")
@@ -168,6 +172,11 @@ Examples:
         else:
             print(f"WARNING: Config file not found: {args.config_file}")
     
+    # Build quality threshold argument
+    quality_arg = ""
+    if args.quality_threshold is not None:
+        quality_arg = f"--quality-threshold {args.quality_threshold}"
+    
     # Create log directory
     if not args.dry_run:
         os.makedirs(log_dir, exist_ok=True)
@@ -183,6 +192,10 @@ Examples:
     print(f"Selection CSVs ({len(valid_csvs)} files, searched in order):")
     for i, csv_path in enumerate(valid_csvs, 1):
         print(f"  {i}. {os.path.basename(csv_path)}")
+    if args.quality_threshold is not None:
+        print(f"Quality threshold: >= {args.quality_threshold}")
+    else:
+        print(f"Quality threshold: (from config or default=3)")
     print(f"Lakes:       {len(lake_ids)}")
     print(f"SLURM:       partition={args.partition}, qos={args.qos}, time={args.time}, mem={args.mem}")
     if args.dry_run:
@@ -210,7 +223,7 @@ cd {{script_dir}}
 python run_insitu_validation.py \\
     --run-root {{run_root}} \\
     --lake-id {{lake_id}} \\
-    {selection_csv_arg} {{config_arg}}
+    {selection_csv_arg} {quality_arg} {{config_arg}}
 """
     
     submitted = 0

@@ -219,6 +219,9 @@ Output:
                         default=INSITU_CONFIG["distance_threshold"],
                         help="Max distance (degrees) for grid-buoy matching")
     
+    parser.add_argument("--quality-threshold", type=int, default=None,
+                        help="Quality level threshold for satellite observations (default: 3, or from config)")
+    
     args = parser.parse_args()
     
     # Validate run_root
@@ -229,6 +232,9 @@ Output:
     # Build config - start with defaults
     config = INSITU_CONFIG.copy()
     
+    # Variable to track if we found quality_threshold in experiment config
+    quality_threshold_from_config = None
+    
     # Try to load from experiment config file if provided
     if args.config_file:
         if os.path.exists(args.config_file):
@@ -236,10 +242,21 @@ Output:
                 import json
                 with open(args.config_file, 'r') as f:
                     exp_config = json.load(f)
+                
+                # First check insitu_validation section
                 insitu_section = exp_config.get("insitu_validation", {})
                 for key in config.keys():
                     if key in insitu_section:
                         config[key] = insitu_section[key]
+                
+                # Also try to get quality_threshold from preprocessing_options
+                # (this is what was used during preprocessing)
+                preprocessing_opts = exp_config.get("preprocessing_options", {})
+                if "quality_threshold" in preprocessing_opts:
+                    quality_threshold_from_config = preprocessing_opts["quality_threshold"]
+                elif "quality_threshold" in insitu_section:
+                    quality_threshold_from_config = insitu_section["quality_threshold"]
+                
                 print(f"Loaded config from: {args.config_file}")
             except Exception as e:
                 print(f"Warning: Could not load config file: {e}")
@@ -270,7 +287,17 @@ Output:
         print(f"Using single selection CSV (legacy mode)")
     
     config["distance_threshold"] = args.distance_threshold
-    config["quality_threshold"] = INSITU_CONFIG.get("quality_threshold", 3)
+    
+    # Set quality_threshold: CLI > config file (preprocessing_options or insitu_validation) > default
+    if args.quality_threshold is not None:
+        config["quality_threshold"] = args.quality_threshold
+        print(f"Using quality_threshold={args.quality_threshold} from command line")
+    elif quality_threshold_from_config is not None:
+        config["quality_threshold"] = quality_threshold_from_config
+        print(f"Using quality_threshold={quality_threshold_from_config} from experiment config")
+    else:
+        config["quality_threshold"] = INSITU_CONFIG.get("quality_threshold", 3)
+        print(f"Using default quality_threshold={config['quality_threshold']}")
     
     # Determine which lakes to process
     if args.all:
@@ -301,6 +328,7 @@ Output:
     elif config.get("selection_csv"):
         print(f"Selection CSV: {config['selection_csv']}")
     
+    print(f"Quality threshold: >= {config['quality_threshold']} (for observation filtering)")
     print(f"{'='*60}\n")
     
     success_count = 0
