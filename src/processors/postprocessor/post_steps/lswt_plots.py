@@ -14,7 +14,37 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from .base import PostProcessingStep, PostContext
+# Handle imports for both pipeline and standalone use
+try:
+    from .base import PostProcessingStep, PostContext
+except ImportError:
+    # Standalone mode - define minimal classes
+    @dataclass
+    class PostContext:
+        """Minimal PostContext for standalone use."""
+        lake_id: Optional[int] = None
+        output_path: Optional[str] = None
+        experiment_config_path: Optional[str] = None
+        lake_path: Optional[str] = None
+        dineof_input_path: Optional[str] = None
+        dineof_output_path: Optional[str] = None
+        output_html_folder: Optional[str] = None
+        climatology_path: Optional[str] = None
+    
+    class PostProcessingStep:
+        """Minimal base class for standalone use."""
+        def __init__(self):
+            pass
+        
+        @property
+        def name(self) -> str:
+            return self.__class__.__name__
+        
+        def should_apply(self, ctx, ds) -> bool:
+            return True
+        
+        def apply(self, ctx, ds):
+            raise NotImplementedError
 
 
 # ==============================================================================
@@ -423,6 +453,210 @@ def plot_comparison(s_left: Optional[LakeSeries], s_right: Optional[LakeSeries],
 
 
 # ==============================================================================
+# Yearly Plotting Functions (NEW)
+# ==============================================================================
+
+def plot_yearly_series(series: LakeSeries, lake_id: int, label: str, save_dir: str) -> Optional[str]:
+    """
+    Plot time series with one row per year.
+    
+    Creates a single file with all years stacked vertically.
+    Returns filepath or None if no data.
+    """
+    if series is None or len(series.time) == 0:
+        return None
+    
+    time = series.time
+    years = sorted(np.unique(time.year))
+    
+    if len(years) == 0:
+        return None
+    
+    n_years = len(years)
+    fig, axes = plt.subplots(n_years, 1, figsize=(14, 2.5 * n_years), squeeze=False)
+    axes = axes.flatten()
+    
+    fig.suptitle(f"LSWT Lake {lake_id} - {label} (Yearly)", fontsize=13, y=1.0)
+    
+    # Compute global y-limits across all years for consistency
+    y_lim = compute_ylim(series.all_pixels, series.center_pixel)
+    
+    for idx, year in enumerate(years):
+        ax = axes[idx]
+        
+        # Get indices for this year
+        year_mask = time.year == year
+        year_indices = np.where(year_mask)[0]
+        
+        if len(year_indices) == 0:
+            ax.text(0.5, 0.5, f"{year}: No data", ha='center', va='center', fontsize=11)
+            ax.set_title(f"{year}", fontsize=10)
+            continue
+        
+        year_time = time[year_mask]
+        year_all_pixels = series.all_pixels[year_mask, :]
+        year_center = series.center_pixel[year_mask]
+        
+        # Setup axes
+        ax.set_ylim(*y_lim)
+        ax.yaxis.grid(True, linestyle='--', linewidth=0.2)
+        ax.xaxis.grid(True, linestyle='--', linewidth=0.2)
+        ax.set_title(f"{year}", fontsize=10)
+        
+        # Plot all pixels (faint)
+        for j in range(year_all_pixels.shape[1]):
+            col = year_all_pixels[:, j]
+            valid = np.isfinite(col)
+            if valid.any():
+                ax.plot(year_time[valid], col[valid], '-', color='black', alpha=0.15, lw=0.2)
+        
+        # Plot center pixel (bold red)
+        valid_c = np.isfinite(year_center)
+        if valid_c.any():
+            ax.plot(year_time[valid_c], year_center[valid_c], '-', color='red', lw=0.6, 
+                   label='center pixel' if idx == 0 else None)
+        
+        ax.set_ylabel("LSWT (°C)", fontsize=9)
+        
+        # Set x-axis to show months
+        ax.set_xlim(pd.Timestamp(year, 1, 1), pd.Timestamp(year, 12, 31))
+        
+        # Month ticks
+        month_positions = [pd.Timestamp(year, m, 1) for m in range(1, 13)]
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        ax.set_xticks(month_positions)
+        ax.set_xticklabels(month_labels, fontsize=8)
+        
+        if idx == 0:
+            ax.legend(fontsize=8, loc='upper right')
+    
+    axes[-1].set_xlabel("Month", fontsize=11)
+    
+    plt.tight_layout()
+    
+    os.makedirs(save_dir, exist_ok=True)
+    filepath = os.path.join(save_dir, f"LAKE{lake_id:09d}_{label}_yearly.png")
+    plt.savefig(filepath, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    return filepath
+
+
+def plot_yearly_comparison(s_left: Optional[LakeSeries], s_right: Optional[LakeSeries],
+                           lake_id: int, label_left: str, label_right: str, 
+                           save_dir: str) -> Optional[str]:
+    """
+    Side-by-side comparison with one row per year.
+    
+    Creates a single file with all years stacked vertically, 2 columns (left vs right).
+    Returns filepath or None if no data.
+    """
+    if s_left is None and s_right is None:
+        return None
+    
+    # Determine which series to use for years
+    if s_left is not None and s_right is not None:
+        all_years = sorted(set(s_left.time.year) | set(s_right.time.year))
+    elif s_left is not None:
+        all_years = sorted(np.unique(s_left.time.year))
+    else:
+        all_years = sorted(np.unique(s_right.time.year))
+    
+    if len(all_years) == 0:
+        return None
+    
+    n_years = len(all_years)
+    fig, axes = plt.subplots(n_years, 2, figsize=(14, 2.5 * n_years), squeeze=False, sharey=True)
+    
+    fig.suptitle(f"LSWT Lake {lake_id} - {label_left} vs {label_right} (Yearly)", fontsize=13, y=1.0)
+    
+    # Compute global y-limits
+    all_vals = []
+    for s in [s_left, s_right]:
+        if s is not None:
+            all_vals.extend(s.all_pixels[np.isfinite(s.all_pixels)])
+            all_vals.extend(s.center_pixel[np.isfinite(s.center_pixel)])
+    if all_vals:
+        y_min, y_max = np.min(all_vals), np.max(all_vals)
+        pad = 0.02 * max(1.0, y_max - y_min)
+        y_lim = (y_min - pad, y_max + pad)
+    else:
+        y_lim = (0, 30)
+    
+    def plot_year_panel(ax, series, year, label, show_legend=False):
+        """Plot a single year panel for one series."""
+        ax.set_ylim(*y_lim)
+        ax.yaxis.grid(True, linestyle='--', linewidth=0.2)
+        ax.xaxis.grid(True, linestyle='--', linewidth=0.2)
+        
+        if series is None:
+            ax.text(0.5, 0.5, f"No data", ha='center', va='center', fontsize=10)
+            ax.set_title(f"{year} - {label}", fontsize=9)
+            return
+        
+        # Get indices for this year
+        year_mask = series.time.year == year
+        year_indices = np.where(year_mask)[0]
+        
+        if len(year_indices) == 0:
+            ax.text(0.5, 0.5, f"No data", ha='center', va='center', fontsize=10)
+            ax.set_title(f"{year} - {label}", fontsize=9)
+            return
+        
+        year_time = series.time[year_mask]
+        year_all_pixels = series.all_pixels[year_mask, :]
+        year_center = series.center_pixel[year_mask]
+        
+        ax.set_title(f"{year} - {label}", fontsize=9)
+        
+        # Plot all pixels (faint)
+        for j in range(year_all_pixels.shape[1]):
+            col = year_all_pixels[:, j]
+            valid = np.isfinite(col)
+            if valid.any():
+                ax.plot(year_time[valid], col[valid], '-', color='black', alpha=0.15, lw=0.2)
+        
+        # Plot center pixel (bold red)
+        valid_c = np.isfinite(year_center)
+        if valid_c.any():
+            ax.plot(year_time[valid_c], year_center[valid_c], '-', color='red', lw=0.6,
+                   label='center pixel' if show_legend else None)
+        
+        # Set x-axis to show months
+        ax.set_xlim(pd.Timestamp(year, 1, 1), pd.Timestamp(year, 12, 31))
+        
+        # Month ticks
+        month_positions = [pd.Timestamp(year, m, 1) for m in range(1, 13)]
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        ax.set_xticks(month_positions)
+        ax.set_xticklabels(month_labels, fontsize=7)
+        
+        if show_legend:
+            ax.legend(fontsize=7, loc='upper right')
+    
+    for idx, year in enumerate(all_years):
+        # Left column
+        plot_year_panel(axes[idx, 0], s_left, year, label_left, show_legend=(idx == 0))
+        # Right column
+        plot_year_panel(axes[idx, 1], s_right, year, label_right, show_legend=False)
+        
+        # Y-axis label only on left
+        axes[idx, 0].set_ylabel("LSWT (°C)", fontsize=8)
+    
+    axes[-1, 0].set_xlabel("Month", fontsize=10)
+    axes[-1, 1].set_xlabel("Month", fontsize=10)
+    
+    plt.tight_layout()
+    
+    os.makedirs(save_dir, exist_ok=True)
+    filepath = os.path.join(save_dir, f"LAKE{lake_id:09d}_{label_left}_vs_{label_right}_yearly.png")
+    plt.savefig(filepath, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    return filepath
+
+
+# ==============================================================================
 # Post Processing Step
 # ==============================================================================
 
@@ -588,6 +822,23 @@ class LSWTPlotsStep(PostProcessingStep):
         
         for s1, s2, l1, l2 in comparisons:
             path = plot_comparison(s1, s2, lake_id, l1, l2, plot_dir)
+            if path:
+                results.append(path)
+                print(f"[LSWTPlots] Saved: {os.path.basename(path)}")
+        
+        # ==================== Yearly Individual Plots ====================
+        print(f"[LSWTPlots] Generating yearly plots...")
+        
+        for series, label in individual_series:
+            if series:
+                path = plot_yearly_series(series, lake_id, label, plot_dir)
+                if path:
+                    results.append(path)
+                    print(f"[LSWTPlots] Saved: {os.path.basename(path)}")
+        
+        # ==================== Yearly Comparison Plots ====================
+        for s1, s2, l1, l2 in comparisons:
+            path = plot_yearly_comparison(s1, s2, lake_id, l1, l2, plot_dir)
             if path:
                 results.append(path)
                 print(f"[LSWTPlots] Saved: {os.path.basename(path)}")
