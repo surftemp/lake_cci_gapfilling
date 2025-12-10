@@ -5,7 +5,7 @@ submit_insitu_validation_jobs.py - Submit SLURM jobs to run in-situ validation i
 Location: lake_cci_gapfilling-main/scripts/
 
 Usage:
-    # Using default buoy paths
+    # Using default selection CSVs (2010, 2007, 2018, 2020 in priority order)
     python submit_insitu_validation_jobs.py \\
         --run-root /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20251126-c84211-exp1
 
@@ -13,6 +13,11 @@ Usage:
     python submit_insitu_validation_jobs.py \\
         --run-root /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20251126-c84211-exp1 \\
         --config-file /path/to/configs/exp1_baseline.json
+
+    # Custom selection CSVs (searched in order - first match wins)
+    python submit_insitu_validation_jobs.py \\
+        --run-root /path/to/exp1 \\
+        --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
 
     # Dry run (preview without submitting)
     python submit_insitu_validation_jobs.py \\
@@ -54,25 +59,14 @@ DEFAULT_LAKE_IDS = [
     300016649
 ]
 
-SLURM_TEMPLATE = """#!/bin/bash
-#SBATCH --job-name=insitu_{lake_id}
-#SBATCH --partition=standard
-#SBATCH --qos=short
-#SBATCH --account=eocis_chuk
-#SBATCH --time=00:30:00
-#SBATCH --mem=16G
-#SBATCH --output={log_dir}/insitu_{lake_id9}.out
-#SBATCH --error={log_dir}/insitu_{lake_id9}.err
-
-source ~/.bashrc
-conda activate lake_cci_gapfilling
-
-cd {script_dir}
-
-python run_insitu_validation.py \\
-    --run-root {run_root} \\
-    --lake-id {lake_id} {config_arg}
-"""
+# Default selection CSVs in priority order (first match wins)
+_SELECTION_CSV_DIR = "/home/users/shaerdan/general_purposes/insitu_cv"
+DEFAULT_SELECTION_CSVS = [
+    f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2010_selection.csv",
+    f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2007_selection.csv",
+    f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2018_selection.csv",
+    f"{_SELECTION_CSV_DIR}/L3S_QL_MDB_2020_selection.csv",
+]
 
 
 def main():
@@ -81,7 +75,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Run all lakes with default paths
+    # Run all lakes with default selection CSVs (2010, 2007, 2018, 2020)
     python submit_insitu_validation_jobs.py \\
         --run-root /gws/.../anomaly-20251126-c84211-exp1
 
@@ -89,6 +83,11 @@ Examples:
     python submit_insitu_validation_jobs.py \\
         --run-root /gws/.../anomaly-20251126-c84211-exp1 \\
         --config-file /path/to/exp1_baseline.json
+
+    # Custom selection CSVs (searched in priority order)
+    python submit_insitu_validation_jobs.py \\
+        --run-root /gws/.../anomaly-20251126-c84211-exp1 \\
+        --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
 
     # Run specific lakes only
     python submit_insitu_validation_jobs.py \\
@@ -115,6 +114,11 @@ Examples:
     parser.add_argument("--log-dir", default=None,
                         help="Directory for SLURM logs (default: {script_dir}/logs_insitu)")
     
+    # Selection CSV options (mutually exclusive with config-file for CSV paths)
+    parser.add_argument("--selection-csvs", nargs="+", default=None,
+                        help="Selection CSVs in priority order (first match wins). "
+                             "Default: 2010, 2007, 2018, 2020 selection files")
+    
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
     parser.add_argument("--qos", default="long", help="SLURM QoS")
@@ -138,7 +142,25 @@ Examples:
         print("Make sure run_insitu_validation.py is in the scripts/ directory")
         return 1
     
-    # Build config argument
+    # Determine selection CSVs to use
+    selection_csvs = args.selection_csvs if args.selection_csvs else DEFAULT_SELECTION_CSVS
+    
+    # Validate selection CSVs exist
+    valid_csvs = []
+    for csv_path in selection_csvs:
+        if os.path.exists(csv_path):
+            valid_csvs.append(csv_path)
+        else:
+            print(f"WARNING: Selection CSV not found: {csv_path}")
+    
+    if not valid_csvs:
+        print("ERROR: No valid selection CSVs found!")
+        return 1
+    
+    # Build selection CSV argument string for the runner
+    selection_csv_arg = "--selection-csvs " + " ".join(valid_csvs)
+    
+    # Build config argument (only if config file is provided)
     config_arg = ""
     if args.config_file:
         if os.path.exists(args.config_file):
@@ -157,7 +179,10 @@ Examples:
     print(f"Run root:    {args.run_root}")
     print(f"Script dir:  {script_dir}")
     print(f"Log dir:     {log_dir}")
-    print(f"Config file: {args.config_file or '(using defaults)'}")
+    print(f"Config file: {args.config_file or '(not specified)'}")
+    print(f"Selection CSVs ({len(valid_csvs)} files, searched in order):")
+    for i, csv_path in enumerate(valid_csvs, 1):
+        print(f"  {i}. {os.path.basename(csv_path)}")
     print(f"Lakes:       {len(lake_ids)}")
     print(f"SLURM:       partition={args.partition}, qos={args.qos}, time={args.time}, mem={args.mem}")
     if args.dry_run:
@@ -165,6 +190,8 @@ Examples:
     print("=" * 60)
     
     # Custom SLURM template with user options
+    # Note: selection_csv_arg is inserted directly (not as a format placeholder)
+    # because it contains spaces and multiple paths
     slurm_template = f"""#!/bin/bash
 #SBATCH --job-name=insitu_{{lake_id}}
 #SBATCH --partition={args.partition}
@@ -182,7 +209,8 @@ cd {{script_dir}}
 
 python run_insitu_validation.py \\
     --run-root {{run_root}} \\
-    --lake-id {{lake_id}} {{config_arg}}
+    --lake-id {{lake_id}} \\
+    {selection_csv_arg} {{config_arg}}
 """
     
     submitted = 0

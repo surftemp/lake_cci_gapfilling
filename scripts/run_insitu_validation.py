@@ -45,19 +45,13 @@ else:
     # Fallback: try current directory
     sys.path.insert(0, SCRIPT_DIR)
 
-# Try to import v2 first, fall back to original
 try:
-    from insitu_validation_v2 import InsituValidationStep, INSITU_CONFIG
-    print("[Runner] Using insitu_validation_v2 (multi-CSV support)")
-except ImportError:
-    try:
-        from insitu_validation import InsituValidationStep, INSITU_CONFIG
-        print("[Runner] Using insitu_validation (single-CSV mode)")
-    except ImportError as e:
-        print(f"Error: Could not import insitu_validation: {e}")
-        print(f"Looked in: {SRC_PATH}")
-        print(f"Make sure insitu_validation.py or insitu_validation_v2.py exists in src/processors/postprocessor/post_steps/")
-        sys.exit(1)
+    from insitu_validation import InsituValidationStep, INSITU_CONFIG
+except ImportError as e:
+    print(f"Error: Could not import insitu_validation: {e}")
+    print(f"Looked in: {SRC_PATH}")
+    print(f"Make sure insitu_validation.py exists in src/processors/postprocessor/post_steps/")
+    sys.exit(1)
 
 
 @dataclass
