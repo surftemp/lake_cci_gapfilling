@@ -117,6 +117,8 @@ class Converter:
         cv_out: str | None = None,
         cv_varname: str | None = None,
         cv_fraction_target: float | None = None,
+        cv_min_cloud_frac: float = 0.05,
+        cv_max_cloud_frac: float = 0.70,
     ):
         """Main conversion method - maintains original interface"""
 
@@ -155,7 +157,9 @@ class Converter:
             cv_seed=cv_seed,
             cv_out=cv_out,
             cv_varname=cv_varname,
-            cv_fraction_target=cv_fraction_target,        
+            cv_fraction_target=cv_fraction_target,
+            cv_min_cloud_frac=cv_min_cloud_frac,
+            cv_max_cloud_frac=cv_max_cloud_frac,
         )
 
         # Load initial dataset
@@ -323,7 +327,9 @@ def _merge_cfg(json_cfg: dict, args: argparse.Namespace) -> dict:
         ("cv_seed", "cv_seed"),
         ("cv_out", "cv_out"),
         ("cv_varname", "cv_varname"),  
-        ("cv_fraction_target", "cv_fraction_target"),                
+        ("cv_fraction_target", "cv_fraction_target"),
+        ("cv_min_cloud_frac", "cv_min_cloud_frac"),
+        ("cv_max_cloud_frac", "cv_max_cloud_frac"),                
     ]:
         val = cli.get(k_cli, None)
         # For booleans from argparse with default None, store only if provided
@@ -483,7 +489,9 @@ def main():
         cfg.get("cv_seed"),
         cfg.get("cv_out"),
         cfg.get("cv_varname"),
-        cfg.get("cv_fraction_target"),        
+        cfg.get("cv_fraction_target"),
+        cfg.get("cv_min_cloud_frac", 0.05),
+        cfg.get("cv_max_cloud_frac", 0.70),
     )
 
     # OPTIONAL: provenance sidecar JSON (effective config + detrend params)
