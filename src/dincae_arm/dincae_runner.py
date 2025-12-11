@@ -7,7 +7,70 @@ from .contracts import DincaeArtifacts
 def _generate_julia_script(arts: DincaeArtifacts, cfg: Dict) -> Path:
     """
     Write run_dincae.jl into arts.dincae_dir.
+    
+    All DINCAE training parameters can be configured via the JSON config file
+    under the "dincae.train" section.
+    
+    BACKWARD COMPATIBLE: All defaults match the original implementation.
+    New parameters have sensible defaults that preserve original behavior.
     """
+    
+    # Extract train config with defaults
+    train_cfg = cfg.get('train', {})
+    
+    # Core training parameters - ORIGINAL DEFAULTS PRESERVED
+    epochs = int(train_cfg.get('epochs', 300))
+    batch_size = int(train_cfg.get('batch_size', 32))
+    ntime_win = int(train_cfg.get('ntime_win', 0))  # Original default: 0
+    learning_rate = float(train_cfg.get('learning_rate', 1e-4))
+    enc_levels = int(train_cfg.get('enc_levels', 3))  # Original default: 3
+    save_epochs_interval = int(train_cfg.get('save_epochs_interval', 10))  # Original default: 10
+    
+    # Observation error - ORIGINAL DEFAULT PRESERVED
+    obs_err_std = float(train_cfg.get('obs_err_std', 0.2))  # Original default: 0.2
+    
+    # NEW: min_std_err - separate from obs_err_std
+    # If not specified, fall back to obs_err_std for backward compatibility with old behavior
+    # (even though that behavior was problematic, we preserve it unless user specifies otherwise)
+    min_std_err = float(train_cfg.get('min_std_err', obs_err_std))
+    
+    # Advanced training parameters - ORIGINAL HARDCODED VALUES AS DEFAULTS
+    clip_grad = float(train_cfg.get('clip_grad', 5.0))
+    upsampling_method = train_cfg.get('upsampling_method', 'nearest')  # Original: :nearest
+    regularization_L2_beta = float(train_cfg.get('regularization_L2_beta', 1e-5))
+    jitter_std = float(train_cfg.get('jitter_std', 0.0005))  # Original: 0.0005
+    
+    # Loss weights for refinement - ORIGINAL DEFAULT PRESERVED
+    # Original hardcoded: (0.3, 0.7)
+    loss_weights_refine = train_cfg.get('loss_weights_refine', [0.3, 0.7])
+    if isinstance(loss_weights_refine, (list, tuple)):
+        loss_weights_str = "(" + ", ".join(str(w) for w in loss_weights_refine) + ",)"
+    else:
+        loss_weights_str = f"({float(loss_weights_refine)},)"
+    
+    # Encoder filter configuration - ORIGINAL FORMULA PRESERVED
+    enc_nfilter_base = int(train_cfg.get('enc_nfilter_base', 32))  # Original: 32
+    
+    # NEW: Laplacian penalty for spatial smoothness
+    laplacian_penalty = float(train_cfg.get('laplacian_penalty', 0.0))  # Default: disabled
+    
+    # NEW: truth_uncertain - whether to account for observation measurement error in loss
+    # When true, observations are treated as having uncertainty (obs_err_std)
+    # When false (default), observations are treated as exact
+    truth_uncertain = bool(train_cfg.get('truth_uncertain', False))
+    
+    # NEW: Skip connections configuration
+    # Default: all levels except first (2:enc_levels+1 in Julia 1-indexing) - matches DINCAE default
+    skip_connections_str = train_cfg.get('skipconnections', None)
+    if skip_connections_str is None:
+        skip_connections_julia = f"2:{enc_levels + 1}"
+    else:
+        # Allow explicit specification like "2:5" or [2,3,4,5]
+        if isinstance(skip_connections_str, list):
+            skip_connections_julia = "[" + ",".join(str(s) for s in skip_connections_str) + "]"
+        else:
+            skip_connections_julia = str(skip_connections_str)
+    
     jl = f"""
 using Pkg
 if !isempty(get(ENV, "JULIA_PROJECT", ""))  # optional external project
@@ -36,14 +99,29 @@ fname_cv   = "{str(arts.prepared_cropped_cv)}"  # CV file (uncleaned)
 outdir    = "{str(arts.dincae_dir)}"
 mkpath(outdir)
 
-# --- params from cfg ---
-epochs      = {int(cfg.get('train', {}).get('epochs', 300))}
-batch       = {int(cfg.get('train', {}).get('batch_size', 32))}
-ntime_win   = {int(cfg.get('train', {}).get('ntime_win', 0))}
-lr          = {float(cfg.get('train', {}).get('learning_rate', 1e-4))}
-enc_levels  = {int(cfg.get('train', {}).get('enc_levels', 3))}
-obs_err_std = {float(cfg.get('train', {}).get('obs_err_std', 0.2))}
-save_int    = {int(cfg.get('train', {}).get('save_epochs_interval', 10))}
+# --- Training parameters from config ---
+# Core parameters
+epochs      = {epochs}
+batch       = {batch_size}
+ntime_win   = {ntime_win}
+lr          = {learning_rate}
+enc_levels  = {enc_levels}
+save_int    = {save_epochs_interval}
+
+# Error parameters
+obs_err_std   = {obs_err_std}    # Observation uncertainty in cost function
+min_std_err   = {min_std_err}    # Minimum reconstruction std error
+
+# Advanced parameters (now configurable via JSON)
+clip_grad              = {clip_grad}
+upsampling_method      = :{upsampling_method}
+regularization_L2_beta = {regularization_L2_beta}
+jitter_std             = {jitter_std}
+loss_weights_refine    = {loss_weights_str}
+laplacian_penalty      = {laplacian_penalty}
+truth_uncertain        = {str(truth_uncertain).lower()}
+enc_nfilter_base       = {enc_nfilter_base}
+skipconnections        = {skip_connections_julia}
 
 # SLURM config for plotting job
 slurm_partition = "{cfg.get('slurm', {}).get('partition', 'orchid')}"
@@ -59,6 +137,12 @@ julia_depot     = "{cfg.get('runner', {}).get('julia_depot', '$HOME/.julia_cuda_
 
 save_epochs = collect(save_int:save_int:epochs)
 Atype = CuArray{{Float32}}
+
+# Log all parameters for reproducibility
+@info "DINCAE Configuration" epochs=epochs batch=batch ntime_win=ntime_win lr=lr enc_levels=enc_levels
+@info "Error parameters" obs_err_std=obs_err_std min_std_err=min_std_err truth_uncertain=truth_uncertain
+@info "Advanced parameters" clip_grad=clip_grad upsampling_method=upsampling_method regularization_L2_beta=regularization_L2_beta
+@info "Architecture" loss_weights_refine=loss_weights_refine laplacian_penalty=laplacian_penalty skipconnections=skipconnections
 
 # --- STEP 1: Load & clean base file → lake_cleanup.nc ---
 println("Loading base file: ", fname_base); flush(stdout)
@@ -126,7 +210,7 @@ data = [(
     filename    = cv_clean,  # Use the cleaned CV file we just created
     varname     = varname,
     obs_err_std = obs_err_std,
-    jitter_std  = 0.0005,
+    jitter_std  = jitter_std,
     isoutput    = true
 )]
 data_all = [data, data]
@@ -135,19 +219,24 @@ fname_rec = joinpath(outdir, "data-avg.nc")
 println("="^60)
 println("DINCAE reconstruction starting…")
 println("epochs=",epochs, " batch=",batch, " ntime_win=",ntime_win, " lr=",lr, " enc_levels=",enc_levels)
+println("obs_err_std=",obs_err_std, " min_std_err=",min_std_err)
+println("upsampling_method=",upsampling_method, " loss_weights_refine=",loss_weights_refine)
 flush(stdout)
 
 loss = DINCAE.reconstruct(
     Atype, data_all, [fname_rec];
     epochs               = epochs,
     batch_size           = batch,
-    enc_nfilter_internal = round.(Int, 32 * 2 .^ (0:enc_levels-1)),
-    clip_grad            = 5.0,
+    enc_nfilter_internal = round.(Int, enc_nfilter_base * 2 .^ (0:enc_levels-1)),
+    clip_grad            = clip_grad,
     ntime_win            = ntime_win,
-    upsampling_method    = :nearest,
-    loss_weights_refine  = (0.3, 0.7),
-    min_std_err          = obs_err_std,
-    regularization_L2_beta = 1e-5,
+    upsampling_method    = upsampling_method,
+    loss_weights_refine  = loss_weights_refine,
+    min_std_err          = min_std_err,
+    truth_uncertain      = truth_uncertain,
+    regularization_L2_beta = regularization_L2_beta,
+    laplacian_penalty    = laplacian_penalty,
+    skipconnections      = skipconnections,
     save_epochs          = collect(save_epochs),
     learning_rate        = lr,
     modeldir             = outdir

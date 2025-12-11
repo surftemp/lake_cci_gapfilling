@@ -1,15 +1,15 @@
 {
-  "experiment_name": "pilot_tmp_test_insitu",
-  "description": "pilot_tmp_test_insitu: baseline",
+  "experiment_name": "pilot_tmp_test_dincae_parameters",
+  "description": "pilot_tmp_test_dincae_parameters: baseline",
   "mode": "anomaly",
-  "note": "pilot_tmp_test_insitu",
+  "note": "pilot_tmp_test_dincae_parameters",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "both",
+  "engine_mode": "dincae",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [30000014093,30000031194,30000057995,30000111898,30000114199,300001625101,300002883103,300004882106,300004974107,300012284115,300016649119],
+    "custom_lake_ids": [20,25,146],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
@@ -118,10 +118,10 @@
     "train": {
       "epochs": 300,
       "batch_size": 32,
-      "ntime_win": 3,
-      "learning_rate": 0.0001,
+      "ntime_win": 10,
+      "learning_rate": 0.0005,
       "enc_levels": 4,
-      "obs_err_std": 0.2,
+      "obs_err_std": 1,
       "save_epochs_interval": 50,
       "use_gpu": true
     },

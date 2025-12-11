@@ -60,10 +60,12 @@ class ProcessingConfig:
     cv_mask_file: str | None = None
     cv_mask_var: str | None = None
     cv_nbclean: int | None = None
-    cv_seed: int | None = None
+    cv_seed: int | None = 1234  # Default seed for reproducibility
     cv_out: str | None = None
     cv_varname: str | None = None
-    cv_fraction_target: Optional[float] = None  
+    cv_fraction_target: Optional[float] = None
+    cv_min_cloud_frac: float = 0.05  # Min cloud fraction for source timesteps
+    cv_max_cloud_frac: float = 0.70  # Max cloud fraction for source timesteps  
 
     def __post_init__(self):
         """Validate configuration parameters after initialization"""

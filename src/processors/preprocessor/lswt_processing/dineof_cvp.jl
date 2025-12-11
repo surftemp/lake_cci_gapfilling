@@ -1,6 +1,6 @@
 """
 
-function dineof_cvp(fname,maskfname,outdir,nbclean)
+function dineof_cvp(fname,maskfname,outdir,nbclean; seed=nothing)
  Extracts clouds from file 'fname' and adds them to the 'nbclean'
    cleanest images from the data set
 
@@ -9,6 +9,7 @@ function dineof_cvp(fname,maskfname,outdir,nbclean)
        maskfname (string): mask file name in teh disk (gher format)
        outdir (string): directory where new file will be written
        nbclean (integer): number of cleanest images to be covered with clouds
+       seed (integer, optional): random seed for reproducibility
   
  File with added clouds will be written in a file with the same name
     as the initial file (and at the same location in the disk)
@@ -24,7 +25,7 @@ function dineof_cvp(fname,maskfname,outdir,nbclean)
     Sea Surface Temperature. Ocean Modelling, 9:325-346, 2005.
 
 """
-function dineof_cvp(fname,maskfname,outdir,nbclean)
+function dineof_cvp(fname,maskfname,outdir,nbclean; seed=nothing, min_cloud_frac=0.05, max_cloud_frac=0.70)
 
 file,varname = split(fname,"#");
 @show file 
@@ -53,17 +54,42 @@ mmax = sum( mask[:] .== 1 );
 cloudcov = (sum(sum(isnan.(SST),dims=2),dims=1) .- nbland)/mmax;
 cloudcov = cloudcov[:];
 
+# Set random seed for reproducibility
+if seed !== nothing
+  Random.seed!(seed)
+  println("Random seed set to: $seed")
+end
+
+# Filter candidate cloud sources by cloud fraction
+# Only use timesteps where cloud coverage is between min_cloud_frac and max_cloud_frac
+candidate_idx = findall((cloudcov .>= min_cloud_frac) .& (cloudcov .<= max_cloud_frac))
+println("Cloud coverage range in data: $(minimum(cloudcov)) to $(maximum(cloudcov))")
+println("Candidate timesteps with cloud frac in [$min_cloud_frac, $max_cloud_frac]: $(length(candidate_idx))")
+
+if length(candidate_idx) < nbclean
+  println("WARNING: Not enough candidate timesteps ($(length(candidate_idx))) for nbclean=$nbclean")
+  println("         Falling back to using all non-clean timesteps")
+  candidate_idx = collect(1:length(cloudcov))
+end
 
 clean = sortperm(cloudcov);
 clean = clean[1:nbclean];
 
 N = length(cloudcov);
 
-index = floor.(Int,N * rand(nbclean,1)).+1;
-
-while (any(index .== clean))
-  index = floor.(Int,N * rand(nbclean,1)).+1;
+# Select random source timesteps from candidates (not from clean)
+available_candidates = setdiff(candidate_idx, clean)
+if length(available_candidates) < nbclean
+  println("WARNING: Not enough non-clean candidates, using all available")
+  available_candidates = setdiff(collect(1:N), clean)
 end
+
+index = zeros(Int, nbclean)
+for i in 1:nbclean
+  index[i] = available_candidates[rand(1:length(available_candidates))]
+end
+
+println("Selected $(nbclean) clean timesteps and $(nbclean) source timesteps")
 
 #to be checked /~isnan
 SST2 = copy(SST);

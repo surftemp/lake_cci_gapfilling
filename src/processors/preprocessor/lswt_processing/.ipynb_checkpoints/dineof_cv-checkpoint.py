@@ -126,8 +126,14 @@ class DineofCVGenerationStep(ProcessingStep):
 
         # 3. Julia executable — default to "julia"
         julia_exe = getattr(config, "cv_julia_exe", "julia")
+        
+        # Get seed and cloud fraction parameters
+        cv_seed = getattr(config, "cv_seed", 1234)  # Default seed for reproducibility
+        min_cloud_frac = getattr(config, "cv_min_cloud_frac", 0.05)
+        max_cloud_frac = getattr(config, "cv_max_cloud_frac", 0.70)
 
-        cmd = [julia_exe, JULIA_SCRIPT, fname, maskfname, out_dir, str(nbclean)]
+        cmd = [julia_exe, JULIA_SCRIPT, fname, maskfname, out_dir, str(nbclean), 
+               str(cv_seed), str(min_cloud_frac), str(max_cloud_frac)]
 
         print(f"[CV] Running Julia dineof_cvp_cli:")
         print("     " + " ".join(cmd))
