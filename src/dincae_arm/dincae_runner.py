@@ -365,6 +365,8 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     mem       = slurm.get("mem",       "128G")
     wall      = slurm.get("time",      "24:00:00")
     julia     = cfg.get("runner", {}).get("julia_exe", "julia")
+    # Exclude problematic GPU nodes - configurable via slurm.exclude
+    exclude   = slurm.get("exclude", "gpuhost004,gpuhost007,gpuhost012,gpuhost016")
 
     env_lines = []
     denv = cfg.get("env", {}).get("dincae", {})
@@ -395,9 +397,10 @@ def submit_slurm_job(arts: DincaeArtifacts, cfg: Dict) -> None:
     log_err = Path(arts.dincae_dir) / f"logs_dincae_{lake_id}.err"
 
     # Generate SLURM script
+    exclude_line = f"#SBATCH --exclude={exclude}" if exclude else ""
     sb = f"""#!/bin/bash
 #SBATCH --job-name=dincae_{lake_id}
-#SBATCH --exclude=gpuhost007,gpuhost012,gpuhost016
+{exclude_line}
 #SBATCH --time={wall}
 #SBATCH --mem={mem}
 #SBATCH --partition={partition}
