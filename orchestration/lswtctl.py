@@ -282,7 +282,7 @@ def _job_prefix(conf_path: str) -> str:
     # Truncate to reasonable length for SLURM job names (max ~64 chars typically)
     return name[:20] if len(name) > 20 else name
 
-def do_submit(conf_path:str):
+def do_submit(conf_path:str, single_stage:str=None):
     _ensure_stage_slurm()
     with open(conf_path) as f: conf = json.load(f)
     grid = _grid(conf)
@@ -328,6 +328,12 @@ def do_submit(conf_path:str):
         cmd += ["stage.slurm"]
         job = subprocess.check_output(cmd, env=env, cwd=here).decode().strip()
         return job
+
+    # Single-stage submission (no dependency chain)
+    if single_stage:
+        job = submit_stage(single_stage)
+        print(f"Submitted single stage: {single_stage}={job}  [prefix={job_prefix}]")
+        return
 
     emode = conf.get("engine_mode", "dineof").lower()
     if per_index:
@@ -695,7 +701,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     p1 = sub.add_parser("plan");   p1.add_argument("config")
-    p2 = sub.add_parser("submit"); p2.add_argument("config")
+    p2 = sub.add_parser("submit"); p2.add_argument("config"); p2.add_argument("--stage", choices=["pre","dineof","dincae","post_dineof","post_dincae"], default=None, help="Submit only this stage (skip dependency chain)")
     p3 = sub.add_parser("exec")
     p3.add_argument("--config", required=True)
     p3.add_argument("--row", required=True, type=int)
@@ -708,7 +714,7 @@ def main():
     if args.cmd == "plan":
         do_plan(args.config)
     elif args.cmd == "submit":
-        do_submit(args.config)
+        do_submit(args.config, args.stage)
     elif args.cmd == "exec":
         do_exec(args.config, args.row, args.stage)
     elif args.cmd == "paths":
