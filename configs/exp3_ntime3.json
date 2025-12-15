@@ -1,10 +1,10 @@
 {
-  "experiment_name": "exp1_dincae_patch",
-  "description": "exp1: PATCH - re-run DINCAE only with updated training parameters (ntime_win=3, skipconnections=2:5)",
+  "experiment_name": "exp3_ntime3",
+  "description": "exp3: Full rerun with DINCAE ntime_win=3, skipconnections=2:5",
   "mode": "anomaly",
-  "note": "exp1",
-  "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dincae",
+  "note": "exp3",
+  "_note_engine_mode": "dineof | dincae | both ",
+  "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
@@ -15,7 +15,7 @@
   },
 
   "paths": {
-    "run_tag": "anomaly-20251211-2561f8-exp1",
+    "_run_tag_note": "Leave empty to auto-generate: {mode}-{date}-{hash}-{note}",
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
