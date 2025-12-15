@@ -48,8 +48,23 @@ def _generate_julia_script(arts: DincaeArtifacts, cfg: Dict) -> Path:
     else:
         loss_weights_str = f"({float(loss_weights_refine)},)"
     
-    # Encoder filter configuration - ORIGINAL FORMULA PRESERVED
-    enc_nfilter_base = int(train_cfg.get('enc_nfilter_base', 32))  # Original: 32
+    # Encoder filter configuration
+    # Option 1: Specify enc_nfilter_internal directly as array (e.g., [16, 32, 64])
+    # Option 2: Specify enc_nfilter_base and let it compute base * 2^(0:enc_levels-1)
+    enc_nfilter_internal = train_cfg.get('enc_nfilter_internal', None)
+    enc_nfilter_base = int(train_cfg.get('enc_nfilter_base', 32))
+    
+    if enc_nfilter_internal is not None:
+        # User specified explicit array - use it directly
+        if isinstance(enc_nfilter_internal, (list, tuple)):
+            enc_nfilter_str = "[" + ",".join(str(int(x)) for x in enc_nfilter_internal) + "]"
+            # Override enc_levels to match array length
+            enc_levels = len(enc_nfilter_internal)
+        else:
+            raise ValueError(f"enc_nfilter_internal must be a list, got {type(enc_nfilter_internal)}")
+    else:
+        # Compute from base using doubling formula
+        enc_nfilter_str = f"round.(Int, {enc_nfilter_base} * 2 .^ (0:{enc_levels}-1))"
     
     # NEW: Laplacian penalty for spatial smoothness
     laplacian_penalty = float(train_cfg.get('laplacian_penalty', 0.0))  # Default: disabled
@@ -120,7 +135,7 @@ jitter_std             = {jitter_std}
 loss_weights_refine    = {loss_weights_str}
 laplacian_penalty      = {laplacian_penalty}
 truth_uncertain        = {str(truth_uncertain).lower()}
-enc_nfilter_base       = {enc_nfilter_base}
+enc_nfilter_internal   = {enc_nfilter_str}
 skipconnections        = {skip_connections_julia}
 
 # SLURM config for plotting job
@@ -227,7 +242,7 @@ loss = DINCAE.reconstruct(
     Atype, data_all, [fname_rec];
     epochs               = epochs,
     batch_size           = batch,
-    enc_nfilter_internal = round.(Int, enc_nfilter_base * 2 .^ (0:enc_levels-1)),
+    enc_nfilter_internal = enc_nfilter_internal,
     clip_grad            = clip_grad,
     ntime_win            = ntime_win,
     upsampling_method    = upsampling_method,
