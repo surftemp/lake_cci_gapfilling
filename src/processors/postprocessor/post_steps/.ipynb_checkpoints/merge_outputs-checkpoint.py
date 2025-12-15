@@ -1,6 +1,7 @@
 # post_steps/merge_outputs.py
 from __future__ import annotations
 
+import os
 import numpy as np
 import xarray as xr
 from typing import Optional, Dict
@@ -50,7 +51,7 @@ class MergeOutputsStep(PostProcessingStep):
             if "temp_filled" not in ds_out:
                 raise KeyError(f"'temp_filled' not found in {ctx.dineof_output_path}")
     
-            # Use the OUTPUT file's time if present; else fallback to prepared (clipped)
+            # Use the OUTPUT file's time if present; else fallback to EOF file or prepared
             if ctx.time_name in ds_out.coords:
                 sub_time_npdt = ds_out[ctx.time_name].values
                 sub_days = self.npdatetime_to_days_since_epoch(sub_time_npdt)
@@ -59,14 +60,25 @@ class MergeOutputsStep(PostProcessingStep):
                 temp_shape = ds_out["temp_filled"].shape[0]
                 
                 # Check if this might be an interpolated reconstruction (full timeline)
-                if temp_shape == len(ctx.full_days):
+                if ctx.full_days is not None and temp_shape == len(ctx.full_days):
                     # This is likely the interpolated reconstruction with full daily timeline
                     sub_days = ctx.full_days
                     print(f"[MergeOutputs] Using full daily timeline ({len(sub_days)} days) for interpolated reconstruction")
+                elif temp_shape == len(ctx.prepared_time_days):
+                    # Exact match with prepared - use prepared times directly
+                    sub_days = ctx.prepared_time_days
+                    print(f"[MergeOutputs] Using prepared timeline ({len(sub_days)} timesteps)")
                 else:
-                    # Regular case: use prepared timeline truncated to actual data length
-                    sub_days = ctx.prepared_time_days[:temp_shape]
-                    print(f"[MergeOutputs] Using prepared timeline truncated to {temp_shape} timesteps")
+                    # Length mismatch - this is likely a filtered reconstruction
+                    # Try to find the corresponding EOF file to get correct times
+                    sub_days = self._get_times_from_eof_file(ctx, temp_shape)
+                    if sub_days is not None:
+                        print(f"[MergeOutputs] Using EOF file timeline ({len(sub_days)} timesteps)")
+                    else:
+                        # Last resort: truncate prepared (this was the old buggy behavior)
+                        sub_days = ctx.prepared_time_days[:temp_shape]
+                        print(f"[MergeOutputs] WARNING: Falling back to truncated prepared timeline ({temp_shape} timesteps)")
+                        print(f"[MergeOutputs] This may cause incorrect time mapping for filtered reconstructions!")
     
             # Mapping dict: day -> index in original full axis
             idx_map: Dict[int, int] = {int(d): i for i, d in enumerate(orig_days)}
@@ -144,3 +156,51 @@ class MergeOutputsStep(PostProcessingStep):
             ds_out.close()
             ds_orig.close()
 
+    def _get_times_from_eof_file(self, ctx: PostContext, expected_length: int) -> Optional[np.ndarray]:
+        """
+        Try to find the corresponding EOF file and extract its time coordinate.
+        
+        This handles the case where dineof_results_eof_filtered.nc was created from
+        eofs_filtered.nc, which has fewer timesteps than prepared.nc due to outlier filtering.
+        
+        Returns the time coordinate as days since epoch, or None if not found.
+        """
+        base_dir = os.path.dirname(ctx.dineof_output_path)
+        output_basename = os.path.basename(ctx.dineof_output_path)
+        
+        # Determine which EOF file to look for based on the output filename
+        if "eof_filtered" in output_basename:
+            # For filtered results, look for eofs_filtered.nc
+            eof_candidates = [
+                os.path.join(base_dir, "eofs_filtered.nc"),
+            ]
+        elif "eof_interp" in output_basename:
+            # For interpolated results, look for eofs_interpolated.nc or eofs_filtered_interpolated.nc
+            eof_candidates = [
+                os.path.join(base_dir, "eofs_interpolated.nc"),
+                os.path.join(base_dir, "eofs_filtered_interpolated.nc"),
+            ]
+        else:
+            # For regular results, look for eofs.nc
+            eof_candidates = [
+                os.path.join(base_dir, "eofs.nc"),
+            ]
+        
+        for eof_path in eof_candidates:
+            if os.path.exists(eof_path):
+                try:
+                    with xr.open_dataset(eof_path) as eof_ds:
+                        # Check for time coordinate (might be named 'time' or stored differently)
+                        if 'time' in eof_ds.coords:
+                            eof_times = eof_ds['time'].values
+                            eof_days = self.npdatetime_to_days_since_epoch(eof_times)
+                            
+                            if len(eof_days) == expected_length:
+                                print(f"[MergeOutputs] Found matching EOF times in {os.path.basename(eof_path)}")
+                                return eof_days
+                            else:
+                                print(f"[MergeOutputs] EOF file {os.path.basename(eof_path)} has {len(eof_days)} times, expected {expected_length}")
+                except Exception as e:
+                    print(f"[MergeOutputs] Could not read EOF file {eof_path}: {e}")
+        
+        return None

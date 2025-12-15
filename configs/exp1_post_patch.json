@@ -1,20 +1,21 @@
 {
-  "experiment_name": "pilot_tmp_test_dincae_skipconnection",
-  "description": "pilot_tmp_test_dincae_skipconnection: baseline",
+  "experiment_name": "exp1_post_patch",
+  "description": "exp1: PATCH - re-run post-processing only with fixed merge_outputs.py",
   "mode": "anomaly",
-  "note": "pilot_tmp_test_dincae_skipconnection",
+  "note": "exp1",
   "_note_engine_mode": "dineof | dincae | both",
-  "engine_mode": "dincae",
+  "engine_mode": "dineof",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [20,25,146],
+    "custom_lake_ids": [20],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
 
   "paths": {
+    "run_tag": "anomaly-20251211-2561f8-exp1",
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
@@ -60,7 +61,7 @@
   },
 
   "behavior": {
-    "idempotent": true,
+    "idempotent": false,
     "keep_temps": false
   },
 
@@ -68,7 +69,6 @@
     "start_date": "2004-01-01",
     "end_date": "2022-12-31",
     "quality_threshold": 3,
-    "_comment_cv": "=== DINEOF CV SETTINGS (generates clouds_index.nc, also used by DINCAE when dincae.cv.use_dineof_cv=true) ===",
     "cv_enable": true,
     "cv_mask_var": "lakeid",
     "cv_data_var": "lake_surface_water_temperature",
@@ -80,7 +80,6 @@
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
     "remove_threshold": 0.05,
-    "_comment_zscore": "Master switch for outlier filtering, Method: zscore | robust | quantile | off",
     "apply_zscore_filter": true,
     "outlier_mode": "zscore",
     "z_threshold": 2.5,
@@ -111,8 +110,6 @@
     "epoch": "1981-01-01T12:00:00Z",
     "crop": { "buffer_pixels": 2 },
     "cv": {
-      "_comment": "=== DINCAE CV SETTINGS ===",
-      "_note": "If use_dineof_cv=true, DINCAE reuses clouds_index.nc from preprocessing and settings below are IGNORED. If use_dineof_cv=false, DINCAE generates its own CV points using settings below.",
       "use_dineof_cv": true,
       "cv_fraction": 0.05,
       "random_seed": 1234,
@@ -122,49 +119,23 @@
       "max_frac_missing": 0.70
     },
     "train": {
-      "_comment": "=== CORE TRAINING PARAMETERS ===",
       "epochs": 300,
       "batch_size": 32,
       "learning_rate": 0.0001,
       "save_epochs_interval": 50,
       "use_gpu": true,
-    
-      "_comment_temporal": "=== TEMPORAL CONTEXT (CRITICAL for gap-filling quality) ===",
-      "ntime_win": 3,
-      "_ntime_win_note": "Number of timesteps in sliding window. Default 3 is often too small. Try 5-9 for better gap-filling.",
-    
-      "_comment_architecture": "=== NETWORK ARCHITECTURE ===",
+      "ntime_win": 9,
       "enc_nfilter_internal": [32, 64, 256],
-      "_enc_nfilter_internal_note": "Explicit filter counts per encoder level. Array length determines enc_levels. Alternative: use enc_nfilter_base with enc_levels for auto-doubling.",
-      "_enc_nfilter_base_alternative": "If enc_nfilter_internal not set, use enc_nfilter_base (default 32) with enc_levels to compute base * 2^(0:enc_levels-1)",
       "skipconnections": "2:4",
-      "_skipconnections_note": "Which levels have skip connections. Should be 2:(len(enc_nfilter_internal)+1). For 3 levels, use 2:4.",
-    
-      "_comment_error": "=== ERROR PARAMETERS (CRITICAL - must be separate!) ===",
       "obs_err_std": 0.1,
-      "_obs_err_std_note": "Assumed observation error std. Controls how tightly network fits observations. 0.1-0.2 typical for anomalies.",
       "min_std_err": 0.05,
-      "_min_std_err_note": "MINIMUM reconstruction uncertainty. Prevents division by zero. Should be SMALLER than obs_err_std! Default ~0.007 in DINCAE.",
       "truth_uncertain": false,
-      "_truth_uncertain_note": "If true, observations are treated as having measurement error (obs_err_std). If false, observations are treated as exact. Set true for real satellite data.",
-    
-      "_comment_advanced": "=== ADVANCED TRAINING PARAMETERS ===",
       "clip_grad": 5.0,
-      "_clip_grad_note": "Gradient clipping threshold. Prevents exploding gradients.",
       "upsampling_method": "bilinear",
-      "_upsampling_method_note": "'nearest' (blocky, fast) or 'bilinear' (smooth). Try bilinear for better gap-fill quality.",
       "regularization_L2_beta": 1e-5,
-      "_regularization_L2_beta_note": "L2 weight regularization. Small values (1e-5 to 1e-4) prevent overfitting.",
       "jitter_std": 0.01,
-      "_jitter_std_note": "Random noise added to observations during training. Helps prevent overfitting.",
-    
-      "_comment_refinement": "=== REFINEMENT PASSES ===",
       "loss_weights_refine": [0.3, 0.7],
-      "_loss_weights_refine_note": "Single value [1.0] = one pass. Two values [0.3, 0.7] = two-pass refinement. Refinement can help in gaps.",
-    
-      "_comment_spatial": "=== SPATIAL SMOOTHNESS ===",
-      "laplacian_penalty": 0.0,
-      "_laplacian_penalty_note": "Penalty for spatial roughness. Try 0.001 if reconstructions look noisy. 0 = disabled."
+      "laplacian_penalty": 0.0
     },
     "runner": {
       "mode": "slurm",
@@ -182,8 +153,7 @@
       "account": "orchid",
       "qos": "orchid",
       "log_out": "logs_dincae.out",
-      "log_err": "logs_dincae.err",
-      "exclude": "gpuhost004"    
+      "log_err": "logs_dincae.err"
     },
     "post": {
       "write_merged": false,
@@ -195,71 +165,6 @@
       "selection_csv": "/home/users/shaerdan/general_purposes/insitu_cv/L3S_QL_MDB_2010_selection_converted.csv",
       "distance_threshold": 0.05,
       "quality_threshold": 3
-    }
-  },
-
-  "_recommended_configs": {
-    "_description": "Copy one of these 'train' blocks based on your situation. These are REFERENCE ONLY - not used by pipeline.",
-
-    "baseline_conservative": {
-      "_when": "Default safe settings for initial testing",
-      "epochs": 300,
-      "batch_size": 32,
-      "ntime_win": 7,
-      "learning_rate": 0.0001,
-      "enc_levels": 4,
-      "obs_err_std": 0.1,
-      "min_std_err": 0.05,
-      "truth_uncertain": true,
-      "upsampling_method": "bilinear",
-      "loss_weights_refine": [1.0],
-      "laplacian_penalty": 0.0
-    },
-
-    "better_gapfill": {
-      "_when": "Gap-filled regions look flat or unrealistic",
-      "epochs": 300,
-      "batch_size": 32,
-      "ntime_win": 9,
-      "learning_rate": 0.0003,
-      "enc_levels": 4,
-      "obs_err_std": 0.15,
-      "min_std_err": 0.03,
-      "truth_uncertain": true,
-      "upsampling_method": "bilinear",
-      "loss_weights_refine": [0.3, 0.7],
-      "laplacian_penalty": 0.001
-    },
-
-    "small_lake": {
-      "_when": "Lake has few pixels (<50x50)",
-      "epochs": 300,
-      "batch_size": 16,
-      "ntime_win": 7,
-      "learning_rate": 0.0001,
-      "enc_levels": 3,
-      "enc_nfilter_base": 16,
-      "obs_err_std": 0.1,
-      "min_std_err": 0.05,
-      "truth_uncertain": true,
-      "upsampling_method": "bilinear"
-    },
-
-    "large_lake_high_quality": {
-      "_when": "Large lake with good observation coverage, want best quality",
-      "epochs": 500,
-      "batch_size": 32,
-      "ntime_win": 9,
-      "learning_rate": 0.0001,
-      "enc_levels": 5,
-      "enc_nfilter_base": 32,
-      "obs_err_std": 0.1,
-      "min_std_err": 0.03,
-      "truth_uncertain": true,
-      "upsampling_method": "bilinear",
-      "loss_weights_refine": [0.3, 0.7],
-      "laplacian_penalty": 0.0005,
-      "regularization_L2_beta": 1e-5
     }
   },
 
