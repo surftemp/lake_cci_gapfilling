@@ -245,6 +245,10 @@ PY
     for st in pre dineof post_dineof; do run_stage "$st"; done
   elif [[ "$EMODE" == "dincae" ]]; then
     for st in pre dincae post_dincae; do run_stage "$st"; done
+  elif [[ "$EMODE" == "dincae_only" ]]; then
+    for st in dincae post_dincae; do run_stage "$st"; done
+  elif [[ "$EMODE" == "dineof_only" ]]; then
+    for st in dineof post_dineof; do run_stage "$st"; done
   else
     for st in pre dineof dincae post_dineof post_dincae; do run_stage "$st"; done
   fi
@@ -289,14 +293,30 @@ def do_submit(conf_path:str, single_stage:str=None):
     if not grid:
         print("No tasks. Check dataset_options.custom_lake_ids.", file=sys.stderr); sys.exit(1)
 
+    # Generate run_tag ONCE at submission time (not at job execution time)
+    P = conf.get("paths", {})
+    if not P.get("run_tag"):
+        # Auto-generate and inject into config so all jobs use the same tag
+        run_tag = _auto_run_tag(conf)
+        if "paths" not in conf:
+            conf["paths"] = {}
+        conf["paths"]["run_tag"] = run_tag
+        print(f"[INFO] Auto-generated run_tag at submission time: {run_tag}")
+
     paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
     logd = paths0["logs_dir"]; pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
 
     _ensure_dir(paths0["run_root"])
-    with open(os.path.join(paths0["run_root"], "manifest.json"), "w") as f:
+    
+    # Save manifest with the locked-in run_tag
+    manifest_path = os.path.join(paths0["run_root"], "manifest.json")
+    with open(manifest_path, "w") as f:
         json.dump(conf, f, indent=2)
     with open(os.path.join(paths0["run_root"], "README.txt"), "w") as f:
         f.write(f"Run tag: {paths0['run_tag']}\nGenerated: {datetime.now(timezone.utc).isoformat()}\n")
+    
+    # Jobs will read from manifest.json which has the locked run_tag
+    conf_to_use = manifest_path
 
     sub = conf.get("submission", {})
     maxc = str(sub.get("max_concurrent", 50))
@@ -321,7 +341,8 @@ def do_submit(conf_path:str, single_stage:str=None):
 
     def submit_stage(stage, dep=None, name=None):
         env = os.environ.copy()
-        env.update({"CONF": os.path.abspath(conf_path), "STAGE": stage, "LOGS_DIR": logd})
+        # Use manifest.json which has the locked run_tag from submission time
+        env.update({"CONF": os.path.abspath(conf_to_use), "STAGE": stage, "LOGS_DIR": logd})
         job_name = name or f"{job_prefix}_{stage}"
         cmd = base + ["--job-name", job_name]
         if dep: cmd += ["--dependency", dep]
@@ -341,17 +362,29 @@ def do_submit(conf_path:str, single_stage:str=None):
         print(f"Submitted (per-index inline chain): chain={chain_job}  [mode={emode}]  [prefix={job_prefix}]")
     else:
         # Stage-wide chaining
-        pre_job  = submit_stage("pre")
-        if emode == "dineof":
+        if emode == "dincae_only":
+            # Skip pre, just run dincae → post_dincae
+            c_job = submit_stage("dincae")
+            p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
+            print(f"Submitted: dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
+        elif emode == "dineof_only":
+            # Skip pre, just run dineof → post_dineof
+            d_job = submit_stage("dineof")
+            p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
+            print(f"Submitted: dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
+        elif emode == "dineof":
+            pre_job  = submit_stage("pre")
             d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
             p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
             print(f"Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
         elif emode == "dincae":
+            pre_job  = submit_stage("pre")
             c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
             p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
             print(f"Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
         else:
             # both: run dineof and dincae after pre (in parallel), then their posts
+            pre_job  = submit_stage("pre")
             d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
             c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
             pd_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
