@@ -243,18 +243,33 @@ class ReconstructFromEOFsStep(PostProcessingStep):
             return da
 
         t_da = tmpl[var_name]
-        # rename dims if necessary
-        rename_map = {}
         dims_target = t_da.dims
         dims_src = da.dims
+        
+        # Check if template has duplicate dimension names (e.g., dim002, dim001, dim001)
+        # This happens when DINEOF Fortran writes a square grid where lat==lon size
+        if len(dims_target) != len(set(dims_target)):
+            print(f"[{self.name}] Template has duplicate dim names {dims_target}, correcting...")
+            # Create corrected target dims: (dim002, dim001, dim001) -> (dim003, dim002, dim001)
+            # We know the structure should be (time, lat, lon) so we assign unique generic names
+            dims_target = ('dim003', 'dim002', 'dim001')
+            print(f"[{self.name}] Corrected target dims to {dims_target}")
+        
+        # rename dims if necessary
+        rename_map = {}
         # assume structure ('time', y, x) both sides; just map second/third dims by name similarity
         for src, tgt in zip(dims_src, dims_target):
             if src != tgt:
+                # Check if target name already exists as a coord to avoid conflict
+                if tgt in da.coords and tgt not in da.dims:
+                    # Drop the conflicting coord first
+                    da = da.drop_vars(tgt)
                 rename_map[src] = tgt
         if rename_map:
             da = da.rename(rename_map)
 
-        # reindex to template coords where available
+        # reindex to template coords where available - skip if template had duplicate dims
+        # since the corrected dims won't have matching coords in template
         for coord in t_da.dims:
             if coord in t_da.coords and coord in da.coords:
                 da = da.reindex({coord: t_da.coords[coord]}, method=None)
