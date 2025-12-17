@@ -1,15 +1,15 @@
 {
-  "experiment_name": "exp3_ntime3_patch",
-  "description": "exp3_patch: Full rerun with DINCAE ntime_win=3, skipconnections=2:5",
+  "experiment_name": "exp3_ntime3",
+  "description": "exp3: Full rerun with DINCAE ntime_win=3, skipconnections=2:5",
   "mode": "anomaly",
-  "note": "exp3_patch",
+  "note": "exp3",
   "_note_engine_mode": "dineof | dincae | both ",
-  "engine_mode": "both",
+  "engine_mode": "dincae",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [2965, 300016649],
+    "custom_lake_ids": [84,310],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
