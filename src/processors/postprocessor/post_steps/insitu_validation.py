@@ -675,6 +675,87 @@ class InsituValidationStep(PostProcessingStep):
         
         return return_ds
     
+    def _get_prepared_path(self, post_dir: str, lake_id_cci: int) -> Optional[str]:
+        """
+        Get the path to prepared.nc for this lake.
+        
+        Constructs path as: {run_root}/prepared/{lake_id9}/prepared.nc
+        where run_root is derived from post_dir (post/{lake_id}/a1000 -> run_root)
+        """
+        try:
+            # post_dir is like: {run_root}/post/{lake_id}/a1000
+            # We need: {run_root}/prepared/{lake_id9}/prepared.nc
+            parts = post_dir.split(os.sep)
+            
+            # Find 'post' in path and go up to run_root
+            if 'post' in parts:
+                post_idx = parts.index('post')
+                run_root = os.sep.join(parts[:post_idx])
+            else:
+                # Fallback: go up 3 levels from post_dir
+                run_root = os.path.dirname(os.path.dirname(os.path.dirname(post_dir)))
+            
+            lake_id9 = f"{lake_id_cci:09d}"
+            prepared_path = os.path.join(run_root, "prepared", lake_id9, "prepared.nc")
+            
+            if os.path.exists(prepared_path):
+                return prepared_path
+            else:
+                print(f"[InsituValidation] prepared.nc not found at: {prepared_path}")
+                return None
+        except Exception as e:
+            print(f"[InsituValidation] Error constructing prepared.nc path: {e}")
+            return None
+    
+    def _check_originally_observed(self, prepared_path: str, grid_idx: Tuple[int, int],
+                                    matched_dates: List, is_interpolated: bool = False) -> np.ndarray:
+        """
+        Check which matched dates had original observations in prepared.nc.
+        
+        Args:
+            prepared_path: Path to prepared.nc
+            grid_idx: (lat_idx, lon_idx) tuple for the pixel
+            matched_dates: List of dates to check
+            is_interpolated: If True, dates may not exist in prepared.nc
+        
+        Returns:
+            Boolean array where True = originally observed, False = originally missing
+        """
+        was_observed = np.zeros(len(matched_dates), dtype=bool)
+        
+        if not prepared_path or not os.path.exists(prepared_path):
+            return was_observed  # All False if no prepared.nc
+        
+        try:
+            with xr.open_dataset(prepared_path) as ds_prep:
+                # Get time coordinates from prepared.nc
+                prep_time_vals = pd.to_datetime(ds_prep['time'].values)
+                prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
+                
+                # Get the temperature values at this pixel
+                # Variable is lake_surface_water_temperature (after quality filtering, before gap-fill)
+                if 'lake_surface_water_temperature' in ds_prep:
+                    prep_temps = ds_prep['lake_surface_water_temperature'].isel(
+                        lat=grid_idx[0], lon=grid_idx[1]
+                    ).values
+                    
+                    for i, d in enumerate(matched_dates):
+                        if d in prep_date_to_idx:
+                            prep_idx = prep_date_to_idx[d]
+                            # Valid (not NaN) in prepared.nc = originally observed
+                            was_observed[i] = not np.isnan(prep_temps[prep_idx])
+                        else:
+                            # Date not in prepared.nc (e.g., interpolated daily timeline)
+                            # These are pure interpolation, so was_observed = False
+                            was_observed[i] = False
+                else:
+                    print(f"[InsituValidation] lake_surface_water_temperature not found in prepared.nc")
+                    
+        except Exception as e:
+            print(f"[InsituValidation] Error checking originally observed: {e}")
+        
+        return was_observed
+
     def _find_pipeline_outputs(self, post_dir: str, lake_id_cci: int) -> Dict[str, Optional[str]]:
         """Find all pipeline output files for a lake."""
         outputs = {
@@ -711,6 +792,13 @@ class InsituValidationStep(PostProcessingStep):
             
             grid_idx = None
             unique_buoy_dates = list(buoy_date_temp.keys())
+            
+            # Get prepared.nc path for checking originally observed status
+            prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
+            if prepared_path:
+                print(f"[InsituValidation] Using prepared.nc for observed/missing split: {os.path.basename(prepared_path)}")
+            else:
+                print(f"[InsituValidation] prepared.nc not found, skipping observed/missing split")
             
             for method_name, nc_path in outputs.items():
                 if nc_path is None:
@@ -761,6 +849,52 @@ class InsituValidationStep(PostProcessingStep):
                             },
                             'is_interpolated': is_interpolated,
                         }
+                        
+                        # NEW: Check which reconstruction points were originally observed vs missing
+                        if prepared_path and grid_idx is not None:
+                            was_observed = self._check_originally_observed(
+                                prepared_path, grid_idx, 
+                                recon_extracted['matched_dates'], 
+                                is_interpolated=is_interpolated
+                            )
+                            
+                            # Store the was_observed flag for each point
+                            results['methods'][method_name]['recon']['was_observed'] = was_observed
+                            
+                            # Compute stats for OBSERVED subset (training data overlap)
+                            obs_mask = was_observed
+                            if obs_mask.any():
+                                obs_temps = recon_extracted['temps'][obs_mask]
+                                obs_insitu = matched_buoy_recon[obs_mask]
+                                recon_observed_stats = compute_stats(obs_temps, obs_insitu)
+                                results['methods'][method_name]['recon_observed'] = {
+                                    'dates': [d for d, m in zip(recon_extracted['matched_dates'], obs_mask) if m],
+                                    'satellite_temps': obs_temps,
+                                    'insitu_temps': obs_insitu,
+                                    'difference': obs_temps - obs_insitu,
+                                    **recon_observed_stats,
+                                }
+                                print(f"[InsituValidation] {method_name} (recon_observed): N={recon_observed_stats['n_matches']}, RMSE={recon_observed_stats['rmse']:.3f}°C")
+                            
+                            # Compute stats for MISSING subset (pure gap-fill)
+                            missing_mask = ~was_observed
+                            if missing_mask.any():
+                                missing_temps = recon_extracted['temps'][missing_mask]
+                                missing_insitu = matched_buoy_recon[missing_mask]
+                                recon_missing_stats = compute_stats(missing_temps, missing_insitu)
+                                results['methods'][method_name]['recon_missing'] = {
+                                    'dates': [d for d, m in zip(recon_extracted['matched_dates'], missing_mask) if m],
+                                    'satellite_temps': missing_temps,
+                                    'insitu_temps': missing_insitu,
+                                    'difference': missing_temps - missing_insitu,
+                                    **recon_missing_stats,
+                                }
+                                print(f"[InsituValidation] {method_name} (recon_missing): N={recon_missing_stats['n_matches']}, RMSE={recon_missing_stats['rmse']:.3f}°C")
+                            
+                            # Summary
+                            n_obs = int(obs_mask.sum())
+                            n_missing = int(missing_mask.sum())
+                            print(f"[InsituValidation] {method_name}: {n_obs} observed + {n_missing} missing = {n_obs + n_missing} total")
                         
                         # For interpolated files, extract full time series
                         if is_interpolated:
@@ -1131,7 +1265,7 @@ class InsituValidationStep(PostProcessingStep):
                         'correlation': obs['correlation'],
                     })
                 
-                # Reconstruction stats
+                # Reconstruction stats (ALL points - existing behavior)
                 if 'recon' in method_data:
                     recon = method_data['recon']
                     rows.append({
@@ -1148,6 +1282,44 @@ class InsituValidationStep(PostProcessingStep):
                         'std': recon['std'],
                         'rstd': recon['rstd'],
                         'correlation': recon['correlation'],
+                    })
+                
+                # NEW: Reconstruction stats for OBSERVED subset (training data overlap)
+                if 'recon_observed' in method_data:
+                    recon_obs = method_data['recon_observed']
+                    rows.append({
+                        'lake_id': results['lake_id'],
+                        'lake_id_cci': results['lake_id_cci'],
+                        'site_id': results['site_id'],
+                        'method': method_name,
+                        'data_type': 'reconstruction_observed',
+                        'n_matches': recon_obs['n_matches'],
+                        'rmse': recon_obs['rmse'],
+                        'mae': recon_obs['mae'],
+                        'bias': recon_obs['bias'],
+                        'median': recon_obs['median'],
+                        'std': recon_obs['std'],
+                        'rstd': recon_obs['rstd'],
+                        'correlation': recon_obs['correlation'],
+                    })
+                
+                # NEW: Reconstruction stats for MISSING subset (pure gap-fill)
+                if 'recon_missing' in method_data:
+                    recon_miss = method_data['recon_missing']
+                    rows.append({
+                        'lake_id': results['lake_id'],
+                        'lake_id_cci': results['lake_id_cci'],
+                        'site_id': results['site_id'],
+                        'method': method_name,
+                        'data_type': 'reconstruction_missing',
+                        'n_matches': recon_miss['n_matches'],
+                        'rmse': recon_miss['rmse'],
+                        'mae': recon_miss['mae'],
+                        'bias': recon_miss['bias'],
+                        'median': recon_miss['median'],
+                        'std': recon_miss['std'],
+                        'rstd': recon_miss['rstd'],
+                        'correlation': recon_miss['correlation'],
                     })
             
             if rows:
@@ -1198,7 +1370,7 @@ class InsituValidationStep(PostProcessingStep):
                                 **stats,
                             })
                     
-                    # Reconstruction stats for this year
+                    # Reconstruction stats for this year (ALL points)
                     if 'recon' in method_data:
                         recon_data = method_data['recon']
                         year_mask = np.array([d.year == year for d in recon_data['dates']])
@@ -1213,6 +1385,42 @@ class InsituValidationStep(PostProcessingStep):
                                 'year': year,
                                 'method': method_name,
                                 'data_type': 'reconstruction',
+                                **stats,
+                            })
+                    
+                    # NEW: Reconstruction OBSERVED stats for this year
+                    if 'recon_observed' in method_data:
+                        recon_obs_data = method_data['recon_observed']
+                        year_mask = np.array([d.year == year for d in recon_obs_data['dates']])
+                        if year_mask.any():
+                            year_temps = recon_obs_data['satellite_temps'][year_mask]
+                            year_insitu = recon_obs_data['insitu_temps'][year_mask]
+                            stats = compute_stats(year_temps, year_insitu)
+                            rows.append({
+                                'lake_id': results['lake_id'],
+                                'lake_id_cci': results['lake_id_cci'],
+                                'site_id': results['site_id'],
+                                'year': year,
+                                'method': method_name,
+                                'data_type': 'reconstruction_observed',
+                                **stats,
+                            })
+                    
+                    # NEW: Reconstruction MISSING stats for this year
+                    if 'recon_missing' in method_data:
+                        recon_miss_data = method_data['recon_missing']
+                        year_mask = np.array([d.year == year for d in recon_miss_data['dates']])
+                        if year_mask.any():
+                            year_temps = recon_miss_data['satellite_temps'][year_mask]
+                            year_insitu = recon_miss_data['insitu_temps'][year_mask]
+                            stats = compute_stats(year_temps, year_insitu)
+                            rows.append({
+                                'lake_id': results['lake_id'],
+                                'lake_id_cci': results['lake_id_cci'],
+                                'site_id': results['site_id'],
+                                'year': year,
+                                'method': method_name,
+                                'data_type': 'reconstruction_missing',
                                 **stats,
                             })
             

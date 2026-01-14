@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Standalone In-Situ Validation Runner (v2)
+Standalone In-Situ Validation Runner (v3)
 
 Runs the InsituValidationStep on existing pipeline results without
 re-running the full pipeline.
+
+NEW in v3: Observed/missing split analysis
+    - For each reconstruction point, checks if it was originally observed or missing
+    - Computes separate stats for reconstruction_observed and reconstruction_missing
+    - Reveals true gap-fill quality vs. training data overlap
+    - Uses prepared.nc to determine original observation status
 
 NEW in v2: Supports multiple selection CSVs with cascading fallback.
     - Lakes are matched against each selection CSV in order
@@ -23,6 +29,10 @@ Usage:
     # Custom selection CSVs (in priority order)
     python run_insitu_validation.py --run-root /path/to/experiment --all \
         --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
+    
+    # Disable observed/missing split (faster, backward compatible output)
+    python run_insitu_validation.py --run-root /path/to/experiment --all \
+        --no-split-observed-missing
 
 Author: Shaerdan / NCEO / University of Reading
 """
@@ -184,9 +194,17 @@ Examples:
     # Override with custom selection CSVs (searched in order)
     python run_insitu_validation.py --run-root /path/to/exp1 --lake-id 4503 \\
         --selection-csvs /path/to/2010.csv /path/to/2007.csv /path/to/2018.csv
+    
+    # Disable observed/missing split analysis (faster, less output)
+    python run_insitu_validation.py --run-root /path/to/exp1 --all \\
+        --no-split-observed-missing
 
 Output:
     Results are saved to: {run_root}/post/{lake_id}/{alpha}/insitu_cv_validation/
+    
+    With --split-observed-missing (default), CSV files include additional rows:
+      - data_type='reconstruction_observed': Points where original was observed
+      - data_type='reconstruction_missing': Points where original was missing (pure gap-fill)
         """
     )
     
@@ -221,6 +239,14 @@ Output:
     
     parser.add_argument("--quality-threshold", type=int, default=None,
                         help="Quality level threshold for satellite observations (default: 3, or from config)")
+    
+    # NEW: Observed/missing split analysis
+    split_group = parser.add_mutually_exclusive_group()
+    split_group.add_argument("--split-observed-missing", action="store_true", dest="split_obs_miss",
+                             default=None,
+                             help="Enable observed/missing split analysis using prepared.nc (default: enabled)")
+    split_group.add_argument("--no-split-observed-missing", action="store_false", dest="split_obs_miss",
+                             help="Disable observed/missing split analysis")
     
     args = parser.parse_args()
     
@@ -299,6 +325,16 @@ Output:
         config["quality_threshold"] = INSITU_CONFIG.get("quality_threshold", 3)
         print(f"Using default quality_threshold={config['quality_threshold']}")
     
+    # Set split_observed_missing: CLI > config file > default (True)
+    if args.split_obs_miss is not None:
+        config["split_observed_missing"] = args.split_obs_miss
+        status = "enabled" if args.split_obs_miss else "disabled"
+        print(f"Observed/missing split analysis: {status} (from command line)")
+    else:
+        config["split_observed_missing"] = config.get("split_observed_missing", True)
+        status = "enabled" if config["split_observed_missing"] else "disabled"
+        print(f"Observed/missing split analysis: {status} (default)")
+    
     # Determine which lakes to process
     if args.all:
         lake_ids = find_lakes_in_experiment(args.run_root)
@@ -329,6 +365,8 @@ Output:
         print(f"Selection CSV: {config['selection_csv']}")
     
     print(f"Quality threshold: >= {config['quality_threshold']} (for observation filtering)")
+    split_status = "ENABLED" if config.get("split_observed_missing", True) else "DISABLED"
+    print(f"Observed/missing split: {split_status}")
     print(f"{'='*60}\n")
     
     success_count = 0
