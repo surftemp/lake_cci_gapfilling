@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-Standalone In-Situ Validation Runner (v4)
+Standalone In-Situ Validation Runner (v8)
 
 Runs the InsituValidationStep on existing pipeline results without
 re-running the full pipeline.
 
+NEW in v8: Separated stats displayed in plot titles
+    - Difference panels now show: RMSE (all), RMSE (obs), RMSE (gap-fill)
+    - Easy comparison of reconstruction quality on each subset
+    - Both summary and yearly plots updated
+
+NEW in v7: Visual distinction in plots for observed vs gap-fill
+    - Observed points in GREEN (circles)
+    - Gap-filled points in ORANGE (squares)
+
+NEW in v6: Fixed time decoding for prepared.nc
+
+NEW in v5: Enhanced diagnostics for observed/missing split
+
 NEW in v4: Fixed coordinate mismatch bug
-    - The observed/missing split now correctly finds the grid index in prepared.nc
-      using coordinate-based lookup instead of reusing the index from output files
-    - This fixes the issue where all points were incorrectly classified as "missing"
-      due to different coordinate ordering between files
 
 NEW in v3: Observed/missing split analysis
-    - For each reconstruction point, checks if it was originally observed or missing
-    - Computes separate stats for reconstruction_observed and reconstruction_missing
-    - Reveals true gap-fill quality vs. training data overlap
-    - Uses prepared.nc to determine original observation status
 
 NEW in v2: Supports multiple selection CSVs with cascading fallback.
-    - Lakes are matched against each selection CSV in order
-    - First CSV containing the lake_id_cci is used
-    - Ensures lakes with in-situ data from different time periods are all captured
 
 Usage:
     # Single lake
@@ -186,7 +188,7 @@ def run_validation_for_lake(run_root: str, lake_id: int, config: dict) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run in-situ validation on existing pipeline results (v4 - coordinate fix)",
+        description="Run in-situ validation on existing pipeline results (v8 - stats in plots)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -356,7 +358,7 @@ Output:
     
     # Print configuration summary
     print(f"\n{'='*60}")
-    print(f"In-Situ Validation Runner (v4)")
+    print(f"In-Situ Validation Runner (v8)")
     print(f"{'='*60}")
     print(f"Run root: {args.run_root}")
     print(f"Lakes to process: {len(lake_ids)}")

@@ -733,19 +733,31 @@ class InsituValidationStep(PostProcessingStep):
             return was_observed  # All False if no prepared.nc
         
         try:
-            with xr.open_dataset(prepared_path) as ds_prep:
-                # Get time coordinates from prepared.nc
-                prep_time_vals = pd.to_datetime(ds_prep['time'].values)
-                prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
-                
+            # Open WITHOUT decode_times since prepared.nc may not have CF-compliant time encoding
+            with xr.open_dataset(prepared_path, decode_times=False) as ds_prep:
                 # Get the temperature values at this pixel
-                # Variable is lake_surface_water_temperature (after quality filtering, before gap-fill)
                 if 'lake_surface_water_temperature' not in ds_prep:
                     print(f"[InsituValidation] lake_surface_water_temperature not found in prepared.nc")
                     return was_observed
                 
+                # Decode time values manually using time_units attribute
+                # prepared.nc stores time as "days since 1981-01-01 12:00:00"
+                raw_times = ds_prep['time'].values
+                time_units = ds_prep.attrs.get('time_units', None)
+                
+                if time_units and 'days since' in time_units:
+                    # Parse: "days since 1981-01-01 12:00:00" -> base timestamp
+                    base_str = time_units.replace('days since ', '').strip()
+                    base_time = pd.Timestamp(base_str)
+                    prep_time_vals = base_time + pd.to_timedelta(raw_times, unit='D')
+                    prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
+                else:
+                    # Fallback: try standard pandas parsing (may not work)
+                    print(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
+                    prep_time_vals = pd.to_datetime(raw_times)
+                    prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
+                
                 # IMPORTANT: Find grid index in prepared.nc's own coordinate system
-                # Don't reuse grid_idx from output file - coordinates may be ordered differently!
                 if target_lat is not None and target_lon is not None:
                     prep_lat = ds_prep['lat'].values
                     prep_lon = ds_prep['lon'].values
@@ -753,11 +765,9 @@ class InsituValidationStep(PostProcessingStep):
                         prep_lat, prep_lon, target_lat, target_lon
                     )
                     
-                    # Verify we're at the same location (within ~1km)
-                    if prep_dist > 0.01:  # ~1km tolerance
+                    if prep_dist > 0.01:
                         print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")
                 else:
-                    # Fallback to using the passed grid_idx (may be wrong if coords differ)
                     prep_grid_idx = grid_idx
                     print(f"[InsituValidation] Warning: using output file grid_idx for prepared.nc (may be inaccurate)")
                 
@@ -770,18 +780,37 @@ class InsituValidationStep(PostProcessingStep):
                 n_total_in_prep = len(prep_temps)
                 print(f"[InsituValidation] prepared.nc pixel has {n_valid_in_prep}/{n_total_in_prep} valid values")
                 
+                # Check date matching
+                n_dates_found = 0
+                n_dates_with_valid = 0
                 for i, d in enumerate(matched_dates):
                     if d in prep_date_to_idx:
+                        n_dates_found += 1
                         prep_idx = prep_date_to_idx[d]
-                        # Valid (not NaN) in prepared.nc = originally observed
-                        was_observed[i] = not np.isnan(prep_temps[prep_idx])
+                        if not np.isnan(prep_temps[prep_idx]):
+                            n_dates_with_valid += 1
+                            was_observed[i] = True
+                        else:
+                            was_observed[i] = False
                     else:
-                        # Date not in prepared.nc (e.g., interpolated daily timeline)
-                        # These are pure interpolation, so was_observed = False
                         was_observed[i] = False
+                
+                print(f"[InsituValidation] Date matching: {n_dates_found}/{len(matched_dates)} matched dates found in prepared.nc")
+                print(f"[InsituValidation] Of those, {n_dates_with_valid} had valid (non-NaN) values")
+                
+                # Debug if we get 0 observed
+                if n_dates_with_valid == 0 and len(matched_dates) > 0:
+                    sample_matched = matched_dates[:3]
+                    sample_prep = list(prep_date_to_idx.keys())[:3]
+                    print(f"[InsituValidation] DEBUG - Sample matched_dates: {sample_matched}")
+                    print(f"[InsituValidation] DEBUG - Sample prep dates: {sample_prep}")
+                    print(f"[InsituValidation] DEBUG - matched_dates[0] type: {type(matched_dates[0])}")
+                    print(f"[InsituValidation] DEBUG - prep date type: {type(sample_prep[0]) if sample_prep else 'N/A'}")
                     
         except Exception as e:
             print(f"[InsituValidation] Error checking originally observed: {e}")
+            import traceback
+            traceback.print_exc()
         
         return was_observed
 
@@ -1067,30 +1096,95 @@ class InsituValidationStep(PostProcessingStep):
                 # --- Reconstruction panels ---
                 if has_recon:
                     recon_data = method_data['recon']
-                    recon_dates = recon_data['dates']
-                    recon_temps = recon_data['satellite_temps']
-                    recon_insitu = recon_data['insitu_temps']
-                    recon_diff = recon_data['difference']
+                    recon_dates = np.array(recon_data['dates'])
+                    recon_temps = np.array(recon_data['satellite_temps'])
+                    recon_insitu = np.array(recon_data['insitu_temps'])
+                    recon_diff = np.array(recon_data['difference'])
                     recon_stats = {k: recon_data[k] for k in ['rmse', 'mae', 'bias', 'median', 'std', 'rstd', 'correlation', 'n_matches']}
+                    
+                    # Check if we have observed/missing split
+                    has_split = 'was_observed' in recon_data and recon_data['was_observed'] is not None
+                    
+                    # Compute split stats if available
+                    obs_rmse, miss_rmse = None, None
+                    n_obs, n_miss = 0, 0
+                    if has_split:
+                        was_obs = np.array(recon_data['was_observed'])
+                        obs_mask = was_obs
+                        miss_mask = ~was_obs
+                        n_obs = int(obs_mask.sum())
+                        n_miss = int(miss_mask.sum())
+                        
+                        if obs_mask.any():
+                            obs_rmse = np.sqrt(np.mean((recon_temps[obs_mask] - recon_insitu[obs_mask])**2))
+                        if miss_mask.any():
+                            miss_rmse = np.sqrt(np.mean((recon_temps[miss_mask] - recon_insitu[miss_mask])**2))
                     
                     # Panel 3: Recon vs In-situ
                     ax = axes[plot_idx]
                     plot_idx += 1
-                    ax.plot(recon_dates, recon_temps, 'o-', color=colors['recon'], markersize=3, label='Reconstruction', alpha=0.8)
-                    ax.plot(all_insitu_dates, all_insitu_temps, 'x', color=colors['insitu'], markersize=4, label='In-situ', alpha=0.7)
+                    
+                    if has_split:
+                        was_obs = np.array(recon_data['was_observed'])
+                        obs_mask = was_obs
+                        miss_mask = ~was_obs
+                        
+                        # Plot observed points (originally had satellite data)
+                        if obs_mask.any():
+                            ax.scatter(recon_dates[obs_mask], recon_temps[obs_mask], 
+                                      c='green', marker='o', s=20, label=f'Observed (N={n_obs})', alpha=0.7, zorder=3)
+                        
+                        # Plot missing points (pure gap-fill)
+                        if miss_mask.any():
+                            ax.scatter(recon_dates[miss_mask], recon_temps[miss_mask], 
+                                      c='orange', marker='s', s=20, label=f'Gap-fill (N={n_miss})', alpha=0.7, zorder=3)
+                        
+                        # Connect with light line for context
+                        ax.plot(recon_dates, recon_temps, '-', color='gray', linewidth=0.5, alpha=0.3, zorder=1)
+                    else:
+                        # Fallback: no split available, use original blue
+                        ax.plot(recon_dates, recon_temps, 'o-', color=colors['recon'], markersize=3, label='Reconstruction', alpha=0.8)
+                    
+                    ax.plot(all_insitu_dates, all_insitu_temps, 'x', color=colors['insitu'], markersize=4, label='In-situ', alpha=0.7, zorder=2)
                     ax.set_ylabel('Temperature (°C)')
                     ax.set_title(f'{method_name} - Reconstruction vs In-situ (N={recon_stats["n_matches"]})')
                     ax.legend(loc='best', fontsize=8)
                     ax.grid(True, alpha=0.3)
                     
-                    # Panel 4: Recon - In-situ difference
+                    # Panel 4: Recon - In-situ difference with separated stats
                     ax = axes[plot_idx]
                     plot_idx += 1
-                    ax.plot(recon_dates, recon_diff, 's-', color=colors['diff'], markersize=3)
+                    
+                    if has_split:
+                        was_obs = np.array(recon_data['was_observed'])
+                        obs_mask = was_obs
+                        miss_mask = ~was_obs
+                        
+                        # Plot difference with colors matching observed/missing
+                        if obs_mask.any():
+                            ax.scatter(recon_dates[obs_mask], recon_diff[obs_mask], 
+                                      c='green', marker='o', s=20, alpha=0.7, zorder=3)
+                        if miss_mask.any():
+                            ax.scatter(recon_dates[miss_mask], recon_diff[miss_mask], 
+                                      c='orange', marker='s', s=20, alpha=0.7, zorder=3)
+                        
+                        # Fill between with gradient effect
+                        ax.fill_between(recon_dates, recon_diff, 0, alpha=0.2, color='purple')
+                        
+                        # Build title with separated stats
+                        title_parts = [f'{method_name} Recon-Insitu:, N={recon_stats["n_matches"]}, RMSE={recon_stats["rmse"]:.3f}°C (all)']
+                        if obs_rmse is not None:
+                            title_parts.append(f'RMSE={obs_rmse:.3f}°C (obs, green)')
+                        if miss_rmse is not None:
+                            title_parts.append(f'RMSE={miss_rmse:.3f}°C (gap-fill, orange)')
+                        ax.set_title(', '.join(title_parts), fontsize=9)
+                    else:
+                        ax.plot(recon_dates, recon_diff, 's-', color=colors['diff'], markersize=3)
+                        ax.fill_between(recon_dates, recon_diff, 0, alpha=0.3, color=colors['diff'])
+                        ax.set_title(format_stats_title(recon_stats, f'{method_name} Recon-Insitu:'))
+                    
                     ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-                    ax.fill_between(recon_dates, recon_diff, 0, alpha=0.3, color=colors['diff'])
                     ax.set_ylabel('Recon - In-situ (°C)')
-                    ax.set_title(format_stats_title(recon_stats, f'{method_name} Recon-Insitu:'))
                     ax.grid(True, alpha=0.3)
             
             axes[-1].set_xlabel('Date')
@@ -1226,9 +1320,15 @@ class InsituValidationStep(PostProcessingStep):
                         # --- Reconstruction panels for this year ---
                         recon_data = method_data['recon']
                         year_recon_mask = np.array([d.year == year for d in recon_data['dates']])
-                        year_recon_dates = [d for d, m in zip(recon_data['dates'], year_recon_mask) if m]
+                        year_recon_dates = np.array([d for d, m in zip(recon_data['dates'], year_recon_mask) if m])
                         year_recon_temps = recon_data['satellite_temps'][year_recon_mask]
                         year_recon_insitu = recon_data['insitu_temps'][year_recon_mask]
+                        
+                        # Check if we have observed/missing split for this year
+                        has_split = 'was_observed' in recon_data and recon_data['was_observed'] is not None
+                        year_was_obs = None
+                        if has_split:
+                            year_was_obs = np.array(recon_data['was_observed'])[year_recon_mask]
                         
                         if len(year_recon_temps) > 0:
                             year_recon_diff = year_recon_temps - year_recon_insitu
@@ -1237,27 +1337,82 @@ class InsituValidationStep(PostProcessingStep):
                             year_recon_diff = np.array([])
                             year_recon_stats = compute_stats(np.array([]), np.array([]))
                         
+                        # Compute split stats for this year if available
+                        year_obs_rmse, year_miss_rmse = None, None
+                        year_n_obs, year_n_miss = 0, 0
+                        if has_split and year_was_obs is not None and len(year_recon_temps) > 0:
+                            obs_mask = year_was_obs
+                            miss_mask = ~year_was_obs
+                            year_n_obs = int(obs_mask.sum())
+                            year_n_miss = int(miss_mask.sum())
+                            
+                            if obs_mask.any():
+                                year_obs_rmse = np.sqrt(np.mean((year_recon_temps[obs_mask] - year_recon_insitu[obs_mask])**2))
+                            if miss_mask.any():
+                                year_miss_rmse = np.sqrt(np.mean((year_recon_temps[miss_mask] - year_recon_insitu[miss_mask])**2))
+                        
                         # Panel: Recon vs In-situ
                         ax = axes[plot_idx]
                         plot_idx += 1
+                        
                         if len(year_recon_dates) > 0:
-                            ax.plot(year_recon_dates, year_recon_temps, 'o-', color=colors['recon'], markersize=4, label='Recon', alpha=0.8)
+                            if has_split and year_was_obs is not None:
+                                obs_mask = year_was_obs
+                                miss_mask = ~year_was_obs
+                                
+                                # Plot observed points (green)
+                                if obs_mask.any():
+                                    ax.scatter(year_recon_dates[obs_mask], year_recon_temps[obs_mask], 
+                                              c='green', marker='o', s=25, label=f'Observed (N={year_n_obs})', alpha=0.7, zorder=3)
+                                
+                                # Plot missing/gap-fill points (orange)
+                                if miss_mask.any():
+                                    ax.scatter(year_recon_dates[miss_mask], year_recon_temps[miss_mask], 
+                                              c='orange', marker='s', s=25, label=f'Gap-fill (N={year_n_miss})', alpha=0.7, zorder=3)
+                                
+                                # Light connecting line
+                                ax.plot(year_recon_dates, year_recon_temps, '-', color='gray', linewidth=0.5, alpha=0.3, zorder=1)
+                            else:
+                                ax.plot(year_recon_dates, year_recon_temps, 'o-', color=colors['recon'], markersize=4, label='Recon', alpha=0.8)
+                        
                         if year_insitu_dates:
-                            ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7)
+                            ax.plot(year_insitu_dates, year_insitu_temps, 'x', color=colors['insitu'], markersize=5, label='In-situ', alpha=0.7, zorder=2)
                         ax.set_ylabel('Temp (°C)')
                         ax.set_title(f'{year} - {method_name} Recon vs In-situ (N={year_recon_stats["n_matches"]})')
                         ax.legend(loc='best', fontsize=7)
                         ax.grid(True, alpha=0.3)
                         
-                        # Panel: Recon - In-situ diff
+                        # Panel: Recon - In-situ diff with separated stats
                         ax = axes[plot_idx]
                         plot_idx += 1
                         if len(year_recon_dates) > 0 and len(year_recon_diff) > 0:
-                            ax.plot(year_recon_dates, year_recon_diff, 's-', color=colors['diff'], markersize=3)
-                            ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.3, color=colors['diff'])
+                            if has_split and year_was_obs is not None:
+                                obs_mask = year_was_obs
+                                miss_mask = ~year_was_obs
+                                
+                                if obs_mask.any():
+                                    ax.scatter(year_recon_dates[obs_mask], year_recon_diff[obs_mask], 
+                                              c='green', marker='o', s=25, alpha=0.7, zorder=3)
+                                if miss_mask.any():
+                                    ax.scatter(year_recon_dates[miss_mask], year_recon_diff[miss_mask], 
+                                              c='orange', marker='s', s=25, alpha=0.7, zorder=3)
+                                ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.2, color='purple')
+                                
+                                # Build title with separated stats
+                                title_parts = [f'{year} Recon-Insitu:, N={year_recon_stats["n_matches"]}, RMSE={year_recon_stats["rmse"]:.3f}°C']
+                                if year_obs_rmse is not None:
+                                    title_parts.append(f'Obs={year_obs_rmse:.2f}°C')
+                                if year_miss_rmse is not None:
+                                    title_parts.append(f'Gap={year_miss_rmse:.2f}°C')
+                                ax.set_title(', '.join(title_parts), fontsize=8)
+                            else:
+                                ax.plot(year_recon_dates, year_recon_diff, 's-', color=colors['diff'], markersize=3)
+                                ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.3, color=colors['diff'])
+                                ax.set_title(format_stats_title(year_recon_stats, f'{year} Recon-Insitu:'))
+                        else:
+                            ax.set_title(format_stats_title(year_recon_stats, f'{year} Recon-Insitu:'))
                         ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
                         ax.set_ylabel('Recon-Insitu (°C)')
-                        ax.set_title(format_stats_title(year_recon_stats, f'{year} Recon-Insitu:'))
                         ax.grid(True, alpha=0.3)
                     
                     axes[-1].set_xlabel('Date')
