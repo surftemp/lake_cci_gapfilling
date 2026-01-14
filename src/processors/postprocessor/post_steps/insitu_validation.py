@@ -93,6 +93,9 @@ DEFAULT_INSITU_CONFIG = {
     "selection_csv": None,
     "distance_threshold": 0.05,  # degrees (~5.5 km)
     "quality_threshold": 3,
+    # NEW: Enable observed/missing split analysis using prepared.nc
+    # When True, outputs additional stats for reconstruction_observed and reconstruction_missing
+    "split_observed_missing": True,
 }
 
 # Alias for backward compatibility with standalone script
@@ -794,11 +797,16 @@ class InsituValidationStep(PostProcessingStep):
             unique_buoy_dates = list(buoy_date_temp.keys())
             
             # Get prepared.nc path for checking originally observed status
-            prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
-            if prepared_path:
-                print(f"[InsituValidation] Using prepared.nc for observed/missing split: {os.path.basename(prepared_path)}")
+            # Only if split_observed_missing is enabled in config
+            prepared_path = None
+            if self.config.get("split_observed_missing", True):
+                prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
+                if prepared_path:
+                    print(f"[InsituValidation] Using prepared.nc for observed/missing split: {os.path.basename(prepared_path)}")
+                else:
+                    print(f"[InsituValidation] prepared.nc not found, skipping observed/missing split")
             else:
-                print(f"[InsituValidation] prepared.nc not found, skipping observed/missing split")
+                print(f"[InsituValidation] Observed/missing split disabled in config")
             
             for method_name, nc_path in outputs.items():
                 if nc_path is None:
