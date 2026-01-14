@@ -711,15 +711,18 @@ class InsituValidationStep(PostProcessingStep):
             return None
     
     def _check_originally_observed(self, prepared_path: str, grid_idx: Tuple[int, int],
-                                    matched_dates: List, is_interpolated: bool = False) -> np.ndarray:
+                                    matched_dates: List, is_interpolated: bool = False,
+                                    target_lat: float = None, target_lon: float = None) -> np.ndarray:
         """
         Check which matched dates had original observations in prepared.nc.
         
         Args:
             prepared_path: Path to prepared.nc
-            grid_idx: (lat_idx, lon_idx) tuple for the pixel
+            grid_idx: (lat_idx, lon_idx) tuple for the pixel (used as fallback)
             matched_dates: List of dates to check
             is_interpolated: If True, dates may not exist in prepared.nc
+            target_lat: Target latitude for coordinate-based lookup (preferred)
+            target_lon: Target longitude for coordinate-based lookup (preferred)
         
         Returns:
             Boolean array where True = originally observed, False = originally missing
@@ -737,22 +740,45 @@ class InsituValidationStep(PostProcessingStep):
                 
                 # Get the temperature values at this pixel
                 # Variable is lake_surface_water_temperature (after quality filtering, before gap-fill)
-                if 'lake_surface_water_temperature' in ds_prep:
-                    prep_temps = ds_prep['lake_surface_water_temperature'].isel(
-                        lat=grid_idx[0], lon=grid_idx[1]
-                    ).values
-                    
-                    for i, d in enumerate(matched_dates):
-                        if d in prep_date_to_idx:
-                            prep_idx = prep_date_to_idx[d]
-                            # Valid (not NaN) in prepared.nc = originally observed
-                            was_observed[i] = not np.isnan(prep_temps[prep_idx])
-                        else:
-                            # Date not in prepared.nc (e.g., interpolated daily timeline)
-                            # These are pure interpolation, so was_observed = False
-                            was_observed[i] = False
-                else:
+                if 'lake_surface_water_temperature' not in ds_prep:
                     print(f"[InsituValidation] lake_surface_water_temperature not found in prepared.nc")
+                    return was_observed
+                
+                # IMPORTANT: Find grid index in prepared.nc's own coordinate system
+                # Don't reuse grid_idx from output file - coordinates may be ordered differently!
+                if target_lat is not None and target_lon is not None:
+                    prep_lat = ds_prep['lat'].values
+                    prep_lon = ds_prep['lon'].values
+                    prep_grid_idx, prep_dist = self._find_nearest_grid_point(
+                        prep_lat, prep_lon, target_lat, target_lon
+                    )
+                    
+                    # Verify we're at the same location (within ~1km)
+                    if prep_dist > 0.01:  # ~1km tolerance
+                        print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")
+                else:
+                    # Fallback to using the passed grid_idx (may be wrong if coords differ)
+                    prep_grid_idx = grid_idx
+                    print(f"[InsituValidation] Warning: using output file grid_idx for prepared.nc (may be inaccurate)")
+                
+                prep_temps = ds_prep['lake_surface_water_temperature'].isel(
+                    lat=prep_grid_idx[0], lon=prep_grid_idx[1]
+                ).values
+                
+                # Debug: count how many valid values exist at this pixel in prepared.nc
+                n_valid_in_prep = int(np.sum(~np.isnan(prep_temps)))
+                n_total_in_prep = len(prep_temps)
+                print(f"[InsituValidation] prepared.nc pixel has {n_valid_in_prep}/{n_total_in_prep} valid values")
+                
+                for i, d in enumerate(matched_dates):
+                    if d in prep_date_to_idx:
+                        prep_idx = prep_date_to_idx[d]
+                        # Valid (not NaN) in prepared.nc = originally observed
+                        was_observed[i] = not np.isnan(prep_temps[prep_idx])
+                    else:
+                        # Date not in prepared.nc (e.g., interpolated daily timeline)
+                        # These are pure interpolation, so was_observed = False
+                        was_observed[i] = False
                     
         except Exception as e:
             print(f"[InsituValidation] Error checking originally observed: {e}")
@@ -863,7 +889,9 @@ class InsituValidationStep(PostProcessingStep):
                             was_observed = self._check_originally_observed(
                                 prepared_path, grid_idx, 
                                 recon_extracted['matched_dates'], 
-                                is_interpolated=is_interpolated
+                                is_interpolated=is_interpolated,
+                                target_lat=site_lat,
+                                target_lon=site_lon
                             )
                             
                             # Store the was_observed flag for each point

@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Standalone In-Situ Validation Runner (v3)
+Standalone In-Situ Validation Runner (v4)
 
 Runs the InsituValidationStep on existing pipeline results without
 re-running the full pipeline.
+
+NEW in v4: Fixed coordinate mismatch bug
+    - The observed/missing split now correctly finds the grid index in prepared.nc
+      using coordinate-based lookup instead of reusing the index from output files
+    - This fixes the issue where all points were incorrectly classified as "missing"
+      due to different coordinate ordering between files
 
 NEW in v3: Observed/missing split analysis
     - For each reconstruction point, checks if it was originally observed or missing
@@ -180,7 +186,7 @@ def run_validation_for_lake(run_root: str, lake_id: int, config: dict) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run in-situ validation on existing pipeline results (v2 - multi-CSV support)",
+        description="Run in-situ validation on existing pipeline results (v4 - coordinate fix)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -350,7 +356,7 @@ Output:
     
     # Print configuration summary
     print(f"\n{'='*60}")
-    print(f"In-Situ Validation Runner (v2)")
+    print(f"In-Situ Validation Runner (v4)")
     print(f"{'='*60}")
     print(f"Run root: {args.run_root}")
     print(f"Lakes to process: {len(lake_ids)}")
