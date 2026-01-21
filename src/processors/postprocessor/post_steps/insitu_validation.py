@@ -43,34 +43,7 @@ try:
     # When used as part of pipeline (from post_steps package)
     from .base import PostProcessingStep, PostContext
 except ImportError:
-    # When used standalone - define minimal versions
-    from dataclasses import dataclass
-    from typing import Optional
-    
-    @dataclass
-    class PostContext:
-        """Minimal PostContext for standalone use."""
-        lake_id: Optional[int] = None
-        output_path: Optional[str] = None
-        experiment_config_path: Optional[str] = None
-        lake_path: Optional[str] = None
-        dineof_input_path: Optional[str] = None
-        dineof_output_path: Optional[str] = None
-        output_html_folder: Optional[str] = None
-        climatology_path: Optional[str] = None
-    
-    class PostProcessingStep:
-        """Minimal base class for standalone use."""
-        @property
-        def name(self) -> str:
-            return self.__class__.__name__
-        
-        def should_apply(self, ctx, ds) -> bool:
-            return True
-        
-        def apply(self, ctx, ds):
-            raise NotImplementedError
-
+    from base import PostProcessingStep, PostContext
 
 # ============================================================================
 # Default Configuration - Used as fallback if not specified in experiment JSON
@@ -161,7 +134,7 @@ def compute_stats(satellite_temps: np.ndarray, insitu_temps: np.ndarray) -> Dict
     # Robust STD (using IQR)
     if n > 1:
         q75, q25 = np.percentile(diff, [75, 25])
-        rstd = (q75 - q25) / 1.349  # IQR to std conversion factor
+        rstd = (q75 - q25) / 1.349  # IQR to std conversion factor     TODO: check the formula
     else:
         rstd = np.nan
     
@@ -463,7 +436,7 @@ class InsituValidationStep(PostProcessingStep):
             return None
         
         csv_path, df = result
-        subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()
+        subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()      
         
         if subset.empty:
             return None
@@ -497,7 +470,7 @@ class InsituValidationStep(PostProcessingStep):
         
         # Quality filter
         if 'qcFlag' in df.columns:
-            df = df[df['qcFlag'] == 0]
+            df = df[df['qcFlag'] == 0]                            # TODO: ask Laura if q = 0 is good, and: are qcFlag, q the only names?  
         elif 'q' in df.columns:
             df = df[df['q'] == 0]
         
@@ -752,10 +725,8 @@ class InsituValidationStep(PostProcessingStep):
                     prep_time_vals = base_time + pd.to_timedelta(raw_times, unit='D')
                     prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
                 else:
-                    # Fallback: try standard pandas parsing (may not work)
-                    print(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
-                    prep_time_vals = pd.to_datetime(raw_times)
-                    prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
+                    # print(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
+                    raise Exception(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
                 
                 # IMPORTANT: Find grid index in prepared.nc's own coordinate system
                 if target_lat is not None and target_lon is not None:
@@ -766,7 +737,7 @@ class InsituValidationStep(PostProcessingStep):
                     )
                     
                     if prep_dist > 0.01:
-                        print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")
+                        print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")        # TODO: does this distance take into account of latitude distortion? 
                 else:
                     prep_grid_idx = grid_idx
                     print(f"[InsituValidation] Warning: using output file grid_idx for prepared.nc (may be inaccurate)")
@@ -775,7 +746,7 @@ class InsituValidationStep(PostProcessingStep):
                     lat=prep_grid_idx[0], lon=prep_grid_idx[1]
                 ).values
                 
-                # Debug: count how many valid values exist at this pixel in prepared.nc
+                # count how many valid values exist at this pixel in prepared.nc
                 n_valid_in_prep = int(np.sum(~np.isnan(prep_temps)))
                 n_total_in_prep = len(prep_temps)
                 print(f"[InsituValidation] prepared.nc pixel has {n_valid_in_prep}/{n_total_in_prep} valid values")

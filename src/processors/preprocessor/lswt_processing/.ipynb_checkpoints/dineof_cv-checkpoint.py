@@ -23,7 +23,7 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
 
     ds = xr.open_dataset(prepared_path)
     A  = ds[data_var].load().values      # (time, lat, lon)
-    M  = ds[mask_var].load().values      # (lat, lon)
+    M  = ds[mask_var].load().values      # (lat, lon)      
     ds.close()
 
     sea = (M == 1)
@@ -45,6 +45,7 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
     total_valid = int(np.sum(~np.isnan(A) & sea[np.newaxis, :, :]))
     
     # Average cloud coverage of ALL frames (donors will have roughly this)
+    # TODO: use the avg from the actual cloud fraction range used  
     avg_cloud_cov = cloudcov.mean()
     
     print(f"[DEBUG] Cloud coverages (sorted): {sorted_cov[:10]}...")
@@ -60,7 +61,7 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
         
         # Donor frames will paste their clouds onto clean frames
         # New clouds ≈ valid_in_clean * avg_cloud_cov (probability overlap)
-        estimated_new_clouds = valid_in_clean_frames * avg_cloud_cov
+        estimated_new_clouds = valid_in_clean_frames * avg_cloud_cov    
         
         # Fraction of total valid data that becomes clouded
         fraction_added = estimated_new_clouds / total_valid

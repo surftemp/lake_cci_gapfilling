@@ -68,7 +68,7 @@ println("Candidate timesteps with cloud frac in [$min_cloud_frac, $max_cloud_fra
 
 if length(candidate_idx) < nbclean
   println("WARNING: Not enough candidate timesteps ($(length(candidate_idx))) for nbclean=$nbclean")
-  println("         Falling back to using all non-clean timesteps")
+  println("         Falling back to using all timesteps")
   candidate_idx = collect(1:length(cloudcov))
 end
 
@@ -77,7 +77,7 @@ clean = clean[1:nbclean];
 
 N = length(cloudcov);
 
-# Select random source timesteps from candidates (not from clean)
+# Select random source timesteps from candidates (not from clean)       TODO: maybe block 69 to 73 is redundant 
 available_candidates = setdiff(candidate_idx, clean)
 if length(available_candidates) < nbclean
   println("WARNING: Not enough non-clean candidates, using all available")
@@ -86,7 +86,7 @@ end
 
 index = zeros(Int, nbclean)
 for i in 1:nbclean
-  index[i] = available_candidates[rand(1:length(available_candidates))]
+  index[i] = available_candidates[rand(1:length(available_candidates))]    # TODO: this will create a repeated random index which means a cloud pattern will be reused.  is this what you want?
 end
 
 println("Selected $(nbclean) clean timesteps and $(nbclean) source timesteps")
@@ -98,7 +98,6 @@ SST2[isinf.(SST2)] .= NaN;
 
 imax = size(SST,1);
 jmax = size(SST,2);
-
 
 mindex = zeros(Int,imax,jmax);
 iindex = zeros(Int,mmax);
@@ -130,13 +129,13 @@ for l=1:nbpoints
   clouds_indexes[l,2] = iex[3];      
 end  
 
-cloudcov2 = (sum(sum(isnan.(SST2),dims=2),dims=1) .- nbland)/m;
-cloudcov2 = cloudcov2[:];
+# cloudcov2 = (sum(sum(isnan.(SST2),dims=2),dims=1) .- nbland)/m;
+# cloudcov2 = cloudcov2[:];
 
 nbgood = sum(.!isnan.(SST[:]));
 nbgood2 = sum(.!isnan.(SST2[:]));
 
-println("$(100*(nbgood-nbgood2)/nbgood) % of cloud cover added")
+println("$(100*(nbgood-nbgood2)/nbgood) % of cloud cover added")          
 
 
 output = Dataset(joinpath(outdir,"clouds_index.nc"),"c");

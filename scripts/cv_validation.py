@@ -24,18 +24,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 import numpy as np
-
-try:
-    import xarray as xr
-except ImportError:
-    print("Error: xarray required. pip install xarray")
-    sys.exit(1)
-
-try:
-    from scipy.io import FortranFile
-except ImportError:
-    print("Error: scipy required for GHER format. pip install scipy")
-    sys.exit(1)
+import xarray as xr
+from scipy.io import FortranFile
 
 
 @dataclass

@@ -12,7 +12,7 @@ Date: December 2024
 """
 import argparse
 import os
-import subprocess
+import subprocess       
 
 DEFAULT_LAKE_IDS = [
     2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81,
@@ -95,12 +95,6 @@ def main():
         if not lake_ids:
             print(f"No lakes with CV data found in {args.run_root}/prepared/")
             return 1
-    
-    # Verify script exists
-    validation_script = os.path.join(script_dir, "run_cv_validation.py")
-    if not os.path.exists(validation_script):
-        print(f"ERROR: run_cv_validation.py not found in {script_dir}")
-        return 1
     
     # Create directories
     if not args.dry_run:

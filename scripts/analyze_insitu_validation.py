@@ -190,7 +190,38 @@ def generate_summary_report(df: pd.DataFrame, agg_df: pd.DataFrame, output_dir: 
         report_lines.append("")
     
     # Per-lake winner analysis
-    report_lines.append("PER-LAKE WINNER ANALYSIS")
+    report_lines.append("PER-SITE WINNER ANALYSIS")
+    report_lines.append("-" * 40)
+    
+    # Per-site: All reconstruction
+    dineof_all = df[(df['method'] == 'dineof') & (df['data_type'] == 'reconstruction')][['lake_id_cci', 'site_id', 'rmse']]
+    dincae_all = df[(df['method'] == 'dincae') & (df['data_type'] == 'reconstruction')][['lake_id_cci', 'site_id', 'rmse']]
+    if not dineof_all.empty and not dincae_all.empty:
+        merged = dineof_all.merge(dincae_all, on=['lake_id_cci', 'site_id'], suffixes=('_dineof', '_dincae'))
+        if not merged.empty:
+            dineof_wins = (merged['rmse_dineof'] < merged['rmse_dincae']).sum()
+            dincae_wins = (merged['rmse_dincae'] < merged['rmse_dineof']).sum()
+            total = len(merged)
+            report_lines.append(f"All Reconstruction (N={total} sites):")
+            report_lines.append(f"  DINEOF better: {dineof_wins} sites ({100*dineof_wins/total:.1f}%)")
+            report_lines.append(f"  DINCAE better: {dincae_wins} sites ({100*dincae_wins/total:.1f}%)")
+            report_lines.append("")
+    
+    # Per-site: Gap-fill only
+    dineof_gap_site = df[(df['method'] == 'dineof') & (df['data_type'] == 'reconstruction_missing')][['lake_id_cci', 'site_id', 'rmse']]
+    dincae_gap_site = df[(df['method'] == 'dincae') & (df['data_type'] == 'reconstruction_missing')][['lake_id_cci', 'site_id', 'rmse']]
+    if not dineof_gap_site.empty and not dincae_gap_site.empty:
+        merged = dineof_gap_site.merge(dincae_gap_site, on=['lake_id_cci', 'site_id'], suffixes=('_dineof', '_dincae'))
+        if not merged.empty:
+            dineof_wins = (merged['rmse_dineof'] < merged['rmse_dincae']).sum()
+            dincae_wins = (merged['rmse_dincae'] < merged['rmse_dineof']).sum()
+            total = len(merged)
+            report_lines.append(f"Gap-Fill Only (N={total} sites):")
+            report_lines.append(f"  DINEOF better: {dineof_wins} sites ({100*dineof_wins/total:.1f}%)")
+            report_lines.append(f"  DINCAE better: {dincae_wins} sites ({100*dincae_wins/total:.1f}%)")
+            report_lines.append("")
+    
+    report_lines.append("PER-LAKE WINNER ANALYSIS (sites averaged)")
     report_lines.append("-" * 40)
     
     # Aggregate to per-lake level
@@ -362,10 +393,10 @@ def create_dineof_vs_dincae_scatter(df: pd.DataFrame, output_dir: str):
         
         plt.colorbar(scatter, ax=ax, label='N matches')
     
-    plt.suptitle('DINEOF vs DINCAE: Per-Lake RMSE Comparison', fontsize=14, fontweight='bold')
+    plt.suptitle('DINEOF vs DINCAE: Per-Site RMSE Comparison', fontsize=14, fontweight='bold')
     plt.tight_layout()
     
-    save_path = os.path.join(output_dir, "dineof_vs_dincae_scatter.png")
+    save_path = os.path.join(output_dir, "dineof_vs_dincae_scatter_per_site.png")
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved: {save_path}")
@@ -419,7 +450,7 @@ def create_observed_vs_gapfill_comparison(df: pd.DataFrame, output_dir: str):
                       color='black', linestyle='--', alpha=0.5)
             ax.text(i+1.2, mean_val, f'μ={mean_val:.2f}', fontsize=9, va='center')
     
-    plt.suptitle('Observed vs Gap-Fill Performance Distribution', fontsize=14, fontweight='bold')
+    plt.suptitle('Observed vs Gap-Fill Performance Distribution (Per-Site)', fontsize=14, fontweight='bold')
     plt.tight_layout()
     
     save_path = os.path.join(output_dir, "observed_vs_gapfill_boxplot.png")
@@ -517,7 +548,7 @@ def create_correlation_comparison(df: pd.DataFrame, output_dir: str):
 
 
 def create_gap_penalty_analysis(df: pd.DataFrame, output_dir: str):
-    """Analyze the 'gap penalty' - how much worse is gap-filling vs observed."""
+    """Analyze the 'gap penalty' - how much worse is gap-filling vs observed (PER-SITE)."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     
     methods = ['dineof', 'dincae']
@@ -525,7 +556,7 @@ def create_gap_penalty_analysis(df: pd.DataFrame, output_dir: str):
     for ax_idx, method in enumerate(methods):
         ax = axes[ax_idx]
         
-        # Get observed and missing RMSE per lake
+        # Get observed and missing RMSE per site (lake_id + site_id)
         obs = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_observed')][['lake_id_cci', 'site_id', 'rmse']]
         miss = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_missing')][['lake_id_cci', 'site_id', 'rmse']]
         
@@ -550,18 +581,78 @@ def create_gap_penalty_analysis(df: pd.DataFrame, output_dir: str):
         # Count positive/negative
         n_positive = (merged['gap_penalty'] > 0).sum()
         n_negative = (merged['gap_penalty'] < 0).sum()
+        n_total = len(merged)
         
         ax.set_xlabel('Gap Penalty (Gap-fill RMSE - Observed RMSE) (°C)')
-        ax.set_ylabel('Number of Lakes')
-        ax.set_title(f'{method.upper()}\nGap-fill worse: {n_positive}, Gap-fill better: {n_negative}')
+        ax.set_ylabel('Number of Sites')
+        ax.set_title(f'{method.upper()} (N={n_total} sites)\nGap-fill worse: {n_positive}, Gap-fill better: {n_negative}')
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3, axis='y')
     
-    plt.suptitle('Gap-Filling Penalty Analysis\n(Positive = gap-fill performs worse than observed)', 
+    plt.suptitle('Gap-Filling Penalty Analysis - PER SITE\n(Positive = gap-fill performs worse than observed)', 
                 fontsize=14, fontweight='bold')
     plt.tight_layout()
     
-    save_path = os.path.join(output_dir, "gap_penalty_analysis.png")
+    save_path = os.path.join(output_dir, "gap_penalty_analysis_per_site.png")
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def create_gap_penalty_analysis_per_lake(df: pd.DataFrame, output_dir: str):
+    """Analyze the 'gap penalty' - how much worse is gap-filling vs observed (PER-LAKE, averaged across sites)."""
+    
+    # First aggregate to per-lake level
+    lake_stats = df.groupby(['lake_id_cci', 'method', 'data_type']).agg({
+        'rmse': 'mean',
+        'n_matches': 'sum'
+    }).reset_index()
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    methods = ['dineof', 'dincae']
+    
+    for ax_idx, method in enumerate(methods):
+        ax = axes[ax_idx]
+        
+        # Get observed and missing RMSE per lake
+        obs = lake_stats[(lake_stats['method'] == method) & (lake_stats['data_type'] == 'reconstruction_observed')][['lake_id_cci', 'rmse']]
+        miss = lake_stats[(lake_stats['method'] == method) & (lake_stats['data_type'] == 'reconstruction_missing')][['lake_id_cci', 'rmse']]
+        
+        if obs.empty or miss.empty:
+            ax.set_title(f"{method.upper()}\n(Insufficient data)")
+            continue
+        
+        merged = obs.merge(miss, on='lake_id_cci', suffixes=('_obs', '_miss'))
+        merged['gap_penalty'] = merged['rmse_miss'] - merged['rmse_obs']
+        
+        # Histogram of gap penalty
+        ax.hist(merged['gap_penalty'], bins=15, edgecolor='black', alpha=0.7,
+               color='#3498db' if method == 'dincae' else '#2ecc71')
+        
+        mean_penalty = merged['gap_penalty'].mean()
+        median_penalty = merged['gap_penalty'].median()
+        
+        ax.axvline(0, color='black', linestyle='-', linewidth=2, label='No penalty')
+        ax.axvline(mean_penalty, color='blue', linestyle='--', linewidth=2, label=f'Mean: {mean_penalty:.3f}°C')
+        ax.axvline(median_penalty, color='red', linestyle=':', linewidth=2, label=f'Median: {median_penalty:.3f}°C')
+        
+        # Count positive/negative
+        n_positive = (merged['gap_penalty'] > 0).sum()
+        n_negative = (merged['gap_penalty'] < 0).sum()
+        n_total = len(merged)
+        
+        ax.set_xlabel('Gap Penalty (Gap-fill RMSE - Observed RMSE) (°C)')
+        ax.set_ylabel('Number of Lakes')
+        ax.set_title(f'{method.upper()} (N={n_total} lakes)\nGap-fill worse: {n_positive}, Gap-fill better: {n_negative}')
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.suptitle('Gap-Filling Penalty Analysis - PER LAKE\n(Sites averaged, Positive = gap-fill performs worse than observed)', 
+                fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    save_path = os.path.join(output_dir, "gap_penalty_analysis_per_lake.png")
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved: {save_path}")
@@ -1022,6 +1113,7 @@ Examples:
     create_rmse_distribution_plot(df, args.output_dir)
     create_correlation_comparison(df, args.output_dir)
     create_gap_penalty_analysis(df, args.output_dir)
+    create_gap_penalty_analysis_per_lake(df, args.output_dir)
     create_per_lake_winner_analysis(df, args.output_dir)
     create_comprehensive_summary_figure(df, agg_df, args.output_dir)
     
