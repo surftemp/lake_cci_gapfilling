@@ -33,6 +33,15 @@ import matplotlib.gridspec as gridspec
 from matplotlib.patches import Patch
 from scipy import stats
 
+# Try to import cartopy for global maps
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    HAS_CARTOPY = True
+except ImportError:
+    HAS_CARTOPY = False
+    print("Note: Cartopy not available - global maps will be skipped")
+
 
 def find_validation_csvs(run_root: str, alpha: str = None) -> List[str]:
     """Find all in-situ validation CSV files in the run directory."""
@@ -113,6 +122,512 @@ def compute_aggregate_stats(df: pd.DataFrame) -> pd.DataFrame:
         })
     
     return pd.DataFrame(agg_stats)
+
+
+# ============================================================================
+# TASK 2 & 3: Comprehensive Global Stats, Maps, and Multi-Panel Comparison
+# ============================================================================
+
+def compute_comprehensive_global_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute global stats (all 6 metrics) for all methods/data_types.
+    
+    Returns a DataFrame with weighted averages, means, stds, and medians
+    for each metric, grouped by method and data_type.
+    
+    NEW in Task 2: Includes all 6 metrics (rmse, mae, median, bias, std, rstd)
+    plus correlation, computed with proper weighting by n_matches.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd', 'correlation']
+    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 
+                  'reconstruction_missing', 'observation_same_dates']
+    
+    results = []
+    
+    for data_type in data_types:
+        for method in df['method'].unique():
+            subset = df[(df['method'] == method) & (df['data_type'] == data_type)]
+            
+            if subset.empty:
+                continue
+            
+            row = {
+                'method': method,
+                'data_type': data_type,
+                'n_lakes': subset['lake_id_cci'].nunique(),
+                'n_sites': len(subset),
+                'n_total_points': subset['n_matches'].sum(),
+            }
+            
+            weights = subset['n_matches'].values
+            total_weight = weights.sum()
+            
+            for metric in metrics:
+                if metric in subset.columns and total_weight > 0:
+                    valid = subset[~subset[metric].isna()]
+                    if len(valid) > 0:
+                        w = valid['n_matches'].values
+                        if w.sum() > 0:
+                            row[f'{metric}_weighted'] = np.average(valid[metric].values, weights=w)
+                        else:
+                            row[f'{metric}_weighted'] = np.nan
+                        row[f'{metric}_mean'] = valid[metric].mean()
+                        row[f'{metric}_std'] = valid[metric].std()
+                        row[f'{metric}_median'] = valid[metric].median()
+                    else:
+                        row[f'{metric}_weighted'] = np.nan
+                        row[f'{metric}_mean'] = np.nan
+                        row[f'{metric}_std'] = np.nan
+                        row[f'{metric}_median'] = np.nan
+                else:
+                    row[f'{metric}_weighted'] = np.nan
+                    row[f'{metric}_mean'] = np.nan
+                    row[f'{metric}_std'] = np.nan
+                    row[f'{metric}_median'] = np.nan
+            
+            results.append(row)
+    
+    return pd.DataFrame(results)
+
+
+def create_global_metric_maps(df: pd.DataFrame, lake_locations: pd.DataFrame, output_dir: str):
+    """
+    Create global scatter maps for each metric/data_type combination.
+    
+    NEW in Task 2: Creates 24 Cartopy maps (4 data_types × 6 metrics)
+    showing per-lake performance geographically.
+    
+    Args:
+        df: Combined in-situ validation stats DataFrame
+        lake_locations: DataFrame with lake_id, lat, lon columns
+        output_dir: Where to save the map images
+    """
+    if not HAS_CARTOPY:
+        print("Warning: Cartopy not available, skipping global maps")
+        return
+    
+    # Merge df with lake locations
+    df_merged = df.merge(lake_locations[['lake_id', 'lat', 'lon']], 
+                         left_on='lake_id_cci', right_on='lake_id', how='left')
+    df_merged = df_merged[df_merged['lat'].notna()]
+    
+    if df_merged.empty:
+        print("Warning: No lakes matched with location data for global maps")
+        return
+    
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 'reconstruction_missing']
+    
+    # Color schemes for different metric types
+    cmap_diverging = 'RdBu_r'  # For bias, median (can be +/-)
+    cmap_sequential = 'YlOrRd'  # For rmse, mae, std, rstd (always positive)
+    
+    maps_created = 0
+    for data_type in data_types:
+        for metric in metrics:
+            try:
+                df_dt = df_merged[df_merged['data_type'] == data_type]
+                
+                if df_dt.empty or metric not in df_dt.columns:
+                    continue
+                
+                # Aggregate to per-lake level (mean across sites if multiple)
+                lake_stats = df_dt.groupby(['lake_id_cci', 'lat', 'lon']).agg({
+                    metric: 'mean', 
+                    'n_matches': 'sum'
+                }).reset_index()
+                
+                if len(lake_stats) == 0:
+                    continue
+                
+                # Create the map
+                fig, ax = plt.subplots(figsize=(14, 9),
+                                       subplot_kw={'projection': ccrs.Robinson()})
+                ax.set_global()
+                ax.add_feature(cfeature.LAND, facecolor='#f0f0f0', edgecolor='none')
+                ax.add_feature(cfeature.OCEAN, facecolor='#e6f3ff', alpha=0.5)
+                ax.add_feature(cfeature.COASTLINE, linewidth=0.5, color='gray')
+                ax.add_feature(cfeature.BORDERS, linewidth=0.3, color='lightgray')
+                ax.add_feature(cfeature.LAKES, facecolor='#b0d0ff', edgecolor='gray', linewidth=0.3)
+                
+                # Determine color scale
+                values = lake_stats[metric].dropna()
+                if len(values) == 0:
+                    continue
+                
+                if metric in ['bias', 'median']:
+                    # Diverging colormap centered at 0
+                    vmax = max(abs(values.quantile(0.05)), abs(values.quantile(0.95)))
+                    vmin = -vmax
+                    cmap = cmap_diverging
+                else:
+                    # Sequential colormap
+                    vmin = values.quantile(0.02)
+                    vmax = values.quantile(0.98)
+                    cmap = cmap_sequential
+                
+                # Size points by number of matches (log scale)
+                sizes = np.log1p(lake_stats['n_matches']) * 15 + 30
+                
+                sc = ax.scatter(lake_stats['lon'], lake_stats['lat'],
+                               c=lake_stats[metric], s=sizes,
+                               cmap=cmap, vmin=vmin, vmax=vmax,
+                               alpha=0.85, edgecolors='black', linewidth=0.5,
+                               transform=ccrs.PlateCarree(), zorder=5)
+                
+                # Colorbar
+                cbar = plt.colorbar(sc, ax=ax, shrink=0.6, pad=0.02)
+                cbar.set_label(f'{metric.upper()} (°C)', fontsize=11)
+                
+                # Title
+                data_type_label = data_type.replace('_', ' ').title()
+                ax.set_title(f'In-Situ Validation: {metric.upper()} - {data_type_label}\n'
+                            f'(N={len(lake_stats)} lakes)', fontsize=13, fontweight='bold')
+                
+                save_path = os.path.join(output_dir, f'global_map_{data_type}_{metric}.png')
+                plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+                plt.close()
+                maps_created += 1
+                print(f"  Created: global_map_{data_type}_{metric}.png")
+                
+            except Exception as e:
+                print(f"  Error creating map for {data_type}/{metric}: {e}")
+                plt.close('all')
+    
+    print(f"Created {maps_created} global maps")
+
+
+def create_comprehensive_multi_panel_comparison(df: pd.DataFrame, output_dir: str):
+    """
+    Create large multi-panel figure: rows=data_types, cols=metrics, bars=methods per lake.
+    
+    NEW in Task 3: 4×6 panel figure for comprehensive method comparison
+    across all data types and metrics.
+    
+    Purpose: Investigate if DINCAE's advantage correlates with poor in-situ 
+    data quality. Visual inspection can reveal patterns.
+    """
+    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 'reconstruction_missing']
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+    method_colors = {
+        'dineof': '#3498db',          # Blue
+        'dincae': '#e67e22',           # Orange
+        'eof_filtered': '#27ae60',     # Green
+        'eof_filtered_interp_full': '#9b59b6',  # Purple
+        'interp_full': '#e74c3c'       # Red
+    }
+    
+    # Get list of methods present in data
+    available_methods = [m for m in method_colors.keys() if m in df['method'].unique()]
+    
+    if not available_methods:
+        print("Warning: No recognized methods found for multi-panel comparison")
+        return
+    
+    fig, axes = plt.subplots(len(data_types), len(metrics), figsize=(36, 24))
+    
+    for i, data_type in enumerate(data_types):
+        df_dt = df[df['data_type'] == data_type]
+        
+        for j, metric in enumerate(metrics):
+            ax = axes[i, j]
+            
+            if df_dt.empty or metric not in df_dt.columns:
+                ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontsize=12)
+                ax.set_visible(True)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            
+            # Pivot to get methods as columns
+            pivot = df_dt.pivot_table(
+                index='lake_id_cci', 
+                columns='method',
+                values=metric, 
+                aggfunc='mean'
+            ).reset_index()
+            
+            if len(pivot) == 0:
+                ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontsize=12)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            
+            lakes = pivot['lake_id_cci'].values
+            methods = [m for m in available_methods if m in pivot.columns]
+            n_lakes, n_methods = len(lakes), len(methods)
+            
+            if n_methods == 0:
+                ax.text(0.5, 0.5, 'No Methods', ha='center', va='center', fontsize=12)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            
+            x = np.arange(n_lakes)
+            width = 0.8 / n_methods
+            
+            for k, method in enumerate(methods):
+                offset = (k - n_methods/2 + 0.5) * width
+                values = pivot[method].values
+                ax.bar(x + offset, values, width, label=method, 
+                      color=method_colors[method], alpha=0.8, edgecolor='white', linewidth=0.3)
+            
+            # Formatting
+            ax.set_xlabel('Lake ID' if i == len(data_types)-1 else '', fontsize=9)
+            ax.set_ylabel(f'{metric.upper()} (°C)' if j == 0 else '', fontsize=9)
+            
+            data_type_label = data_type.replace('_', '\n').title()
+            ax.set_title(f'{data_type_label}\n{metric.upper()}', fontsize=10, fontweight='bold')
+            
+            # X-tick labels (show subset to avoid crowding)
+            tick_step = max(1, n_lakes // 12)
+            ax.set_xticks(x[::tick_step])
+            ax.set_xticklabels([f"{int(l)}" for l in lakes[::tick_step]], 
+                              rotation=45, ha='right', fontsize=6)
+            
+            # Add horizontal line at 0 for bias/median
+            if metric in ['bias', 'median']:
+                ax.axhline(0, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
+            
+            # Legend only in first panel
+            if i == 0 and j == 0:
+                ax.legend(fontsize=8, loc='upper right')
+            
+            ax.tick_params(axis='y', labelsize=8)
+    
+    plt.suptitle('Comprehensive In-Situ Validation: All Methods × Data Types × Metrics\n'
+                 '(Grouped bars per lake)', 
+                 fontsize=18, fontweight='bold', y=1.01)
+    plt.tight_layout()
+    
+    save_path = os.path.join(output_dir, 'comprehensive_multi_panel_comparison.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def analyze_method_performance_vs_obs_quality(df: pd.DataFrame, output_dir: str):
+    """
+    KEY DIAGNOSTIC: Analyze if method advantage correlates with poor observation quality.
+    
+    This analysis answers: "Does DINCAE win on lakes where the satellite observation 
+    vs in-situ comparison already has high error metrics?"
+    
+    If yes (positive correlation), it suggests DINCAE's advantage may be due to 
+    noisy validation data rather than true gap-filling superiority.
+    
+    Creates scatter plots showing:
+    - X-axis: Observation quality metrics (obs RMSE, obs MAE, obs bias, etc.)
+    - Y-axis: Method RMSE difference (DINEOF - DINCAE, positive = DINCAE wins)
+    
+    Color coding: Blue = DINEOF wins, Orange = DINCAE wins
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+    
+    # Get observation quality stats per lake (using observation data_type)
+    obs_df = df[df['data_type'] == 'observation'].copy()
+    if obs_df.empty:
+        print("Warning: No observation data for diagnostic analysis")
+        return
+    
+    # Aggregate observation stats per lake
+    obs_agg = obs_df.groupby('lake_id_cci').agg({
+        **{m: 'mean' for m in metrics if m in obs_df.columns},
+        'n_matches': 'sum'
+    }).reset_index()
+    
+    # Rename to obs_ prefix
+    rename_map = {m: f'obs_{m}' for m in metrics if m in obs_agg.columns}
+    obs_agg = obs_agg.rename(columns=rename_map)
+    
+    # Also compute absolute values for signed metrics
+    for m in ['bias', 'median']:
+        if f'obs_{m}' in obs_agg.columns:
+            obs_agg[f'obs_abs_{m}'] = obs_agg[f'obs_{m}'].abs()
+    
+    # Get reconstruction stats for method comparison
+    recon_df = df[df['data_type'] == 'reconstruction'].copy()
+    if recon_df.empty:
+        print("Warning: No reconstruction data for diagnostic analysis")
+        return
+    
+    # Method pairs to compare
+    method_pairs = [('dineof', 'dincae')]
+    
+    # Also compare on reconstruction_missing (true gap-fill performance)
+    data_types_to_analyze = ['reconstruction', 'reconstruction_missing']
+    
+    for recon_data_type in data_types_to_analyze:
+        recon_df_dt = df[df['data_type'] == recon_data_type].copy()
+        if recon_df_dt.empty:
+            continue
+        
+        for method1, method2 in method_pairs:
+            # Check if both methods exist
+            if method1 not in recon_df_dt['method'].unique() or method2 not in recon_df_dt['method'].unique():
+                continue
+            
+            # Get method stats per lake for ALL metrics
+            m1_stats = recon_df_dt[recon_df_dt['method'] == method1].groupby('lake_id_cci')[metrics].mean().reset_index()
+            m1_stats.columns = ['lake_id_cci'] + [f'{method1}_{m}' for m in metrics]
+            
+            m2_stats = recon_df_dt[recon_df_dt['method'] == method2].groupby('lake_id_cci')[metrics].mean().reset_index()
+            m2_stats.columns = ['lake_id_cci'] + [f'{method2}_{m}' for m in metrics]
+            
+            # Merge with observation quality
+            merged = obs_agg.merge(m1_stats, on='lake_id_cci', how='inner').merge(m2_stats, on='lake_id_cci', how='inner')
+            
+            if len(merged) < 3:
+                print(f"Warning: Not enough lakes for {method1} vs {method2} on {recon_data_type}")
+                continue
+            
+            # Create comprehensive diagnostic figure
+            # Rows: different observation quality metrics
+            # Columns: different recon metrics being compared
+            obs_metrics_to_plot = [f'obs_{m}' for m in ['rmse', 'mae', 'std', 'rstd'] if f'obs_{m}' in merged.columns]
+            obs_metrics_to_plot += [f'obs_abs_{m}' for m in ['bias', 'median'] if f'obs_abs_{m}' in merged.columns]
+            
+            recon_metrics = ['rmse', 'mae', 'std']  # Key metrics to compare
+            
+            n_obs_metrics = len(obs_metrics_to_plot)
+            n_recon_metrics = len(recon_metrics)
+            
+            if n_obs_metrics == 0 or n_recon_metrics == 0:
+                continue
+            
+            fig, axes = plt.subplots(n_obs_metrics, n_recon_metrics, figsize=(5*n_recon_metrics, 4*n_obs_metrics))
+            if n_obs_metrics == 1:
+                axes = axes.reshape(1, -1)
+            if n_recon_metrics == 1:
+                axes = axes.reshape(-1, 1)
+            
+            for i, obs_metric in enumerate(obs_metrics_to_plot):
+                for j, recon_metric in enumerate(recon_metrics):
+                    ax = axes[i, j]
+                    
+                    # Compute difference: positive = method2 (DINCAE) is better
+                    diff_col = f'{method1}_{recon_metric}'
+                    diff_col2 = f'{method2}_{recon_metric}'
+                    
+                    if diff_col not in merged.columns or diff_col2 not in merged.columns:
+                        ax.set_visible(False)
+                        continue
+                    
+                    merged['diff'] = merged[diff_col] - merged[diff_col2]
+                    merged['winner'] = np.where(merged['diff'] > 0, method2.upper(), method1.upper())
+                    
+                    # Color by winner
+                    colors = ['#e67e22' if w == method2.upper() else '#3498db' for w in merged['winner']]
+                    
+                    ax.scatter(merged[obs_metric], merged['diff'], 
+                              c=colors, alpha=0.7, edgecolors='black', linewidth=0.5, s=60)
+                    ax.axhline(0, color='black', linestyle='--', linewidth=1)
+                    
+                    # Compute correlation
+                    corr = merged[obs_metric].corr(merged['diff'])
+                    
+                    # Add regression line
+                    if abs(corr) > 0.1 and len(merged) > 5:
+                        z = np.polyfit(merged[obs_metric], merged['diff'], 1)
+                        p = np.poly1d(z)
+                        x_line = np.linspace(merged[obs_metric].min(), merged[obs_metric].max(), 100)
+                        ax.plot(x_line, p(x_line), 'r--', alpha=0.7, linewidth=2)
+                    
+                    obs_label = obs_metric.replace('obs_', '').replace('abs_', '|') + ('|' if 'abs_' in obs_metric else '')
+                    ax.set_xlabel(f'Obs {obs_label.upper()} (°C)', fontsize=9)
+                    ax.set_ylabel(f'{recon_metric.upper()} Diff\n({method1}-{method2}) °C', fontsize=9)
+                    ax.set_title(f'r = {corr:.3f}', fontsize=10, 
+                                color='green' if abs(corr) < 0.3 else 'red' if abs(corr) > 0.5 else 'orange')
+                    ax.grid(True, alpha=0.3)
+            
+            # Add legend
+            from matplotlib.patches import Patch
+            legend_elements = [
+                Patch(facecolor='#3498db', edgecolor='black', label=f'{method1.upper()} wins'),
+                Patch(facecolor='#e67e22', edgecolor='black', label=f'{method2.upper()} wins')
+            ]
+            fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.99, 0.99), fontsize=10)
+            
+            dt_label = recon_data_type.replace('_', ' ').title()
+            plt.suptitle(f'{method1.upper()} vs {method2.upper()}: Method Advantage vs Observation Quality\n'
+                         f'Data Type: {dt_label} | Positive diff = {method2.upper()} better\n'
+                         f'(If high correlation: {method2.upper()} wins mainly on lakes with poor obs quality)', 
+                         fontsize=12, fontweight='bold', y=1.02)
+            plt.tight_layout()
+            
+            save_path = os.path.join(output_dir, f'diagnostic_{method1}_vs_{method2}_{recon_data_type}_obs_quality.png')
+            plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"  Saved: diagnostic_{method1}_vs_{method2}_{recon_data_type}_obs_quality.png")
+            
+            # Also save correlation summary to CSV
+            corr_summary = []
+            for obs_metric in obs_metrics_to_plot:
+                for recon_metric in recon_metrics:
+                    diff_col = f'{method1}_{recon_metric}'
+                    diff_col2 = f'{method2}_{recon_metric}'
+                    if diff_col in merged.columns and diff_col2 in merged.columns:
+                        diff = merged[diff_col] - merged[diff_col2]
+                        corr = merged[obs_metric].corr(diff)
+                        corr_summary.append({
+                            'data_type': recon_data_type,
+                            'method_comparison': f'{method1}_vs_{method2}',
+                            'obs_quality_metric': obs_metric,
+                            'recon_metric': recon_metric,
+                            'correlation': corr,
+                            'interpretation': 'DINCAE wins on poor obs quality' if corr > 0.3 else 
+                                             'DINEOF wins on poor obs quality' if corr < -0.3 else
+                                             'No clear pattern'
+                        })
+            
+            if corr_summary:
+                corr_df = pd.DataFrame(corr_summary)
+                corr_path = os.path.join(output_dir, f'diagnostic_correlation_{method1}_vs_{method2}_{recon_data_type}.csv')
+                corr_df.to_csv(corr_path, index=False)
+                print(f"  Saved: diagnostic_correlation_{method1}_vs_{method2}_{recon_data_type}.csv")
+
+
+def create_per_lake_stats_table(df: pd.DataFrame, output_dir: str) -> pd.DataFrame:
+    """
+    Create comprehensive per-lake statistics table with all 6 metrics.
+    
+    NEW in Task 2: Generates per_lake_insitu_stats.csv with all metrics
+    for each lake/site/method/data_type combination.
+    """
+    # Define all metrics to include
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd', 'correlation', 'n_matches']
+    
+    # Create a clean per-lake summary
+    per_lake_data = []
+    
+    for (lake, site, method, data_type), group in df.groupby(['lake_id_cci', 'site_id', 'method', 'data_type']):
+        row = {
+            'lake_id_cci': lake,
+            'site_id': site,
+            'method': method,
+            'data_type': data_type,
+        }
+        
+        # Add all metrics
+        for metric in metrics:
+            if metric in group.columns:
+                row[metric] = group[metric].values[0]
+            else:
+                row[metric] = np.nan
+        
+        per_lake_data.append(row)
+    
+    per_lake_df = pd.DataFrame(per_lake_data)
+    
+    # Sort for readability
+    per_lake_df = per_lake_df.sort_values(['lake_id_cci', 'site_id', 'method', 'data_type'])
+    
+    # Save
+    save_path = os.path.join(output_dir, 'per_lake_insitu_stats.csv')
+    per_lake_df.to_csv(save_path, index=False)
+    print(f"Saved: {save_path}")
+    
+    return per_lake_df
 
 
 def generate_summary_report(df: pd.DataFrame, agg_df: pd.DataFrame, output_dir: str) -> str:
@@ -283,222 +798,326 @@ def generate_summary_report(df: pd.DataFrame, agg_df: pd.DataFrame, output_dir: 
     return report_path
 
 
-def create_method_comparison_plot(df: pd.DataFrame, output_dir: str):
-    """Create bar chart comparing methods across data types."""
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+def create_method_comparison_plots_all_metrics(df: pd.DataFrame, output_dir: str):
+    """
+    Create bar charts comparing methods across data types FOR ALL 6 METRICS.
     
-    # Filter for main comparisons
+    Generates one figure per metric, each with panels for all data types.
+    This replaces the old single-metric version.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
     methods_order = ['dineof', 'dincae', 'eof_filtered', 'interp_full', 'eof_filtered_interp_full']
-    data_types = ['reconstruction', 'reconstruction_observed', 'reconstruction_missing']
+    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 'reconstruction_missing', 'observation_same_dates']
     colors = {'dineof': '#2ecc71', 'dincae': '#3498db', 'eof_filtered': '#9b59b6', 
               'interp_full': '#e74c3c', 'eof_filtered_interp_full': '#f39c12'}
     
-    for ax_idx, data_type in enumerate(data_types):
-        ax = axes[ax_idx]
-        subset = df[df['data_type'] == data_type]
-        
-        if subset.empty:
-            ax.set_title(f"No data for {data_type}")
+    for metric in metrics:
+        if metric not in df.columns:
+            print(f"  Skipping {metric} - not in data")
             continue
         
-        # Aggregate by method
-        method_stats = subset.groupby('method').agg({
-            'rmse': ['mean', 'std'],
-            'n_matches': 'sum'
-        }).reset_index()
-        method_stats.columns = ['method', 'rmse_mean', 'rmse_std', 'n_total']
+        # Count how many data types have data
+        n_data_types = sum(1 for dt in data_types if not df[df['data_type'] == dt].empty)
+        if n_data_types == 0:
+            continue
         
-        # Sort by predefined order
-        method_stats['sort_key'] = method_stats['method'].apply(
-            lambda x: methods_order.index(x) if x in methods_order else 99
-        )
-        method_stats = method_stats.sort_values('sort_key')
+        fig, axes = plt.subplots(1, min(n_data_types, 5), figsize=(min(n_data_types, 5) * 5, 5))
+        if n_data_types == 1:
+            axes = [axes]
         
-        x = np.arange(len(method_stats))
-        bars = ax.bar(x, method_stats['rmse_mean'], 
-                     yerr=method_stats['rmse_std'],
-                     color=[colors.get(m, 'gray') for m in method_stats['method']],
-                     capsize=3, alpha=0.8)
+        ax_idx = 0
+        for data_type in data_types:
+            subset = df[df['data_type'] == data_type]
+            
+            if subset.empty:
+                continue
+            
+            ax = axes[ax_idx]
+            ax_idx += 1
+            
+            # Aggregate by method
+            method_stats = subset.groupby('method').agg({
+                metric: ['mean', 'std'],
+                'n_matches': 'sum'
+            }).reset_index()
+            method_stats.columns = ['method', f'{metric}_mean', f'{metric}_std', 'n_total']
+            
+            # Sort by predefined order
+            method_stats['sort_key'] = method_stats['method'].apply(
+                lambda x: methods_order.index(x) if x in methods_order else 99
+            )
+            method_stats = method_stats.sort_values('sort_key')
+            
+            x = np.arange(len(method_stats))
+            bars = ax.bar(x, method_stats[f'{metric}_mean'], 
+                         yerr=method_stats[f'{metric}_std'],
+                         color=[colors.get(m, 'gray') for m in method_stats['method']],
+                         capsize=3, alpha=0.8, edgecolor='black', linewidth=0.5)
+            
+            ax.set_xticks(x)
+            ax.set_xticklabels(method_stats['method'], rotation=45, ha='right')
+            ax.set_ylabel(f'{metric.upper()} (°C)')
+            ax.set_title(data_type.replace('_', '\n').title())
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Add horizontal line at 0 for bias/median
+            if metric in ['bias', 'median']:
+                ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+            
+            # Add value labels
+            for bar, val in zip(bars, method_stats[f'{metric}_mean']):
+                if not np.isnan(val):
+                    y_pos = bar.get_height() + 0.02 if val >= 0 else bar.get_height() - 0.05
+                    ax.text(bar.get_x() + bar.get_width()/2, y_pos,
+                           f'{val:.2f}', ha='center', va='bottom' if val >= 0 else 'top', fontsize=8)
         
-        ax.set_xticks(x)
-        ax.set_xticklabels(method_stats['method'], rotation=45, ha='right')
-        ax.set_ylabel('RMSE (°C)')
-        ax.set_title(data_type.replace('_', ' ').title())
-        ax.grid(True, alpha=0.3, axis='y')
+        plt.suptitle(f'Method Comparison: {metric.upper()} by Data Type', fontsize=14, fontweight='bold')
+        plt.tight_layout()
         
-        # Add value labels
-        for bar, val in zip(bars, method_stats['rmse_mean']):
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
-                   f'{val:.2f}', ha='center', va='bottom', fontsize=9)
+        save_path = os.path.join(output_dir, f"method_comparison_{metric}.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        print(f"  Saved: method_comparison_{metric}.png")
+
+
+def create_method_comparison_plot(df: pd.DataFrame, output_dir: str):
+    """DEPRECATED - calls new all-metrics version. Kept for backward compatibility."""
+    create_method_comparison_plots_all_metrics(df, output_dir)
+
+
+def create_dineof_vs_dincae_scatter_all_metrics(df: pd.DataFrame, output_dir: str):
+    """
+    Create scatter plots comparing DINEOF vs DINCAE per lake FOR ALL 6 METRICS.
     
-    plt.suptitle('Method Comparison: RMSE by Data Type', fontsize=14, fontweight='bold')
-    plt.tight_layout()
+    Generates one figure per metric, each with panels for all data types.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+    data_types = [
+        ('observation', 'Observation'),
+        ('reconstruction', 'All Reconstruction'),
+        ('reconstruction_observed', 'Observed Pixels Only'),
+        ('reconstruction_missing', 'Gap-Filled Pixels Only'),
+        ('observation_same_dates', 'Obs (Same Dates)')
+    ]
     
-    save_path = os.path.join(output_dir, "method_comparison_bar.png")
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {save_path}")
+    for metric in metrics:
+        if metric not in df.columns:
+            continue
+        
+        # Count data types with data
+        n_valid = sum(1 for dt, _ in data_types 
+                      if not df[(df['data_type'] == dt) & (df['method'].isin(['dineof', 'dincae']))].empty)
+        if n_valid == 0:
+            continue
+        
+        n_cols = min(n_valid, 3)
+        n_rows = (n_valid + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 5*n_rows))
+        axes = np.atleast_2d(axes).flatten()
+        
+        ax_idx = 0
+        for data_type, title in data_types:
+            # Get DINEOF and DINCAE stats per lake
+            dineof = df[(df['method'] == 'dineof') & (df['data_type'] == data_type)][['lake_id_cci', 'site_id', metric, 'n_matches']]
+            dincae = df[(df['method'] == 'dincae') & (df['data_type'] == data_type)][['lake_id_cci', 'site_id', metric, 'n_matches']]
+            
+            if dineof.empty or dincae.empty:
+                continue
+            
+            ax = axes[ax_idx]
+            ax_idx += 1
+            
+            # Merge on lake_id and site_id
+            merged = dineof.merge(dincae, on=['lake_id_cci', 'site_id'], suffixes=('_dineof', '_dincae'))
+            
+            if merged.empty:
+                ax.set_title(f"{title}\n(No matching lakes)")
+                continue
+            
+            # Scatter plot
+            scatter = ax.scatter(merged[f'{metric}_dineof'], merged[f'{metric}_dincae'], 
+                                c=merged['n_matches_dineof'], cmap='viridis',
+                                s=50, alpha=0.7, edgecolors='black', linewidth=0.5)
+            
+            # Diagonal line (y=x)
+            all_vals = pd.concat([merged[f'{metric}_dineof'], merged[f'{metric}_dincae']]).dropna()
+            if len(all_vals) > 0:
+                max_val = all_vals.max() * 1.1
+                min_val = all_vals.min() * 0.9 if all_vals.min() >= 0 else all_vals.min() * 1.1
+                ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, label='Equal')
+            
+            ax.set_xlabel(f'DINEOF {metric.upper()} (°C)')
+            ax.set_ylabel(f'DINCAE {metric.upper()} (°C)')
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3)
+            
+            # Count wins
+            dineof_better = (merged[f'{metric}_dineof'].abs() < merged[f'{metric}_dincae'].abs()).sum() if metric in ['bias', 'median'] else (merged[f'{metric}_dineof'] < merged[f'{metric}_dincae']).sum()
+            dincae_better = (merged[f'{metric}_dincae'].abs() < merged[f'{metric}_dineof'].abs()).sum() if metric in ['bias', 'median'] else (merged[f'{metric}_dincae'] < merged[f'{metric}_dineof']).sum()
+            ax.text(0.05, 0.95, f'DINEOF better: {dineof_better}\nDINCAE better: {dincae_better}',
+                   transform=ax.transAxes, fontsize=9, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            plt.colorbar(scatter, ax=ax, label='N matches', shrink=0.8)
+        
+        # Hide unused axes
+        for i in range(ax_idx, len(axes)):
+            axes[i].set_visible(False)
+        
+        plt.suptitle(f'DINEOF vs DINCAE: Per-Site {metric.upper()} Comparison', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        save_path = os.path.join(output_dir, f"dineof_vs_dincae_scatter_{metric}.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        print(f"  Saved: dineof_vs_dincae_scatter_{metric}.png")
 
 
 def create_dineof_vs_dincae_scatter(df: pd.DataFrame, output_dir: str):
-    """Create scatter plots comparing DINEOF vs DINCAE RMSE per lake."""
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    data_types = [
-        ('reconstruction', 'All Reconstruction'),
-        ('reconstruction_observed', 'Observed Pixels Only'),
-        ('reconstruction_missing', 'Gap-Filled Pixels Only')
-    ]
-    
-    for ax_idx, (data_type, title) in enumerate(data_types):
-        ax = axes[ax_idx]
-        
-        # Get DINEOF and DINCAE stats per lake
-        dineof = df[(df['method'] == 'dineof') & (df['data_type'] == data_type)][['lake_id_cci', 'site_id', 'rmse', 'n_matches']]
-        dincae = df[(df['method'] == 'dincae') & (df['data_type'] == data_type)][['lake_id_cci', 'site_id', 'rmse', 'n_matches']]
-        
-        if dineof.empty or dincae.empty:
-            ax.set_title(f"{title}\n(No data)")
-            continue
-        
-        # Merge on lake_id and site_id
-        merged = dineof.merge(dincae, on=['lake_id_cci', 'site_id'], suffixes=('_dineof', '_dincae'))
-        
-        if merged.empty:
-            ax.set_title(f"{title}\n(No matching lakes)")
-            continue
-        
-        # Scatter plot
-        scatter = ax.scatter(merged['rmse_dineof'], merged['rmse_dincae'], 
-                            c=merged['n_matches_dineof'], cmap='viridis',
-                            s=50, alpha=0.7, edgecolors='black', linewidth=0.5)
-        
-        # Diagonal line (y=x)
-        max_val = max(merged['rmse_dineof'].max(), merged['rmse_dincae'].max()) * 1.1
-        min_val = min(merged['rmse_dineof'].min(), merged['rmse_dincae'].min()) * 0.9
-        ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, label='Equal performance')
-        
-        ax.set_xlabel('DINEOF RMSE (°C)')
-        ax.set_ylabel('DINCAE RMSE (°C)')
-        ax.set_title(title)
-        ax.set_aspect('equal', adjustable='box')
-        ax.grid(True, alpha=0.3)
-        
-        # Count wins
-        dineof_better = (merged['rmse_dineof'] < merged['rmse_dincae']).sum()
-        dincae_better = (merged['rmse_dincae'] < merged['rmse_dineof']).sum()
-        ax.text(0.05, 0.95, f'DINEOF better: {dineof_better}\nDINCAE better: {dincae_better}',
-               transform=ax.transAxes, fontsize=9, verticalalignment='top',
-               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        plt.colorbar(scatter, ax=ax, label='N matches')
-    
-    plt.suptitle('DINEOF vs DINCAE: Per-Site RMSE Comparison', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    
-    save_path = os.path.join(output_dir, "dineof_vs_dincae_scatter_per_site.png")
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {save_path}")
+    """DEPRECATED - calls new all-metrics version. Kept for backward compatibility."""
+    create_dineof_vs_dincae_scatter_all_metrics(df, output_dir)
 
 
-def create_observed_vs_gapfill_comparison(df: pd.DataFrame, output_dir: str):
-    """Create visualization comparing observed vs gap-fill performance."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+def create_observed_vs_gapfill_comparison_all_metrics(df: pd.DataFrame, output_dir: str):
+    """
+    Create visualization comparing observed vs gap-fill performance FOR ALL METRICS.
     
+    Generates one figure per metric showing boxplot comparison.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
     methods = ['dineof', 'dincae']
     colors = {'observed': '#2ecc71', 'gap-fill': '#e74c3c'}
     
-    for ax_idx, method in enumerate(methods):
-        ax = axes[ax_idx]
-        
-        obs = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_observed')]['rmse']
-        miss = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_missing')]['rmse']
-        
-        if obs.empty and miss.empty:
-            ax.set_title(f"{method.upper()}\n(No data)")
+    for metric in metrics:
+        if metric not in df.columns:
             continue
         
-        data_to_plot = []
-        labels = []
-        plot_colors = []
+        fig, axes = plt.subplots(1, len(methods), figsize=(6*len(methods), 5))
+        if len(methods) == 1:
+            axes = [axes]
         
-        if not obs.empty:
-            data_to_plot.append(obs.values)
-            labels.append(f'Observed\n(N={len(obs)})')
-            plot_colors.append(colors['observed'])
+        for ax_idx, method in enumerate(methods):
+            ax = axes[ax_idx]
+            
+            obs = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_observed')][metric]
+            miss = df[(df['method'] == method) & (df['data_type'] == 'reconstruction_missing')][metric]
+            
+            if obs.empty and miss.empty:
+                ax.set_title(f"{method.upper()}\n(No data)")
+                continue
+            
+            data_to_plot = []
+            labels = []
+            plot_colors = []
+            
+            if not obs.empty:
+                data_to_plot.append(obs.dropna().values)
+                labels.append(f'Observed\n(N={len(obs.dropna())})')
+                plot_colors.append(colors['observed'])
+            
+            if not miss.empty:
+                data_to_plot.append(miss.dropna().values)
+                labels.append(f'Gap-fill\n(N={len(miss.dropna())})')
+                plot_colors.append(colors['gap-fill'])
+            
+            if data_to_plot:
+                bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True)
+                for patch, color in zip(bp['boxes'], plot_colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+            
+            ax.set_ylabel(f'{metric.upper()} (°C)')
+            ax.set_title(f'{method.upper()}')
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Add zero line for signed metrics
+            if metric in ['bias', 'median']:
+                ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+            
+            # Add mean values
+            for i, data in enumerate(data_to_plot):
+                if len(data) > 0:
+                    mean_val = np.mean(data)
+                    ax.text(i+1, ax.get_ylim()[1]*0.95, f'μ={mean_val:.2f}', 
+                           fontsize=9, ha='center', va='top')
         
-        if not miss.empty:
-            data_to_plot.append(miss.values)
-            labels.append(f'Gap-fill\n(N={len(miss)})')
-            plot_colors.append(colors['gap-fill'])
+        plt.suptitle(f'Observed vs Gap-Fill: {metric.upper()} Distribution', fontsize=14, fontweight='bold')
+        plt.tight_layout()
         
-        if data_to_plot:
-            bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True)
-            for patch, color in zip(bp['boxes'], plot_colors):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.7)
-        
-        ax.set_ylabel('RMSE (°C)')
-        ax.set_title(f'{method.upper()}')
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        # Add mean values
-        for i, data in enumerate(data_to_plot):
-            mean_val = np.mean(data)
-            ax.axhline(y=mean_val, xmin=(i+0.7)/len(data_to_plot), xmax=(i+1.3)/len(data_to_plot),
-                      color='black', linestyle='--', alpha=0.5)
-            ax.text(i+1.2, mean_val, f'μ={mean_val:.2f}', fontsize=9, va='center')
+        save_path = os.path.join(output_dir, f"observed_vs_gapfill_{metric}.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        print(f"  Saved: observed_vs_gapfill_{metric}.png")
+
+
+def create_observed_vs_gapfill_comparison(df: pd.DataFrame, output_dir: str):
+    """DEPRECATED - calls new all-metrics version. Kept for backward compatibility."""
+    create_observed_vs_gapfill_comparison_all_metrics(df, output_dir)
+
+
+def create_metric_distribution_plots(df: pd.DataFrame, output_dir: str):
+    """
+    Create histogram distributions for ALL 6 metrics.
     
-    plt.suptitle('Observed vs Gap-Fill Performance Distribution (Per-Site)', fontsize=14, fontweight='bold')
-    plt.tight_layout()
+    Generates one figure per metric showing distributions across methods and data types.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+    methods_colors = {
+        'dineof': '#2ecc71', 'dincae': '#3498db', 
+        'eof_filtered': '#9b59b6', 'interp_full': '#e74c3c'
+    }
     
-    save_path = os.path.join(output_dir, "observed_vs_gapfill_boxplot.png")
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {save_path}")
+    for metric in metrics:
+        if metric not in df.columns:
+            continue
+        
+        plot_configs = [
+            ('dineof', 'reconstruction', 'DINEOF - All Recon'),
+            ('dincae', 'reconstruction', 'DINCAE - All Recon'),
+            ('dineof', 'reconstruction_missing', 'DINEOF - Gap-Fill'),
+            ('dincae', 'reconstruction_missing', 'DINCAE - Gap-Fill'),
+        ]
+        
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        
+        for ax, (method, data_type, title) in zip(axes.flatten(), plot_configs):
+            subset = df[(df['method'] == method) & (df['data_type'] == data_type)][metric]
+            
+            if subset.empty:
+                ax.set_title(f"{title}\n(No data)")
+                continue
+            
+            color = methods_colors.get(method, 'gray')
+            ax.hist(subset.dropna(), bins=20, edgecolor='black', alpha=0.7, color=color)
+            
+            # Add statistics
+            mean_val = subset.mean()
+            median_val = subset.median()
+            ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.2f}°C')
+            ax.axvline(median_val, color='orange', linestyle='-', label=f'Med: {median_val:.2f}°C')
+            
+            # Add zero line for signed metrics
+            if metric in ['bias', 'median']:
+                ax.axvline(0, color='black', linestyle='-', linewidth=2, alpha=0.5)
+            
+            ax.set_xlabel(f'{metric.upper()} (°C)')
+            ax.set_ylabel('Number of Lakes')
+            ax.set_title(title)
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.suptitle(f'{metric.upper()} Distribution Across Lakes', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        save_path = os.path.join(output_dir, f"distribution_{metric}.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        print(f"  Saved: distribution_{metric}.png")
 
 
 def create_rmse_distribution_plot(df: pd.DataFrame, output_dir: str):
-    """Create histogram of RMSE distributions."""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    
-    plot_configs = [
-        ('dineof', 'reconstruction', 'DINEOF - All Reconstruction'),
-        ('dincae', 'reconstruction', 'DINCAE - All Reconstruction'),
-        ('dineof', 'reconstruction_missing', 'DINEOF - Gap-Fill Only'),
-        ('dincae', 'reconstruction_missing', 'DINCAE - Gap-Fill Only'),
-    ]
-    
-    for ax, (method, data_type, title) in zip(axes.flatten(), plot_configs):
-        subset = df[(df['method'] == method) & (df['data_type'] == data_type)]['rmse']
-        
-        if subset.empty:
-            ax.set_title(f"{title}\n(No data)")
-            continue
-        
-        ax.hist(subset, bins=20, edgecolor='black', alpha=0.7,
-               color='#3498db' if method == 'dincae' else '#2ecc71')
-        
-        # Add statistics
-        mean_val = subset.mean()
-        median_val = subset.median()
-        ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.2f}°C')
-        ax.axvline(median_val, color='orange', linestyle='-', label=f'Median: {median_val:.2f}°C')
-        
-        ax.set_xlabel('RMSE (°C)')
-        ax.set_ylabel('Number of Lakes')
-        ax.set_title(title)
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.suptitle('RMSE Distribution Across Lakes', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    
-    save_path = os.path.join(output_dir, "rmse_distribution_hist.png")
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {save_path}")
+    """DEPRECATED - calls new all-metrics version. Kept for backward compatibility."""
+    create_metric_distribution_plots(df, output_dir)
 
 
 def create_correlation_comparison(df: pd.DataFrame, output_dir: str):
@@ -994,8 +1613,12 @@ def create_comprehensive_summary_figure(df: pd.DataFrame, agg_df: pd.DataFrame, 
 
 
 def create_per_lake_table(df: pd.DataFrame, output_dir: str):
-    """Create detailed per-lake statistics table."""
-    # Pivot to get DINEOF vs DINCAE side by side
+    """
+    Create detailed per-lake statistics table with ALL 6 metrics.
+    
+    Updated to include: rmse, mae, median, bias, std, rstd for each method/data_type.
+    """
+    metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd', 'correlation', 'n_matches']
     pivot_data = []
     
     lakes = df['lake_id_cci'].unique()
@@ -1009,19 +1632,24 @@ def create_per_lake_table(df: pd.DataFrame, output_dir: str):
             
             row = {'lake_id_cci': lake, 'site_id': site}
             
-            # Get stats for each method/data_type combo
-            for method in ['dineof', 'dincae']:
-                for data_type in ['reconstruction', 'reconstruction_observed', 'reconstruction_missing']:
+            # Get stats for each method/data_type combo - ALL methods
+            for method in ['dineof', 'dincae', 'eof_filtered', 'interp_full', 'eof_filtered_interp_full']:
+                for data_type in ['observation', 'reconstruction', 'reconstruction_observed', 
+                                  'reconstruction_missing', 'observation_same_dates']:
                     subset = site_df[(site_df['method'] == method) & (site_df['data_type'] == data_type)]
                     
-                    prefix = f"{method}_{data_type.replace('reconstruction', 'recon').replace('_', '')}"
+                    # Create short prefix
+                    method_short = method[:3] if len(method) > 5 else method
+                    dt_short = data_type.replace('reconstruction', 'rec').replace('observation', 'obs').replace('_', '')
+                    prefix = f"{method_short}_{dt_short}"
                     
                     if not subset.empty:
-                        row[f'{prefix}_rmse'] = subset['rmse'].values[0]
-                        row[f'{prefix}_n'] = subset['n_matches'].values[0]
+                        for metric in metrics:
+                            if metric in subset.columns:
+                                row[f'{prefix}_{metric}'] = subset[metric].values[0]
                     else:
-                        row[f'{prefix}_rmse'] = np.nan
-                        row[f'{prefix}_n'] = 0
+                        for metric in metrics:
+                            row[f'{prefix}_{metric}'] = np.nan
             
             pivot_data.append(row)
     
@@ -1099,17 +1727,128 @@ Examples:
     agg_df.to_csv(agg_path, index=False)
     print(f"Saved aggregate stats: {agg_path}")
     
+    # =========================================================================
+    # TASK 2: Comprehensive Global Stats
+    # =========================================================================
+    print("\nComputing comprehensive global statistics (Task 2)...")
+    global_stats = compute_comprehensive_global_stats(df)
+    global_stats_path = os.path.join(args.output_dir, 'global_insitu_stats_comprehensive.csv')
+    global_stats.to_csv(global_stats_path, index=False)
+    print(f"Saved comprehensive global stats: {global_stats_path}")
+    
+    # Generate per-lake stats table with all metrics
+    print("\nGenerating per-lake stats table with all metrics...")
+    create_per_lake_stats_table(df, args.output_dir)
+    
+    # =========================================================================
+    # Load lake locations for global maps
+    # =========================================================================
+    lake_locations = None
+    
+    # Try multiple possible locations for the lake locations CSV
+    possible_lake_loc_paths = [
+        args.lake_metadata,  # Explicitly provided (standard CSV format expected)
+        os.path.join(os.path.dirname(__file__), 
+                     '../src/processors/data/globolakes-static_lake_centre_fv1.csv'),
+        os.path.join(os.path.dirname(__file__), 
+                     'globolakes-static_lake_centre_fv1.csv'),
+    ]
+    
+    for loc_path in possible_lake_loc_paths:
+        if loc_path and os.path.exists(loc_path):
+            try:
+                # Check if it's a BADC-CSV format (globolakes file)
+                with open(loc_path, 'r', encoding='iso-8859-1') as f:
+                    first_line = f.readline()
+                
+                if 'BADC-CSV' in first_line or 'Conventions,G' in first_line:
+                    # BADC-CSV format - use custom parser
+                    print(f"Loading lake locations from BADC-CSV: {loc_path}")
+                    import csv
+                    lake_data = []
+                    with open(loc_path, 'r', encoding='iso-8859-1') as f:
+                        reader = csv.reader(f)
+                        row_num = 0
+                        for line in reader:
+                            row_num += 1
+                            # First 42 rows are comments/metadata
+                            if row_num < 43:
+                                continue
+                            if line[0].strip() == 'end_data':
+                                break
+                            try:
+                                lake_id = int(line[0].strip())
+                                lat = float(line[3].strip())
+                                lon = float(line[4].strip())
+                                lake_data.append({'lake_id': lake_id, 'lat': lat, 'lon': lon})
+                            except (ValueError, IndexError):
+                                continue
+                    
+                    lake_locations = pd.DataFrame(lake_data)
+                else:
+                    # Standard CSV format
+                    lake_locations = pd.read_csv(loc_path)
+                    # Handle different column naming conventions
+                    if 'Lake ID' in lake_locations.columns:
+                        lake_locations = lake_locations.rename(columns={
+                            'Lake ID': 'lake_id',
+                            'Latitude, Centre': 'lat', 
+                            'Longitude, Centre': 'lon'
+                        })
+                    elif 'lake_id_cci' in lake_locations.columns:
+                        lake_locations = lake_locations.rename(columns={'lake_id_cci': 'lake_id'})
+                
+                if lake_locations is not None and len(lake_locations) > 0:
+                    print(f"Loaded lake locations from: {loc_path}")
+                    print(f"  {len(lake_locations)} lakes with location data")
+                    break
+            except Exception as e:
+                print(f"Warning: Could not load {loc_path}: {e}")
+                lake_locations = None
+    
+    # =========================================================================
+    # TASK 2: Global Metric Maps (requires Cartopy)
+    # =========================================================================
+    if lake_locations is not None:
+        print("\nGenerating global metric maps (Task 2)...")
+        create_global_metric_maps(df, lake_locations, args.output_dir)
+    else:
+        print("\nSkipping global maps: No lake location data available")
+        print("  Provide --lake_metadata or ensure globolakes CSV is accessible")
+    
+    # =========================================================================
+    # TASK 3: Multi-Panel Comparison and Diagnostic Analysis
+    # =========================================================================
+    print("\nGenerating comprehensive multi-panel comparison (Task 3)...")
+    create_comprehensive_multi_panel_comparison(df, args.output_dir)
+    
+    print("\nAnalyzing method performance vs observation quality (Task 3)...")
+    analyze_method_performance_vs_obs_quality(df, args.output_dir)
+    
     # Generate text report
     print("\n" + "=" * 70)
     report_path = generate_summary_report(df, agg_df, args.output_dir)
     print("=" * 70)
     
-    # Generate visualizations
-    print("\nGenerating visualizations...")
+    # =========================================================================
+    # Generate visualizations - ALL 6 METRICS for ALL 4 DATA TYPES
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("GENERATING VISUALIZATIONS FOR ALL METRICS")
+    print("Metrics: RMSE, MAE, Median, Bias, STD, RSTD")
+    print("Data Types: observation, reconstruction, recon_observed, recon_missing")
+    print("=" * 70)
     
+    print("\n[1/6] Method comparison bar charts (all metrics)...")
     create_method_comparison_plot(df, args.output_dir)
+    
+    print("\n[2/6] DINEOF vs DINCAE scatter plots (all metrics)...")
     create_dineof_vs_dincae_scatter(df, args.output_dir)
+    
+    print("\n[3/6] Observed vs Gap-fill boxplots...")
     create_observed_vs_gapfill_comparison(df, args.output_dir)
+    
+    print("\n[4/6] Metric distribution histograms (all metrics)...")
     create_rmse_distribution_plot(df, args.output_dir)
     create_correlation_comparison(df, args.output_dir)
     create_gap_penalty_analysis(df, args.output_dir)
