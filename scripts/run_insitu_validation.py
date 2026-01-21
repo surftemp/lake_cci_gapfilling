@@ -63,13 +63,8 @@ else:
     # Fallback: try current directory
     sys.path.insert(0, SCRIPT_DIR)
 
-try:
-    from insitu_validation import InsituValidationStep, INSITU_CONFIG
-except ImportError as e:
-    print(f"Error: Could not import insitu_validation: {e}")
-    print(f"Looked in: {SRC_PATH}")
-    print(f"Make sure insitu_validation.py exists in src/processors/postprocessor/post_steps/")
-    sys.exit(1)
+from insitu_validation import InsituValidationStep, INSITU_CONFIG
+
 
 
 @dataclass

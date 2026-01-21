@@ -361,16 +361,29 @@ class InsituValidationStep(PostProcessingStep):
             self._selection_dfs[csv_path] = df
         return self._selection_dfs[csv_path]
     
-    def _find_selection_for_lake(self, lake_id_cci: int) -> Optional[Tuple[str, pd.DataFrame]]:
+    # =========================================================================
+    # TASK 1 IMPLEMENTATION: Multi-Site Selection Bug Fix
+    # =========================================================================
+    # PROBLEM: Old code used "first match wins" - if Lake 52 had Site 1 in 
+    # 2010_selection.csv and Sites 2,3 in 2018_selection.csv, only Site 1
+    # was validated.
+    #
+    # SOLUTION: New _find_all_selections_for_lake() searches ALL CSVs and
+    # merges sites from all matches.
+    # =========================================================================
+    
+    def _find_all_selections_for_lake(self, lake_id_cci: int) -> List[Tuple[str, pd.DataFrame]]:
         """
-        Find which selection CSV contains this lake_id_cci.
-        Searches through selection_csvs in order, returns first match.
-        """
-        # Check cache first
-        if lake_id_cci in self._lake_to_selection:
-            return self._lake_to_selection[lake_id_cci]
+        Find ALL selection CSVs that contain this lake_id_cci.
+        Returns list of (csv_path, df) tuples for all matches.
         
-        # Search through CSVs in priority order
+        NEW in Task 1: Searches ALL CSVs instead of stopping at first match.
+        """
+        cache_key = f"all_{lake_id_cci}"
+        if cache_key in self._lake_to_selection:
+            return self._lake_to_selection[cache_key]
+        
+        matches = []
         csv_list = self._get_selection_csv_list()
         
         for csv_path in csv_list:
@@ -379,39 +392,65 @@ class InsituValidationStep(PostProcessingStep):
                 if lake_id_cci in df['lake_id_cci'].values:
                     csv_name = os.path.basename(csv_path)
                     print(f"[InsituValidation] Lake {lake_id_cci} found in {csv_name}")
-                    self._lake_to_selection[lake_id_cci] = (csv_path, df)
-                    return (csv_path, df)
+                    matches.append((csv_path, df))
             except Exception as e:
                 print(f"[InsituValidation] Error loading {csv_path}: {e}")
                 continue
         
-        # Not found in any CSV
-        print(f"[InsituValidation] Lake {lake_id_cci} not found in any selection CSV")
-        self._lake_to_selection[lake_id_cci] = None
-        return None
+        if not matches:
+            print(f"[InsituValidation] Lake {lake_id_cci} not found in any selection CSV")
+        else:
+            print(f"[InsituValidation] Lake {lake_id_cci} found in {len(matches)} selection CSV(s)")
+        
+        self._lake_to_selection[cache_key] = matches
+        return matches
+    
+    def _find_selection_for_lake(self, lake_id_cci: int) -> Optional[Tuple[str, pd.DataFrame]]:
+        """
+        Find which selection CSV contains this lake_id_cci.
+        
+        DEPRECATED: Use _find_all_selections_for_lake() instead.
+        Kept for backward compatibility - returns first match.
+        """
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        return matches[0] if matches else None
     
     def _get_lake_sites(self, lake_id_cci: int) -> pd.DataFrame:
-        """Get all unique sites for a given lake_id_cci from the appropriate selection CSV."""
-        result = self._find_selection_for_lake(lake_id_cci)
-        if result is None:
+        """
+        Get ALL unique sites for a given lake_id_cci from ALL selection CSVs.
+        
+        NEW in Task 1: Searches all CSVs and merges sites, instead of 
+        stopping at first CSV match.
+        """
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        
+        if not matches:
             return pd.DataFrame()
         
-        csv_path, df = result
-        lake_df = df[df['lake_id_cci'] == lake_id_cci]
+        all_sites = []
+        for csv_path, df in matches:
+            lake_df = df[df['lake_id_cci'] == lake_id_cci]
+            if not lake_df.empty:
+                sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
+                    subset=['lake_id', 'site_id']
+                ).copy()
+                sites['source_csv'] = os.path.basename(csv_path)
+                all_sites.append(sites)
         
-        if lake_df.empty:
+        if not all_sites:
             return pd.DataFrame()
         
-        # Drop duplicates based on lake_id and site_id only (lat/lon may have tiny variations)
-        sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
-            subset=['lake_id', 'site_id']
-        ).copy()
+        combined = pd.concat(all_sites, ignore_index=True)
+        # Remove duplicate sites (same lake_id + site_id from different CSVs)
+        combined = combined.drop_duplicates(subset=['lake_id', 'site_id'], keep='first')
+        combined['lake_id'] = combined['lake_id'].astype(int)
+        combined['site_id'] = combined['site_id'].astype(int)
         
-        # Convert to int (may be read as float from CSV)
-        sites['lake_id'] = sites['lake_id'].astype(int)
-        sites['site_id'] = sites['site_id'].astype(int)
+        n_sites = len(combined)
+        n_sources = combined['source_csv'].nunique()
+        print(f"[InsituValidation] Lake {lake_id_cci}: {n_sites} unique site(s) from {n_sources} CSV(s)")
         
-        return sites.sort_values('site_id').reset_index(drop=True)
+        return combined.sort_values('site_id').reset_index(drop=True)
     
     def _get_buoy_filepath(self, lake_id: int, site_id: int) -> Optional[str]:
         """Construct path to buoy CSV file."""
@@ -430,20 +469,30 @@ class InsituValidationStep(PostProcessingStep):
             return None
     
     def _determine_representative_hour(self, lake_id: int, site_id: int, lake_id_cci: int) -> Optional[int]:
-        """Find representative hour for satellite overpasses."""
-        result = self._find_selection_for_lake(lake_id_cci)
-        if result is None:
+        """
+        Find representative hour for satellite overpasses.
+        
+        NEW in Task 1: Searches ALL selection CSVs for this lake/site combination
+        to get the most complete picture of satellite overpass times.
+        """
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        
+        if not matches:
             return None
         
-        csv_path, df = result
-        subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()      
+        all_subsets = []
+        for csv_path, df in matches:
+            subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()
+            if not subset.empty:
+                all_subsets.append(subset)
         
-        if subset.empty:
+        if not all_subsets:
             return None
         
-        subset['hour'] = subset['time_IS'].dt.hour
-        subset['date'] = subset['time_IS'].dt.date
-        hour_day_counts = subset.groupby('hour')['date'].nunique()
+        combined = pd.concat(all_subsets, ignore_index=True)
+        combined['hour'] = combined['time_IS'].dt.hour
+        combined['date'] = combined['time_IS'].dt.date
+        hour_day_counts = combined.groupby('hour')['date'].nunique()
         
         return hour_day_counts.idxmax() if not hour_day_counts.empty else None
     
