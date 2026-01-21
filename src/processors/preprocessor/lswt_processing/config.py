@@ -53,7 +53,9 @@ class ProcessingConfig:
     # ice
     ice_shrink_pixels: int = 1
     ice_value_k: float = 273.15   
+    ice_lic_var: str = "smoothed_gap_filled_lic_class"      # default lic ice mask variable
 
+    
     # DINEOF cross-validation generation settings
     cv_enable: bool = False
     cv_data_var: str | None = None

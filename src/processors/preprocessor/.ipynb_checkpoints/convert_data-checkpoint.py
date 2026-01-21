@@ -108,6 +108,7 @@ class Converter:
         quantile_high=None,
         ice_shrink_pixels: int = 1,
         ice_value_k: float = 273.15,
+        ice_lic_var: str = "smoothed_gap_filled_lic_class",
         cv_enable: bool = False,
         cv_data_var: str | None = None,
         cv_mask_file: str | None = None,
@@ -149,6 +150,7 @@ class Converter:
             quantile_high=quantile_high,
             ice_shrink_pixels=ice_shrink_pixels,
             ice_value_k=ice_value_k,
+            ice_lic_var=ice_lic_var,
             cv_enable=cv_enable,
             cv_data_var=cv_data_var,
             cv_mask_file=cv_mask_file,
@@ -319,6 +321,7 @@ def _merge_cfg(json_cfg: dict, args: argparse.Namespace) -> dict:
         ("detrend_coverage_threshold", "detrend_coverage_threshold"),
         ("ice_shrink_pixels", "ice_shrink_pixels"),
         ("ice_value_k", "ice_value_k"),
+        ("ice_lic_var", "ice_lic_var"),
         ("cv_enable", "cv_enable"),
         ("cv_data_var", "cv_data_var"),
         ("cv_mask_file", "cv_mask_file"),
@@ -416,7 +419,10 @@ def main():
                                help="Binary erosion pixels to shrink ice (default 1)")
     science_group.add_argument("--ice-value-k", type=float, default=None,
                                help="Replacement value for ice (Kelvin, default 273.15)")
+    science_group.add_argument("--ice-lic-var", type=str, default=None,
+                               help="LIC variable name for ice detection (default: smoothed_gap_filled_lic_class)")
 
+    
     # cv mask generator arguments
     cv_group = parser.add_argument_group("DINEOF CV (optional)")
     cv_group.add_argument("--cv-enable", action="store_true", default=None,
@@ -481,6 +487,7 @@ def main():
         cfg.get("quantile_high"),
         cfg.get("ice_shrink_pixels", 1),
         cfg.get("ice_value_k", 273.15),
+        cfg.get("ice_lic_var", "smoothed_gap_filled_lic_class"),
         cfg.get("cv_enable", False),
         cfg.get("cv_data_var"),
         cfg.get("cv_mask_file"),

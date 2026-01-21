@@ -99,12 +99,22 @@ class IceMaskReplacementStep(ProcessingStep):
                 return ds
 
             lic_ds = xr.open_dataset(lic_path)
-            lic_var = "smoothed_gap_filled_lic_class"
+            
+            # Get LIC variable from config (with default for backward compatibility)
+            lic_var = getattr(config, "ice_lic_var", "smoothed_gap_filled_lic_class")
+            
+            # ═══════════════════════════════════════════════════════════════════════════
+            # VALIDATION LOG: Confirm which LIC variable is being used
+            # ═══════════════════════════════════════════════════════════════════════════
+            print(f"[IceMaskReplacement] Using LIC variable: '{lic_var}'")
+            print(f"[IceMaskReplacement] Available variables in LIC file: {list(lic_ds.data_vars)}")
+            
             if lic_var not in lic_ds:
                 lic_ds.close()
-                raise ValueError(f"'{lic_var}' not found in {lic_path}")
-
+                raise ValueError(f"'{lic_var}' not found in {lic_path}. Available: {list(lic_ds.data_vars)}")
+            
             lic = lic_ds[lic_var]  # (time, lat, lon) cropped to lake area; 2==ice; NaN==non-lake
+            print(f"[IceMaskReplacement] Successfully loaded LIC variable '{lic_var}' with shape {lic.shape}")
 
             # align time: ds.time is numeric days -> convert to datetime64[ns]
             t_dt = self._days_to_datetime64(time_days)

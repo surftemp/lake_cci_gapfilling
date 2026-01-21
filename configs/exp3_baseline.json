@@ -79,6 +79,8 @@
     "cv_max_cloud_frac": 0.70,
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
+    "_comment": "=== ice lic variable options are: smoothed_gap_filled_lic_class, gap_filled_lic_class, raw_lic_class, raw_quality_level ===",      
+    "ice_lic_var": "raw_lic_class",   
     "remove_threshold": 0.05,
     "apply_zscore_filter": true,
     "outlier_mode": "zscore",
