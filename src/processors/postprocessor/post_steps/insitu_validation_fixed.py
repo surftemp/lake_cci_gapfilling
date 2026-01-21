@@ -507,11 +507,29 @@ class InsituValidationStep(PostProcessingStep):
     
     def _find_nearest_grid_point(self, lat_array: np.ndarray, lon_array: np.ndarray,
                                   target_lat: float, target_lon: float) -> Tuple[Tuple[int, int], float]:
-        """Find nearest grid point to target coordinates."""
+        """
+        Find nearest grid point to target coordinates.
+        
+        Uses deterministic tie-breaker when multiple pixels are nearly equidistant:
+        prefers larger lat index, then smaller lon index. This ensures consistent
+        pixel selection regardless of floating-point precision variations.
+        """
         lon_grid, lat_grid = np.meshgrid(lon_array, lat_array)
         distance = np.sqrt((lat_grid - target_lat)**2 + (lon_grid - target_lon)**2)
-        index = np.unravel_index(np.argmin(distance), distance.shape)
-        return index, np.min(distance)
+        
+        min_dist = np.min(distance)
+        
+        # Handle floating-point edge cases: find all pixels within epsilon of minimum
+        epsilon = 1e-6  # ~0.1 meter at equator, sufficient for tie-breaking
+        near_min_mask = distance <= (min_dist + epsilon)
+        
+        # Deterministic tie-breaker: pick largest lat index, then smallest lon index
+        candidates = np.argwhere(near_min_mask)
+        # Sort by lat descending (-), then lon ascending (+); take first
+        candidates = candidates[np.lexsort((candidates[:, 1], -candidates[:, 0]))]
+        index = tuple(candidates[0])
+        
+        return index, min_dist
     
     def _extract_matched_temps(self, ds: xr.Dataset, grid_idx: Tuple[int, int],
                                 buoy_dates: List, var_name: str = 'temp_filled',

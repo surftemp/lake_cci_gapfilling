@@ -140,7 +140,7 @@ def compute_comprehensive_global_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
     metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd', 'correlation']
     data_types = ['observation', 'reconstruction', 'reconstruction_observed', 
-                  'reconstruction_missing', 'observation_same_dates']
+                  'reconstruction_missing', 'observation_cropped']
     
     results = []
     
@@ -807,7 +807,7 @@ def create_method_comparison_plots_all_metrics(df: pd.DataFrame, output_dir: str
     """
     metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
     methods_order = ['dineof', 'dincae', 'eof_filtered', 'interp_full', 'eof_filtered_interp_full']
-    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 'reconstruction_missing', 'observation_same_dates']
+    data_types = ['observation', 'reconstruction', 'reconstruction_observed', 'reconstruction_missing', 'observation_cropped']
     colors = {'dineof': '#2ecc71', 'dincae': '#3498db', 'eof_filtered': '#9b59b6', 
               'interp_full': '#e74c3c', 'eof_filtered_interp_full': '#f39c12'}
     
@@ -897,7 +897,7 @@ def create_dineof_vs_dincae_scatter_all_metrics(df: pd.DataFrame, output_dir: st
         ('reconstruction', 'All Reconstruction'),
         ('reconstruction_observed', 'Observed Pixels Only'),
         ('reconstruction_missing', 'Gap-Filled Pixels Only'),
-        ('observation_same_dates', 'Obs (Same Dates)')
+        ('observation_cropped', 'Obs (Same Dates as Recon Obs)')
     ]
     
     for metric in metrics:
@@ -1635,7 +1635,7 @@ def create_per_lake_table(df: pd.DataFrame, output_dir: str):
             # Get stats for each method/data_type combo - ALL methods
             for method in ['dineof', 'dincae', 'eof_filtered', 'interp_full', 'eof_filtered_interp_full']:
                 for data_type in ['observation', 'reconstruction', 'reconstruction_observed', 
-                                  'reconstruction_missing', 'observation_same_dates']:
+                                  'reconstruction_missing', 'observation_cropped']:
                     subset = site_df[(site_df['method'] == method) & (site_df['data_type'] == data_type)]
                     
                     # Create short prefix

@@ -134,7 +134,7 @@ def compute_stats(satellite_temps: np.ndarray, insitu_temps: np.ndarray) -> Dict
     # Robust STD (using IQR)
     if n > 1:
         q75, q25 = np.percentile(diff, [75, 25])
-        rstd = (q75 - q25) / 1.349  # IQR to std conversion factor     TODO: check the formula
+        rstd = (q75 - q25) / 1.349  # IQR to std conversion factor
     else:
         rstd = np.nan
     
@@ -361,16 +361,20 @@ class InsituValidationStep(PostProcessingStep):
             self._selection_dfs[csv_path] = df
         return self._selection_dfs[csv_path]
     
-    def _find_selection_for_lake(self, lake_id_cci: int) -> Optional[Tuple[str, pd.DataFrame]]:
+    # =========================================================================
+    # TASK 1 IMPLEMENTATION: Multi-Site Selection Bug Fix
+    # =========================================================================
+    
+    def _find_all_selections_for_lake(self, lake_id_cci: int) -> List[Tuple[str, pd.DataFrame]]:
         """
-        Find which selection CSV contains this lake_id_cci.
-        Searches through selection_csvs in order, returns first match.
+        Find ALL selection CSVs that contain this lake_id_cci.
+        Returns list of (csv_path, df) tuples for all matches.
         """
-        # Check cache first
-        if lake_id_cci in self._lake_to_selection:
-            return self._lake_to_selection[lake_id_cci]
+        cache_key = f"all_{lake_id_cci}"
+        if cache_key in self._lake_to_selection:
+            return self._lake_to_selection[cache_key]
         
-        # Search through CSVs in priority order
+        matches = []
         csv_list = self._get_selection_csv_list()
         
         for csv_path in csv_list:
@@ -379,39 +383,59 @@ class InsituValidationStep(PostProcessingStep):
                 if lake_id_cci in df['lake_id_cci'].values:
                     csv_name = os.path.basename(csv_path)
                     print(f"[InsituValidation] Lake {lake_id_cci} found in {csv_name}")
-                    self._lake_to_selection[lake_id_cci] = (csv_path, df)
-                    return (csv_path, df)
+                    matches.append((csv_path, df))
             except Exception as e:
                 print(f"[InsituValidation] Error loading {csv_path}: {e}")
                 continue
         
-        # Not found in any CSV
-        print(f"[InsituValidation] Lake {lake_id_cci} not found in any selection CSV")
-        self._lake_to_selection[lake_id_cci] = None
-        return None
+        if not matches:
+            print(f"[InsituValidation] Lake {lake_id_cci} not found in any selection CSV")
+        else:
+            print(f"[InsituValidation] Lake {lake_id_cci} found in {len(matches)} selection CSV(s)")
+        
+        self._lake_to_selection[cache_key] = matches
+        return matches
+    
+    def _find_selection_for_lake(self, lake_id_cci: int) -> Optional[Tuple[str, pd.DataFrame]]:
+        """
+        Find which selection CSV contains this lake_id_cci.
+        DEPRECATED: Use _find_all_selections_for_lake() instead.
+        """
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        return matches[0] if matches else None
     
     def _get_lake_sites(self, lake_id_cci: int) -> pd.DataFrame:
-        """Get all unique sites for a given lake_id_cci from the appropriate selection CSV."""
-        result = self._find_selection_for_lake(lake_id_cci)
-        if result is None:
+        """
+        Get ALL unique sites for a given lake_id_cci from ALL selection CSVs.
+        """
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        
+        if not matches:
             return pd.DataFrame()
         
-        csv_path, df = result
-        lake_df = df[df['lake_id_cci'] == lake_id_cci]
+        all_sites = []
+        for csv_path, df in matches:
+            lake_df = df[df['lake_id_cci'] == lake_id_cci]
+            if not lake_df.empty:
+                sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
+                    subset=['lake_id', 'site_id']
+                ).copy()
+                sites['source_csv'] = os.path.basename(csv_path)
+                all_sites.append(sites)
         
-        if lake_df.empty:
+        if not all_sites:
             return pd.DataFrame()
         
-        # Drop duplicates based on lake_id and site_id only (lat/lon may have tiny variations)
-        sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
-            subset=['lake_id', 'site_id']
-        ).copy()
+        combined = pd.concat(all_sites, ignore_index=True)
+        combined = combined.drop_duplicates(subset=['lake_id', 'site_id'], keep='first')
+        combined['lake_id'] = combined['lake_id'].astype(int)
+        combined['site_id'] = combined['site_id'].astype(int)
         
-        # Convert to int (may be read as float from CSV)
-        sites['lake_id'] = sites['lake_id'].astype(int)
-        sites['site_id'] = sites['site_id'].astype(int)
+        n_sites = len(combined)
+        n_sources = combined['source_csv'].nunique()
+        print(f"[InsituValidation] Lake {lake_id_cci}: {n_sites} unique site(s) from {n_sources} CSV(s)")
         
-        return sites.sort_values('site_id').reset_index(drop=True)
+        return combined.sort_values('site_id').reset_index(drop=True)
     
     def _get_buoy_filepath(self, lake_id: int, site_id: int) -> Optional[str]:
         """Construct path to buoy CSV file."""
@@ -431,19 +455,24 @@ class InsituValidationStep(PostProcessingStep):
     
     def _determine_representative_hour(self, lake_id: int, site_id: int, lake_id_cci: int) -> Optional[int]:
         """Find representative hour for satellite overpasses."""
-        result = self._find_selection_for_lake(lake_id_cci)
-        if result is None:
+        matches = self._find_all_selections_for_lake(lake_id_cci)
+        
+        if not matches:
             return None
         
-        csv_path, df = result
-        subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()      
+        all_subsets = []
+        for csv_path, df in matches:
+            subset = df[(df['lake_id'] == lake_id) & (df['site_id'] == site_id)].copy()
+            if not subset.empty:
+                all_subsets.append(subset)
         
-        if subset.empty:
+        if not all_subsets:
             return None
         
-        subset['hour'] = subset['time_IS'].dt.hour
-        subset['date'] = subset['time_IS'].dt.date
-        hour_day_counts = subset.groupby('hour')['date'].nunique()
+        combined = pd.concat(all_subsets, ignore_index=True)
+        combined['hour'] = combined['time_IS'].dt.hour
+        combined['date'] = combined['time_IS'].dt.date
+        hour_day_counts = combined.groupby('hour')['date'].nunique()
         
         return hour_day_counts.idxmax() if not hour_day_counts.empty else None
     
@@ -470,7 +499,7 @@ class InsituValidationStep(PostProcessingStep):
         
         # Quality filter
         if 'qcFlag' in df.columns:
-            df = df[df['qcFlag'] == 0]                            # TODO: ask Laura if q = 0 is good, and: are qcFlag, q the only names?  
+            df = df[df['qcFlag'] == 0]
         elif 'q' in df.columns:
             df = df[df['q'] == 0]
         
@@ -478,7 +507,17 @@ class InsituValidationStep(PostProcessingStep):
     
     def _find_nearest_grid_point(self, lat_array: np.ndarray, lon_array: np.ndarray,
                                   target_lat: float, target_lon: float) -> Tuple[Tuple[int, int], float]:
-        """Find nearest grid point to target coordinates."""
+        """
+        Find nearest grid point to target coordinates.
+        
+        Note: Explicitly converts target coords to np.float64 to ensure proper
+        dtype promotion with float32 coordinate arrays. In numpy 2.x,
+        float32 - Python_float stays float32, but float32 - np.float64 promotes to float64.
+        """
+        # Ensure float64 precision for distance calculation
+        target_lat = np.float64(target_lat)
+        target_lon = np.float64(target_lon)
+        
         lon_grid, lat_grid = np.meshgrid(lon_array, lat_array)
         distance = np.sqrt((lat_grid - target_lat)**2 + (lon_grid - target_lon)**2)
         index = np.unravel_index(np.argmin(distance), distance.shape)
@@ -489,17 +528,6 @@ class InsituValidationStep(PostProcessingStep):
                                 quality_threshold: Optional[int] = None) -> Dict:
         """
         Extract temperatures for dates matching buoy data.
-        
-        Args:
-            ds: xarray Dataset
-            grid_idx: (lat_idx, lon_idx) tuple
-            buoy_dates: list of dates to match
-            var_name: variable name to extract ('temp_filled' or 'lake_surface_water_temperature')
-            quality_threshold: if provided, only include pixels where quality_level >= threshold
-                              (only applies when extracting 'lake_surface_water_temperature')
-        
-        Returns:
-            Dict with 'temps' (in Celsius) and 'matched_dates'
         """
         time_vals = pd.to_datetime(ds['time'].values)
         date_to_idx = {t.date(): i for i, t in enumerate(time_vals)}
@@ -534,8 +562,6 @@ class InsituValidationStep(PostProcessingStep):
             matched_dates.append(d)
         
         temps_array = np.array(temps)
-        
-        # Ensure temperatures are in Celsius
         temps_array = ensure_celsius(temps_array, label=var_name)
         
         return {'temps': temps_array, 'matched_dates': matched_dates}
@@ -555,13 +581,11 @@ class InsituValidationStep(PostProcessingStep):
         }
     
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
-        """Run in-situ validation for this lake. Fail-safe: errors are logged but don't crash pipeline."""
+        """Run in-situ validation for this lake."""
         
-        # Always return valid dataset, even if validation fails
         return_ds = ds if ds is not None else xr.Dataset()
         
         try:
-            # Load config (from experiment JSON or defaults)
             self.config = self._get_config(ctx)
             
             lake_id_cci = ctx.lake_id
@@ -574,15 +598,12 @@ class InsituValidationStep(PostProcessingStep):
                 print(f"[InsituValidation] Post directory not found, skipping")
                 return return_ds
             
-            # Output to insitu_cv_validation subfolder
             plot_dir = os.path.join(post_dir, "insitu_cv_validation")
             
-            # Log quality threshold being used for observation filtering
             quality_threshold = self.config.get("quality_threshold", 3)
             print(f"[InsituValidation] Checking for buoy data for lake {lake_id_cci}")
             print(f"[InsituValidation] Using quality_threshold >= {quality_threshold} for observation filtering")
             
-            # Find sites for this lake (now searches across multiple selection CSVs)
             try:
                 sites = self._get_lake_sites(lake_id_cci)
             except Exception as e:
@@ -595,13 +616,11 @@ class InsituValidationStep(PostProcessingStep):
             
             print(f"[InsituValidation] Found {len(sites)} site(s) for lake {lake_id_cci}")
             
-            # Find pipeline output files
             outputs = self._find_pipeline_outputs(post_dir, lake_id_cci)
             if not any(outputs.values()):
                 print(f"[InsituValidation] No output files found in {post_dir}, skipping")
                 return return_ds
             
-            # Process each site
             for _, site_row in sites.iterrows():
                 try:
                     lake_id = site_row['lake_id']
@@ -611,16 +630,13 @@ class InsituValidationStep(PostProcessingStep):
                     
                     print(f"[InsituValidation] Processing site {site_id} at ({site_lat:.4f}, {site_lon:.4f})")
                     
-                    # Get representative hour (now passes lake_id_cci for proper CSV lookup)
                     rep_hour = self._determine_representative_hour(lake_id, site_id, lake_id_cci)
                     
-                    # Load buoy data
                     buoy_df = self._load_buoy_data(lake_id, site_id, rep_hour)
                     if buoy_df is None or buoy_df.empty:
                         print(f"[InsituValidation] No buoy data for site {site_id}, skipping site")
                         continue
                     
-                    # Prepare buoy data
                     buoy_date_temp = buoy_df.groupby(buoy_df['dateTime'].dt.date)['Tw'].mean().to_dict()
                     if not buoy_date_temp:
                         print(f"[InsituValidation] No valid buoy dates for site {site_id}, skipping site")
@@ -629,7 +645,6 @@ class InsituValidationStep(PostProcessingStep):
                     unique_dates = list(buoy_date_temp.keys())
                     print(f"[InsituValidation] Buoy has {len(unique_dates)} unique dates")
                     
-                    # Process each output file and generate validation
                     self._validate_site(
                         outputs=outputs,
                         site_lat=site_lat,
@@ -652,23 +667,14 @@ class InsituValidationStep(PostProcessingStep):
         return return_ds
     
     def _get_prepared_path(self, post_dir: str, lake_id_cci: int) -> Optional[str]:
-        """
-        Get the path to prepared.nc for this lake.
-        
-        Constructs path as: {run_root}/prepared/{lake_id9}/prepared.nc
-        where run_root is derived from post_dir (post/{lake_id}/a1000 -> run_root)
-        """
+        """Get the path to prepared.nc for this lake."""
         try:
-            # post_dir is like: {run_root}/post/{lake_id}/a1000
-            # We need: {run_root}/prepared/{lake_id9}/prepared.nc
             parts = post_dir.split(os.sep)
             
-            # Find 'post' in path and go up to run_root
             if 'post' in parts:
                 post_idx = parts.index('post')
                 run_root = os.sep.join(parts[:post_idx])
             else:
-                # Fallback: go up 3 levels from post_dir
                 run_root = os.path.dirname(os.path.dirname(os.path.dirname(post_dir)))
             
             lake_id9 = f"{lake_id_cci:09d}"
@@ -686,61 +692,38 @@ class InsituValidationStep(PostProcessingStep):
     def _check_originally_observed(self, prepared_path: str, grid_idx: Tuple[int, int],
                                     matched_dates: List, is_interpolated: bool = False,
                                     target_lat: float = None, target_lon: float = None) -> np.ndarray:
-        """
-        Check which matched dates had original observations in prepared.nc.
-        
-        Args:
-            prepared_path: Path to prepared.nc
-            grid_idx: (lat_idx, lon_idx) tuple for the pixel (used as fallback)
-            matched_dates: List of dates to check
-            is_interpolated: If True, dates may not exist in prepared.nc
-            target_lat: Target latitude for coordinate-based lookup (preferred)
-            target_lon: Target longitude for coordinate-based lookup (preferred)
-        
-        Returns:
-            Boolean array where True = originally observed, False = originally missing
-        """
+        """Check which matched dates had original observations in prepared.nc."""
         was_observed = np.zeros(len(matched_dates), dtype=bool)
         
         if not prepared_path or not os.path.exists(prepared_path):
-            return was_observed  # All False if no prepared.nc
+            return was_observed
         
         try:
-            # Open WITHOUT decode_times since prepared.nc may not have CF-compliant time encoding
             with xr.open_dataset(prepared_path, decode_times=False) as ds_prep:
-                # Get the temperature values at this pixel
                 if 'lake_surface_water_temperature' not in ds_prep:
                     print(f"[InsituValidation] lake_surface_water_temperature not found in prepared.nc")
                     return was_observed
                 
-                # Decode time values manually using time_units attribute
-                # prepared.nc stores time as "days since 1981-01-01 12:00:00"
                 raw_times = ds_prep['time'].values
                 time_units = ds_prep.attrs.get('time_units', None)
                 
                 if time_units and 'days since' in time_units:
-                    # Parse: "days since 1981-01-01 12:00:00" -> base timestamp
                     base_str = time_units.replace('days since ', '').strip()
                     base_time = pd.Timestamp(base_str)
                     prep_time_vals = base_time + pd.to_timedelta(raw_times, unit='D')
                     prep_date_to_idx = {t.date(): i for i, t in enumerate(prep_time_vals)}
                 else:
-                    # print(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
                     raise Exception(f"[InsituValidation] Warning: No time_units attr, trying standard decode")
                 
-                # IMPORTANT: Find grid index in prepared.nc's own coordinate system
                 if target_lat is not None and target_lon is not None:
                     prep_lat = ds_prep['lat'].values
                     prep_lon = ds_prep['lon'].values
                     prep_grid_idx, prep_dist = self._find_nearest_grid_point(
                         prep_lat, prep_lon, target_lat, target_lon
                     )
-                    print(f"[DEBUG BACKUP] target_lat={target_lat}, target_lon={target_lon}")
-                    print(f"[DEBUG BACKUP] prep_grid_idx={prep_grid_idx}")
-                    print(f"[DEBUG BACKUP] prep_lat[{prep_grid_idx[0]}]={prep_lat[prep_grid_idx[0]]:.6f}, prep_lon[{prep_grid_idx[1]}]={prep_lon[prep_grid_idx[1]]:.6f}")
                     
                     if prep_dist > 0.01:
-                        print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")        # TODO: does this distance take into account of latitude distortion? 
+                        print(f"[InsituValidation] Warning: prepared.nc grid point {prep_dist:.4f}° from target")
                 else:
                     prep_grid_idx = grid_idx
                     print(f"[InsituValidation] Warning: using output file grid_idx for prepared.nc (may be inaccurate)")
@@ -749,12 +732,10 @@ class InsituValidationStep(PostProcessingStep):
                     lat=prep_grid_idx[0], lon=prep_grid_idx[1]
                 ).values
                 
-                # count how many valid values exist at this pixel in prepared.nc
                 n_valid_in_prep = int(np.sum(~np.isnan(prep_temps)))
                 n_total_in_prep = len(prep_temps)
                 print(f"[InsituValidation] prepared.nc pixel has {n_valid_in_prep}/{n_total_in_prep} valid values")
                 
-                # Check date matching
                 n_dates_found = 0
                 n_dates_with_valid = 0
                 for i, d in enumerate(matched_dates):
@@ -772,7 +753,6 @@ class InsituValidationStep(PostProcessingStep):
                 print(f"[InsituValidation] Date matching: {n_dates_found}/{len(matched_dates)} matched dates found in prepared.nc")
                 print(f"[InsituValidation] Of those, {n_dates_with_valid} had valid (non-NaN) values")
                 
-                # Debug if we get 0 observed
                 if n_dates_with_valid == 0 and len(matched_dates) > 0:
                     sample_matched = matched_dates[:3]
                     sample_prep = list(prep_date_to_idx.keys())[:3]
@@ -826,7 +806,6 @@ class InsituValidationStep(PostProcessingStep):
             unique_buoy_dates = list(buoy_date_temp.keys())
             
             # Get prepared.nc path for checking originally observed status
-            # Only if split_observed_missing is enabled in config
             prepared_path = None
             if self.config.get("split_observed_missing", True):
                 prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
@@ -860,34 +839,53 @@ class InsituValidationStep(PostProcessingStep):
                             ds.close()
                             return
                     
-                    # Extract RECONSTRUCTION (temp_filled) - no quality filter needed, already filtered during preprocessing
+                    # Extract RECONSTRUCTION (temp_filled)
                     recon_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'temp_filled')
                     
                     # Extract OBSERVATION (lake_surface_water_temperature) with quality filter
-                    # Use quality_threshold from config to match what was used in preprocessing
                     quality_threshold = self.config.get("quality_threshold", 3)
                     obs_extracted = self._extract_matched_temps(
                         ds, grid_idx, unique_buoy_dates, 'lake_surface_water_temperature',
                         quality_threshold=quality_threshold
                     )
                     
-                    # Store reconstruction data
+                    # Initialize method entry
+                    if method_name not in results['methods']:
+                        results['methods'][method_name] = {'is_interpolated': is_interpolated}
+                    
+                    # =========================================================
+                    # Store OBSERVATION data FIRST (before reconstruction)
+                    # =========================================================
+                    if len(obs_extracted['matched_dates']) > 0 and not is_interpolated:
+                        matched_buoy_obs = np.array([buoy_date_temp[d] for d in obs_extracted['matched_dates']])
+                        obs_stats = compute_stats(obs_extracted['temps'], matched_buoy_obs)
+                        
+                        results['methods'][method_name]['obs'] = {
+                            'dates': obs_extracted['matched_dates'],
+                            'satellite_temps': obs_extracted['temps'],
+                            'insitu_temps': matched_buoy_obs,
+                            'difference': obs_extracted['temps'] - matched_buoy_obs,
+                            **obs_stats,
+                        }
+                        
+                        print(f"[InsituValidation] {method_name} (obs): N={obs_stats['n_matches']}, RMSE={obs_stats['rmse']:.3f}°C, Bias={obs_stats['bias']:.3f}°C")
+                    
+                    # =========================================================
+                    # Store RECONSTRUCTION data
+                    # =========================================================
                     if len(recon_extracted['matched_dates']) > 0:
                         matched_buoy_recon = np.array([buoy_date_temp[d] for d in recon_extracted['matched_dates']])
                         recon_stats = compute_stats(recon_extracted['temps'], matched_buoy_recon)
                         
-                        results['methods'][method_name] = {
-                            'recon': {
-                                'dates': recon_extracted['matched_dates'],
-                                'satellite_temps': recon_extracted['temps'],
-                                'insitu_temps': matched_buoy_recon,
-                                'difference': recon_extracted['temps'] - matched_buoy_recon,
-                                **recon_stats,
-                            },
-                            'is_interpolated': is_interpolated,
+                        results['methods'][method_name]['recon'] = {
+                            'dates': recon_extracted['matched_dates'],
+                            'satellite_temps': recon_extracted['temps'],
+                            'insitu_temps': matched_buoy_recon,
+                            'difference': recon_extracted['temps'] - matched_buoy_recon,
+                            **recon_stats,
                         }
                         
-                        # NEW: Check which reconstruction points were originally observed vs missing
+                        # Check which reconstruction points were originally observed vs missing
                         if prepared_path and grid_idx is not None:
                             was_observed = self._check_originally_observed(
                                 prepared_path, grid_idx, 
@@ -906,8 +904,9 @@ class InsituValidationStep(PostProcessingStep):
                                 obs_temps = recon_extracted['temps'][obs_mask]
                                 obs_insitu = matched_buoy_recon[obs_mask]
                                 recon_observed_stats = compute_stats(obs_temps, obs_insitu)
+                                recon_observed_dates = [d for d, m in zip(recon_extracted['matched_dates'], obs_mask) if m]
                                 results['methods'][method_name]['recon_observed'] = {
-                                    'dates': [d for d, m in zip(recon_extracted['matched_dates'], obs_mask) if m],
+                                    'dates': recon_observed_dates,
                                     'satellite_temps': obs_temps,
                                     'insitu_temps': obs_insitu,
                                     'difference': obs_temps - obs_insitu,
@@ -934,6 +933,37 @@ class InsituValidationStep(PostProcessingStep):
                             n_obs = int(obs_mask.sum())
                             n_missing = int(missing_mask.sum())
                             print(f"[InsituValidation] {method_name}: {n_obs} observed + {n_missing} missing = {n_obs + n_missing} total")
+                            
+                            # ============================================================
+                            # TASK 4: observation_cropped - observation aligned to same 
+                            # timestamps as recon_observed for fair comparison
+                            # ============================================================
+                            if 'recon_observed' in results['methods'][method_name] and 'obs' in results['methods'][method_name]:
+                                recon_obs_dates = set(results['methods'][method_name]['recon_observed']['dates'])
+                                obs_data = results['methods'][method_name]['obs']
+                                
+                                # Find indices where obs dates match recon_observed dates
+                                same_date_mask = np.array([d in recon_obs_dates for d in obs_data['dates']])
+                                
+                                if same_date_mask.any():
+                                    same_date_obs_temps = obs_data['satellite_temps'][same_date_mask]
+                                    same_date_obs_insitu = obs_data['insitu_temps'][same_date_mask]
+                                    obs_cropped_stats = compute_stats(same_date_obs_temps, same_date_obs_insitu)
+                                    
+                                    results['methods'][method_name]['obs_cropped'] = {
+                                        'dates': [d for d, m in zip(obs_data['dates'], same_date_mask) if m],
+                                        'satellite_temps': same_date_obs_temps,
+                                        'insitu_temps': same_date_obs_insitu,
+                                        'difference': same_date_obs_temps - same_date_obs_insitu,
+                                        **obs_cropped_stats,
+                                    }
+                                    print(f"[InsituValidation] {method_name} (obs_cropped): N={obs_cropped_stats['n_matches']}, RMSE={obs_cropped_stats['rmse']:.3f}°C")
+                                    
+                                    # Log comparison: obs_cropped vs recon_observed
+                                    recon_obs_stats = results['methods'][method_name]['recon_observed']
+                                    print(f"[InsituValidation] TASK 4 same-date comparison for {method_name}:")
+                                    print(f"[InsituValidation]   Observation (cropped): RMSE={obs_cropped_stats['rmse']:.3f}, Bias={obs_cropped_stats['bias']:.3f}, STD={obs_cropped_stats['std']:.3f}")
+                                    print(f"[InsituValidation]   Recon_observed:        RMSE={recon_obs_stats['rmse']:.3f}, Bias={recon_obs_stats['bias']:.3f}, STD={recon_obs_stats['std']:.3f}")
                         
                         # For interpolated files, extract full time series
                         if is_interpolated:
@@ -941,26 +971,10 @@ class InsituValidationStep(PostProcessingStep):
                         
                         print(f"[InsituValidation] {method_name} (recon): N={recon_stats['n_matches']}, RMSE={recon_stats['rmse']:.3f}°C, Bias={recon_stats['bias']:.3f}°C")
                     
-                    # Store observation data (only for sparse methods - obs doesn't exist in interp files)
-                    if len(obs_extracted['matched_dates']) > 0 and not is_interpolated:
-                        matched_buoy_obs = np.array([buoy_date_temp[d] for d in obs_extracted['matched_dates']])
-                        obs_stats = compute_stats(obs_extracted['temps'], matched_buoy_obs)
-                        
-                        if method_name not in results['methods']:
-                            results['methods'][method_name] = {'is_interpolated': is_interpolated}
-                        
-                        results['methods'][method_name]['obs'] = {
-                            'dates': obs_extracted['matched_dates'],
-                            'satellite_temps': obs_extracted['temps'],
-                            'insitu_temps': matched_buoy_obs,
-                            'difference': obs_extracted['temps'] - matched_buoy_obs,
-                            **obs_stats,
-                        }
-                        
-                        print(f"[InsituValidation] {method_name} (obs): N={obs_stats['n_matches']}, RMSE={obs_stats['rmse']:.3f}°C, Bias={obs_stats['bias']:.3f}°C")
-                    
                 except Exception as e:
                     print(f"[InsituValidation] Error processing {method_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
                 finally:
                     ds.close()
             
@@ -976,6 +990,12 @@ class InsituValidationStep(PostProcessingStep):
                 except Exception as e:
                     print(f"[InsituValidation] Error generating yearly plots: {e}")
                 
+                # TASK 4: Same-date comparison plot
+                try:
+                    self._plot_same_date_comparison(results, plot_dir)
+                except Exception as e:
+                    print(f"[InsituValidation] Error generating same-date comparison plot: {e}")
+                
                 try:
                     self._save_summary_csv(results, plot_dir)
                 except Exception as e:
@@ -988,6 +1008,8 @@ class InsituValidationStep(PostProcessingStep):
         
         except Exception as e:
             print(f"[InsituValidation] Unexpected error in _validate_site: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _plot_validation(self, results: Dict, plot_dir: str):
         """
@@ -1146,7 +1168,7 @@ class InsituValidationStep(PostProcessingStep):
                         ax.fill_between(recon_dates, recon_diff, 0, alpha=0.2, color='purple')
                         
                         # Build title with separated stats
-                        title_parts = [f'{method_name} Recon-Insitu:, N={recon_stats["n_matches"]}, RMSE={recon_stats["rmse"]:.3f}°C (all)']
+                        title_parts = [f'{method_name} Recon-Insitu: N={recon_stats["n_matches"]}, RMSE={recon_stats["rmse"]:.3f}°C (all)']
                         if obs_rmse is not None:
                             title_parts.append(f'RMSE={obs_rmse:.3f}°C (obs, green)')
                         if miss_rmse is not None:
@@ -1175,22 +1197,7 @@ class InsituValidationStep(PostProcessingStep):
             plt.close('all')
     
     def _plot_yearly_validation(self, results: Dict, plot_dir: str):
-        """
-        Generate yearly breakdown plots - one file per method.
-        
-        For each method (dineof, dincae, interp_full, etc.), creates a separate file:
-          LAKE{id}_insitu_validation_yearly_{method}_site{N}.png
-        
-        For sparse methods (with obs): 4 rows per year
-          1. Obs vs In-situ
-          2. Obs - In-situ difference  
-          3. Recon vs In-situ
-          4. Recon - In-situ difference
-        
-        For interpolated methods (no obs): 2 rows per year
-          1. Recon vs In-situ
-          2. Recon - In-situ difference
-        """
+        """Generate yearly breakdown plots - one file per method."""
         try:
             lake_id = results['lake_id']
             lake_id_cci = results['lake_id_cci']
@@ -1216,11 +1223,10 @@ class InsituValidationStep(PostProcessingStep):
                     has_recon = 'recon' in method_data
                     
                     if not has_recon:
-                        # No reconstruction data, skip this method
                         continue
                     
                     # Find years with data for this method
-                    method_years = set(all_insitu_years)  # Start with in-situ years
+                    method_years = set(all_insitu_years)
                     if has_recon:
                         for d in method_data['recon']['dates']:
                             method_years.add(d.year)
@@ -1234,7 +1240,7 @@ class InsituValidationStep(PostProcessingStep):
                         continue
                     
                     # Calculate rows needed
-                    rows_per_year = (2 if has_obs else 0) + 2  # obs panels + recon panels
+                    rows_per_year = (2 if has_obs else 0) + 2
                     n_years = len(method_years)
                     n_rows = n_years * rows_per_year
                     
@@ -1373,7 +1379,7 @@ class InsituValidationStep(PostProcessingStep):
                                 ax.fill_between(year_recon_dates, year_recon_diff, 0, alpha=0.2, color='purple')
                                 
                                 # Build title with separated stats
-                                title_parts = [f'{year} Recon-Insitu:, N={year_recon_stats["n_matches"]}, RMSE={year_recon_stats["rmse"]:.3f}°C']
+                                title_parts = [f'{year} Recon-Insitu: N={year_recon_stats["n_matches"]}, RMSE={year_recon_stats["rmse"]:.3f}°C']
                                 if year_obs_rmse is not None:
                                     title_parts.append(f'Obs={year_obs_rmse:.2f}°C')
                                 if year_miss_rmse is not None:
@@ -1406,12 +1412,158 @@ class InsituValidationStep(PostProcessingStep):
             print(f"[InsituValidation] Error in _plot_yearly_validation: {e}")
             plt.close('all')
     
+    def _plot_same_date_comparison(self, results: Dict, plot_dir: str):
+        """
+        TASK 4: Generate same-date comparison plots.
+        
+        Compares observation vs obs_cropped vs reconstruction_observed on IDENTICAL dates
+        to verify if recon_observed's better stats are due to preprocessing
+        filtering out outliers.
+        
+        For each method, creates a figure with:
+        1. Scatter plot: obs_cropped vs recon_observed temps
+        2. Bar chart comparing all 6 metrics for: observation, obs_cropped, recon_observed
+        3. Error distribution histogram
+        """
+        try:
+            lake_id = results['lake_id']
+            lake_id_cci = results['lake_id_cci']
+            site_id = results['site_id']
+            
+            for method_name, method_data in results['methods'].items():
+                # Check if we have obs_cropped and recon_observed
+                if 'obs_cropped' not in method_data or 'recon_observed' not in method_data:
+                    continue
+                
+                obs_cropped = method_data['obs_cropped']
+                recon_obs = method_data['recon_observed']
+                has_full_obs = 'obs' in method_data
+                
+                n_points = obs_cropped['n_matches']
+                if n_points < 2:
+                    continue
+                
+                # Create figure with 3 panels
+                fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                
+                # Panel 1: Scatter plot (obs_cropped vs recon_observed temps)
+                ax1 = axes[0]
+                ax1.scatter(obs_cropped['satellite_temps'], recon_obs['satellite_temps'],
+                           c='steelblue', alpha=0.6, edgecolors='black', linewidth=0.5, s=50)
+                
+                # Diagonal line
+                all_temps = np.concatenate([obs_cropped['satellite_temps'], recon_obs['satellite_temps']])
+                min_t, max_t = all_temps.min(), all_temps.max()
+                ax1.plot([min_t, max_t], [min_t, max_t], 'k--', alpha=0.5, label='1:1 line')
+                
+                ax1.set_xlabel('Obs_Cropped Temp (°C)', fontsize=10)
+                ax1.set_ylabel('Recon_Observed Temp (°C)', fontsize=10)
+                ax1.set_title(f'Same-Date Comparison: Temps\n(N={n_points})', fontsize=11, fontweight='bold')
+                ax1.grid(True, alpha=0.3)
+                ax1.legend()
+                ax1.set_aspect('equal', adjustable='box')
+                
+                # Panel 2: Bar chart comparing all 6 metrics for obs, obs_cropped, recon_observed
+                ax2 = axes[1]
+                metrics = ['rmse', 'mae', 'median', 'bias', 'std', 'rstd']
+                x = np.arange(len(metrics))
+                
+                # Determine bar width based on whether we have full obs
+                if has_full_obs:
+                    width = 0.25
+                    obs_vals = [method_data['obs'].get(m, np.nan) for m in metrics]
+                    obs_cropped_vals = [obs_cropped.get(m, np.nan) for m in metrics]
+                    recon_vals = [recon_obs.get(m, np.nan) for m in metrics]
+                    
+                    bars1 = ax2.bar(x - width, obs_vals, width, label=f'Observation (all, N={method_data["obs"]["n_matches"]})', 
+                                   color='blue', alpha=0.7, edgecolor='black')
+                    bars2 = ax2.bar(x, obs_cropped_vals, width, label=f'Obs_Cropped (N={obs_cropped["n_matches"]})', 
+                                   color='green', alpha=0.7, edgecolor='black')
+                    bars3 = ax2.bar(x + width, recon_vals, width, label=f'Recon_Observed (N={recon_obs["n_matches"]})', 
+                                   color='orange', alpha=0.7, edgecolor='black')
+                    
+                    # Add value labels
+                    for bar, val in zip(bars1, obs_vals):
+                        if not np.isnan(val):
+                            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                                    f'{val:.2f}', ha='center', va='bottom', fontsize=6, rotation=45)
+                    for bar, val in zip(bars2, obs_cropped_vals):
+                        if not np.isnan(val):
+                            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                                    f'{val:.2f}', ha='center', va='bottom', fontsize=6, rotation=45)
+                    for bar, val in zip(bars3, recon_vals):
+                        if not np.isnan(val):
+                            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                                    f'{val:.2f}', ha='center', va='bottom', fontsize=6, rotation=45)
+                else:
+                    width = 0.35
+                    obs_cropped_vals = [obs_cropped.get(m, np.nan) for m in metrics]
+                    recon_vals = [recon_obs.get(m, np.nan) for m in metrics]
+                    
+                    bars1 = ax2.bar(x - width/2, obs_cropped_vals, width, label=f'Obs_Cropped (N={obs_cropped["n_matches"]})', 
+                                   color='green', alpha=0.7, edgecolor='black')
+                    bars2 = ax2.bar(x + width/2, recon_vals, width, label=f'Recon_Observed (N={recon_obs["n_matches"]})', 
+                                   color='orange', alpha=0.7, edgecolor='black')
+                    
+                    for bar, val in zip(bars1, obs_cropped_vals):
+                        if not np.isnan(val):
+                            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                                    f'{val:.2f}', ha='center', va='bottom', fontsize=7)
+                    for bar, val in zip(bars2, recon_vals):
+                        if not np.isnan(val):
+                            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                                    f'{val:.2f}', ha='center', va='bottom', fontsize=7)
+                
+                ax2.set_xticks(x)
+                ax2.set_xticklabels([m.upper() for m in metrics], fontsize=9)
+                ax2.set_ylabel('Value (°C)', fontsize=10)
+                ax2.set_title('Metrics Comparison (All 6 Metrics)', fontsize=11, fontweight='bold')
+                ax2.legend(loc='best', fontsize=8)
+                ax2.axhline(0, color='black', linestyle='-', linewidth=0.5)
+                ax2.grid(True, alpha=0.3, axis='y')
+                
+                # Panel 3: Error distribution comparison
+                ax3 = axes[2]
+                obs_cropped_diff = obs_cropped['difference']
+                recon_diff = recon_obs['difference']
+                
+                bins = np.linspace(min(obs_cropped_diff.min(), recon_diff.min()),
+                                  max(obs_cropped_diff.max(), recon_diff.max()), 25)
+                
+                ax3.hist(obs_cropped_diff, bins=bins, alpha=0.5, label=f'Obs_Cropped', color='green', edgecolor='black')
+                ax3.hist(recon_diff, bins=bins, alpha=0.5, label=f'Recon_Observed', color='orange', edgecolor='black')
+                ax3.axvline(0, color='black', linestyle='--', linewidth=1.5)
+                ax3.axvline(np.mean(obs_cropped_diff), color='green', linestyle='-', linewidth=2, label=f'Obs_Cropped mean: {np.mean(obs_cropped_diff):.2f}')
+                ax3.axvline(np.mean(recon_diff), color='orange', linestyle='-', linewidth=2, label=f'Recon_Obs mean: {np.mean(recon_diff):.2f}')
+                
+                ax3.set_xlabel('Satellite - In-situ (°C)', fontsize=10)
+                ax3.set_ylabel('Count', fontsize=10)
+                ax3.set_title('Error Distribution Comparison', fontsize=11, fontweight='bold')
+                ax3.legend(loc='best', fontsize=8)
+                ax3.grid(True, alpha=0.3)
+                
+                plt.suptitle(f'TASK 4: Same-Date Comparison - Lake {lake_id_cci}, Site {site_id}, {method_name}\n'
+                            f'(Comparing obs_cropped vs recon_observed on identical timestamps)',
+                            fontsize=12, fontweight='bold', y=1.02)
+                plt.tight_layout()
+                
+                save_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_same_date_comparison_{method_name}_site{site_id}.png")
+                plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+                plt.close()
+                print(f"[InsituValidation] Saved same-date comparison: {os.path.basename(save_path)}")
+                
+        except Exception as e:
+            print(f"[InsituValidation] Error in _plot_same_date_comparison: {e}")
+            import traceback
+            traceback.print_exc()
+            plt.close('all')
+    
     def _save_summary_csv(self, results: Dict, plot_dir: str):
         """Save overall summary statistics to CSV."""
         try:
             rows = []
             for method_name, method_data in results['methods'].items():
-                # Observation stats
+                # Observation stats (ALL dates)
                 if 'obs' in method_data:
                     obs = method_data['obs']
                     rows.append({
@@ -1430,7 +1582,26 @@ class InsituValidationStep(PostProcessingStep):
                         'correlation': obs['correlation'],
                     })
                 
-                # Reconstruction stats (ALL points - existing behavior)
+                # TASK 4: Observation stats CROPPED to same dates as recon_observed
+                if 'obs_cropped' in method_data:
+                    obs_cropped = method_data['obs_cropped']
+                    rows.append({
+                        'lake_id': results['lake_id'],
+                        'lake_id_cci': results['lake_id_cci'],
+                        'site_id': results['site_id'],
+                        'method': method_name,
+                        'data_type': 'observation_cropped',
+                        'n_matches': obs_cropped['n_matches'],
+                        'rmse': obs_cropped['rmse'],
+                        'mae': obs_cropped['mae'],
+                        'bias': obs_cropped['bias'],
+                        'median': obs_cropped['median'],
+                        'std': obs_cropped['std'],
+                        'rstd': obs_cropped['rstd'],
+                        'correlation': obs_cropped['correlation'],
+                    })
+                
+                # Reconstruction stats (ALL points)
                 if 'recon' in method_data:
                     recon = method_data['recon']
                     rows.append({
@@ -1449,7 +1620,7 @@ class InsituValidationStep(PostProcessingStep):
                         'correlation': recon['correlation'],
                     })
                 
-                # NEW: Reconstruction stats for OBSERVED subset (training data overlap)
+                # Reconstruction stats for OBSERVED subset (training data overlap)
                 if 'recon_observed' in method_data:
                     recon_obs = method_data['recon_observed']
                     rows.append({
@@ -1468,7 +1639,7 @@ class InsituValidationStep(PostProcessingStep):
                         'correlation': recon_obs['correlation'],
                     })
                 
-                # NEW: Reconstruction stats for MISSING subset (pure gap-fill)
+                # Reconstruction stats for MISSING subset (pure gap-fill)
                 if 'recon_missing' in method_data:
                     recon_miss = method_data['recon_missing']
                     rows.append({
@@ -1535,6 +1706,24 @@ class InsituValidationStep(PostProcessingStep):
                                 **stats,
                             })
                     
+                    # Observation CROPPED stats for this year
+                    if 'obs_cropped' in method_data:
+                        obs_cropped_data = method_data['obs_cropped']
+                        year_mask = np.array([d.year == year for d in obs_cropped_data['dates']])
+                        if year_mask.any():
+                            year_temps = obs_cropped_data['satellite_temps'][year_mask]
+                            year_insitu = obs_cropped_data['insitu_temps'][year_mask]
+                            stats = compute_stats(year_temps, year_insitu)
+                            rows.append({
+                                'lake_id': results['lake_id'],
+                                'lake_id_cci': results['lake_id_cci'],
+                                'site_id': results['site_id'],
+                                'year': year,
+                                'method': method_name,
+                                'data_type': 'observation_cropped',
+                                **stats,
+                            })
+                    
                     # Reconstruction stats for this year (ALL points)
                     if 'recon' in method_data:
                         recon_data = method_data['recon']
@@ -1553,7 +1742,7 @@ class InsituValidationStep(PostProcessingStep):
                                 **stats,
                             })
                     
-                    # NEW: Reconstruction OBSERVED stats for this year
+                    # Reconstruction OBSERVED stats for this year
                     if 'recon_observed' in method_data:
                         recon_obs_data = method_data['recon_observed']
                         year_mask = np.array([d.year == year for d in recon_obs_data['dates']])
@@ -1571,7 +1760,7 @@ class InsituValidationStep(PostProcessingStep):
                                 **stats,
                             })
                     
-                    # NEW: Reconstruction MISSING stats for this year
+                    # Reconstruction MISSING stats for this year
                     if 'recon_missing' in method_data:
                         recon_miss_data = method_data['recon_missing']
                         year_mask = np.array([d.year == year for d in recon_miss_data['dates']])
