@@ -41,6 +41,18 @@ except ImportError:
     print("Error: scipy is required for GHER format. Install with: pip install scipy")
     sys.exit(1)
 
+# Import completion check utilities for fair comparison filtering
+try:
+    from completion_check import (
+        get_fair_comparison_lakes,
+        generate_unique_output_dir,
+        save_exclusion_log,
+        CompletionSummary
+    )
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
+
 
 @dataclass
 class MethodResult:
@@ -394,7 +406,27 @@ def write_csv(results: List[LakeCVResult], output_path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CV Validation - DINEOF from .dat files, DINCAE from NetCDF")
+    parser = argparse.ArgumentParser(
+        description="CV Validation - DINEOF from .dat files, DINCAE from NetCDF",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+FAIR COMPARISON MODE (default when using --all):
+  Only includes lakes where BOTH DINEOF and DINCAE completed processing.
+  This ensures CV statistics are computed on the same sample.
+  
+  Use --no-fair-comparison to include all available data.
+
+Examples:
+    # Process all lakes with fair comparison (recommended)
+    python run_cv_validation.py --run-root /path/to/experiment --all
+    
+    # Process specific lake (no filtering needed)
+    python run_cv_validation.py --run-root /path/to/experiment --lake-id 4503
+    
+    # All lakes without fair comparison filter
+    python run_cv_validation.py --run-root /path/to/experiment --all --no-fair-comparison
+        """
+    )
     parser.add_argument("--run-root", required=True, help="Base directory of the experiment")
     
     lake_group = parser.add_mutually_exclusive_group(required=True)
@@ -402,8 +434,11 @@ def main():
     lake_group.add_argument("--lake-ids", type=int, nargs="+", help="Process multiple lakes by ID")
     lake_group.add_argument("--all", action="store_true", help="Process all lakes")
     
-    parser.add_argument("--output", "-o", default="cv_results.csv", help="Output CSV file")
+    parser.add_argument("--output", "-o", default=None, help="Output CSV file (default: auto-generated)")
     parser.add_argument("-q", "--quiet", action="store_true", help="Less verbose output")
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering")
+    parser.add_argument("--alpha", default=None, help="Specific alpha slug (e.g., 'a1000')")
     
     args = parser.parse_args()
     
@@ -411,19 +446,57 @@ def main():
         print(f"Error: Run root does not exist: {args.run_root}")
         sys.exit(1)
     
+    verbose = not args.quiet
+    
+    # =========================================================================
+    # DETERMINE LAKE IDS WITH FAIR COMPARISON FILTERING
+    # =========================================================================
+    
+    completion_summary = None
+    
     if args.all:
-        lake_ids = find_lakes_in_experiment(args.run_root)
+        # When processing all lakes, apply fair comparison filter by default
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            print("=" * 70)
+            print("FAIR COMPARISON MODE: Getting lakes with both methods complete")
+            print("=" * 70)
+            
+            lake_ids, completion_summary = get_fair_comparison_lakes(
+                args.run_root, args.alpha, verbose=True
+            )
+            
+            if not lake_ids:
+                print("ERROR: No lakes found with both DINEOF and DINCAE complete!")
+                print("Use --no-fair-comparison to include partial results")
+                sys.exit(1)
+        else:
+            # No fair comparison - get all lakes from prepared directory
+            lake_ids = find_lakes_in_experiment(args.run_root)
+            if not args.no_fair_comparison:
+                print("Note: completion_check module not available, processing all lakes")
     elif args.lake_ids:
         lake_ids = args.lake_ids
     else:
         lake_ids = [args.lake_id]
     
-    verbose = not args.quiet
+    # =========================================================================
+    # DETERMINE OUTPUT PATH
+    # =========================================================================
+    
+    if args.output is None:
+        # Generate unique output filename
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.output = os.path.join(args.run_root, f"cv_results_{timestamp}.csv")
     
     print("=" * 70)
     print("Cross-Validation Validation")
     print("  DINEOF: from CVpoints_*.dat (GHER binary format)")
     print("  DINCAE: from dincae_results.nc vs prepared.nc")
+    print("=" * 70)
+    print(f"Lakes to process: {len(lake_ids)}")
+    print(f"Fair comparison: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
+    print(f"Output: {args.output}")
     print("=" * 70)
     
     all_results = []
@@ -431,6 +504,17 @@ def main():
         print(f"\n[Lake {lake_id}]")
         results = run_cv_validation_for_lake(args.run_root, lake_id, verbose)
         all_results.extend(results)
+    
+    if all_results:
+        write_csv(all_results, args.output)
+        print(f"\nResults written to: {args.output}")
+        
+        # Save exclusion log if we have completion summary
+        if completion_summary is not None:
+            log_dir = os.path.dirname(args.output) or "."
+            log_path = save_exclusion_log(completion_summary, log_dir, 
+                                          filename="cv_excluded_lakes_log.csv")
+            print(f"Exclusion log saved: {log_path}")
     
     if all_results:
         write_csv(all_results, args.output)

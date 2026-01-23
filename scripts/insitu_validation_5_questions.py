@@ -1148,11 +1148,28 @@ END OF REPORT
 # =============================================================================
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="In-situ validation: Comprehensive 5+ questions analysis")
+    
+    parser = argparse.ArgumentParser(
+        description="In-situ validation: Comprehensive 5+ questions analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+This script analyzes the output from analyze_insitu_validation.py.
+
+IMPORTANT: For fair method comparison, ensure the input data was generated
+with fair comparison filtering enabled (the default in analyze_insitu_validation.py).
+
+Check for 'analysis_metadata.txt' in the analysis_dir to confirm fair comparison mode.
+
+Examples:
+    python insitu_validation_5_questions.py \\
+        --analysis_dir /path/to/experiment/insitu_validation_analysis/
+        """
+    )
     parser.add_argument("--analysis_dir", required=True, help="Path to insitu_validation_analysis")
     parser.add_argument("--output_dir", default=None, help="Output directory")
     args = parser.parse_args()
     
+    # Determine output directory - fixed subfolder name
     if args.output_dir is None:
         args.output_dir = os.path.join(args.analysis_dir, "five_questions_analysis")
     os.makedirs(args.output_dir, exist_ok=True)
@@ -1160,10 +1177,40 @@ def main():
     print("="*70)
     print("IN-SITU VALIDATION: COMPREHENSIVE ANALYSIS")
     print("="*70)
+    print(f"Input: {args.analysis_dir}")
+    print(f"Output: {args.output_dir}")
+    
+    # Check for fair comparison metadata
+    metadata_path = os.path.join(args.analysis_dir, "analysis_metadata.txt")
+    if os.path.exists(metadata_path):
+        print("\n[✓] Fair comparison metadata found")
+        with open(metadata_path, 'r') as f:
+            for line in f:
+                if 'Fair Comparison' in line or 'Lakes with BOTH' in line or 'excluded' in line.lower():
+                    print(f"    {line.strip()}")
+    else:
+        print("\n[!] WARNING: No analysis_metadata.txt found")
+        print("    Cannot confirm fair comparison mode was used.")
+        print("    Results may include incomplete lake samples.")
+    
+    print("="*70)
     
     df_raw = load_data(args.analysis_dir)
     df = extract_lake_stats(df_raw)
     print(f"\nProcessed {len(df)} lakes")
+    
+    # Check if data appears to have both methods for all lakes
+    n_lakes = len(df)
+    has_dineof = (df['dineof_missing_rmse'].notna()).sum()
+    has_dincae = (df['dincae_missing_rmse'].notna()).sum()
+    
+    if has_dineof != n_lakes or has_dincae != n_lakes:
+        print(f"\n[!] WARNING: Not all lakes have both methods!")
+        print(f"    Lakes with DINEOF: {has_dineof}/{n_lakes}")
+        print(f"    Lakes with DINCAE: {has_dincae}/{n_lakes}")
+        print("    Consider re-running analyze_insitu_validation.py with fair comparison enabled")
+    else:
+        print(f"[✓] All {n_lakes} lakes have both DINEOF and DINCAE data")
     
     q1_results = question1_observation_predictors(df, args.output_dir)
     question2_data_type_story(df, args.output_dir)

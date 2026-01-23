@@ -6,6 +6,9 @@ Automatically aggregates results after all jobs complete using SLURM dependency.
 
 Usage:
     python submit_cv_validation_jobs.py --run-root /gws/.../exp3
+    
+    # Disable fair comparison filtering
+    python submit_cv_validation_jobs.py --run-root /gws/.../exp3 --no-fair-comparison
 
 Author: Shaerdan / NCEO / University of Reading
 Date: December 2024
@@ -13,6 +16,13 @@ Date: December 2024
 import argparse
 import os
 import subprocess       
+
+# Import completion check for fair comparison filtering
+try:
+    from completion_check import get_fair_comparison_lakes, save_exclusion_log
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False       
 
 DEFAULT_LAKE_IDS = [
     2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81,
@@ -61,6 +71,10 @@ def main():
                         help="Specific lake IDs (default: auto-detect)")
     parser.add_argument("--use-default-lakes", action="store_true",
                         help="Use default lake list instead of auto-detecting")
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering (submit jobs for all lakes)")
+    parser.add_argument("--alpha", default=None,
+                        help="Alpha slug for fair comparison check (e.g., 'a1000')")
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--script-dir", default=None, 
                         help="Directory containing run_cv_validation.py")
@@ -85,16 +99,48 @@ def main():
     log_dir = args.log_dir or os.path.join(args.run_root, "logs_cv")
     master_csv = args.master_csv or os.path.join(args.run_root, "cv_results_all.csv")
     
-    # Determine lake list
+    # Determine lake list with optional fair comparison filtering
+    completion_summary = None
+    
     if args.lake_ids:
+        # User specified explicit lake IDs
         lake_ids = args.lake_ids
     elif args.use_default_lakes:
-        lake_ids = DEFAULT_LAKE_IDS
+        # Use default list, optionally with fair comparison filtering
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            print("=" * 60)
+            print("FAIR COMPARISON MODE: Filtering default lakes")
+            print("=" * 60)
+            
+            fair_lake_ids, completion_summary = get_fair_comparison_lakes(
+                args.run_root, args.alpha, verbose=True
+            )
+            
+            lake_ids = [lid for lid in DEFAULT_LAKE_IDS if lid in fair_lake_ids]
+            excluded = len(DEFAULT_LAKE_IDS) - len(lake_ids)
+            print(f"Lakes after fair comparison filter: {len(lake_ids)} (excluded {excluded})")
+        else:
+            lake_ids = DEFAULT_LAKE_IDS
     else:
-        lake_ids = find_lakes_with_cv_data(args.run_root)
-        if not lake_ids:
-            print(f"No lakes with CV data found in {args.run_root}/prepared/")
-            return 1
+        # Auto-detect from prepared directory with fair comparison filtering
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            print("=" * 60)
+            print("FAIR COMPARISON MODE: Auto-detecting lakes with both methods complete")
+            print("=" * 60)
+            
+            lake_ids, completion_summary = get_fair_comparison_lakes(
+                args.run_root, args.alpha, verbose=True
+            )
+            
+            if not lake_ids:
+                print("ERROR: No lakes found with both DINEOF and DINCAE complete!")
+                print("Use --no-fair-comparison to process all available lakes")
+                return 1
+        else:
+            lake_ids = find_lakes_with_cv_data(args.run_root)
+            if not lake_ids:
+                print(f"No lakes with CV data found in {args.run_root}/prepared/")
+                return 1
     
     # Create directories
     if not args.dry_run:
@@ -107,10 +153,17 @@ def main():
     print(f"Run root:    {args.run_root}")
     print(f"Output dir:  {output_dir}")
     print(f"Master CSV:  {master_csv}")
+    print(f"Fair comparison: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
     print(f"Lakes:       {len(lake_ids)}")
     if args.dry_run:
         print("*** DRY RUN MODE ***")
     print("=" * 60)
+    
+    # Save exclusion log if we have completion summary
+    if completion_summary is not None and not args.dry_run:
+        log_path = save_exclusion_log(completion_summary, args.run_root,
+                                      filename="cv_job_excluded_lakes.csv")
+        print(f"Exclusion log saved: {log_path}")
     
     # Template for per-lake CV jobs
     cv_job_template = """#!/bin/bash

@@ -28,11 +28,17 @@ Usage:
     python submit_insitu_validation_jobs.py \\
         --run-root /path/to/exp1 \\
         --lake-ids 4503 3007 1234
+    
+    # Disable fair comparison filtering (process all lakes)
+    python submit_insitu_validation_jobs.py \\
+        --run-root /path/to/exp1 \\
+        --no-fair-comparison
 
 File structure expected:
     lake_cci_gapfilling-main/
     ├── scripts/
     │   ├── run_insitu_validation.py      <- standalone runner
+    │   ├── completion_check.py           <- fair comparison utilities
     │   └── submit_insitu_validation_jobs.py  <- this script
     └── src/processors/postprocessor/post_steps/
         └── insitu_validation.py          <- core validation logic
@@ -43,6 +49,13 @@ import argparse
 import os
 import subprocess
 from datetime import datetime
+
+# Import completion check for fair comparison filtering
+try:
+    from completion_check import get_fair_comparison_lakes, save_exclusion_log
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
 
 # Lake IDs from exp1_baseline (default list)
 DEFAULT_LAKE_IDS = [
@@ -123,6 +136,13 @@ Examples:
                         help="Quality level threshold for satellite observations. "
                              "If not specified, reads from config file or uses default (3)")
     
+    # Fair comparison filtering
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering (submit jobs for all lakes, "
+                             "not just those with both DINEOF and DINCAE complete)")
+    parser.add_argument("--alpha", default=None,
+                        help="Alpha slug for fair comparison check (e.g., 'a1000')")
+    
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
     parser.add_argument("--qos", default="long", help="SLURM QoS")
@@ -136,8 +156,43 @@ Examples:
     script_dir = args.script_dir or os.getcwd()
     log_dir = args.log_dir or os.path.join(script_dir, "logs_insitu")
     
-    # Determine lake list
-    lake_ids = args.lake_ids if args.lake_ids else DEFAULT_LAKE_IDS
+    # Determine lake list with optional fair comparison filtering
+    completion_summary = None
+    
+    if args.lake_ids:
+        # User specified explicit lake IDs - use as-is
+        lake_ids = args.lake_ids
+        print(f"Using user-specified lake list: {len(lake_ids)} lakes")
+    elif HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+        # Apply fair comparison filtering
+        print("=" * 60)
+        print("FAIR COMPARISON MODE: Filtering to lakes with both methods complete")
+        print("=" * 60)
+        
+        fair_lake_ids, completion_summary = get_fair_comparison_lakes(
+            args.run_root, args.alpha, verbose=True
+        )
+        
+        if not fair_lake_ids:
+            print("ERROR: No lakes found with both DINEOF and DINCAE complete!")
+            print("Use --no-fair-comparison to process all lakes regardless")
+            return 1
+        
+        # Intersect with DEFAULT_LAKE_IDS to only process known lakes
+        lake_ids = [lid for lid in DEFAULT_LAKE_IDS if lid in fair_lake_ids]
+        
+        if not lake_ids:
+            print("ERROR: None of the default lakes have both methods complete!")
+            print(f"Fair comparison lakes: {fair_lake_ids[:10]}...")
+            return 1
+        
+        excluded_count = len(DEFAULT_LAKE_IDS) - len(lake_ids)
+        print(f"Lakes after fair comparison filter: {len(lake_ids)} (excluded {excluded_count})")
+    else:
+        # No fair comparison - use default list
+        lake_ids = DEFAULT_LAKE_IDS
+        if not args.no_fair_comparison and not HAS_COMPLETION_CHECK:
+            print("Note: completion_check module not available, processing all lakes")
     
     # Verify run_insitu_validation.py exists
     validation_script = os.path.join(script_dir, "run_insitu_validation.py")
@@ -189,6 +244,7 @@ Examples:
     print(f"Script dir:  {script_dir}")
     print(f"Log dir:     {log_dir}")
     print(f"Config file: {args.config_file or '(not specified)'}")
+    print(f"Fair comparison: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
     print(f"Selection CSVs ({len(valid_csvs)} files, searched in order):")
     for i, csv_path in enumerate(valid_csvs, 1):
         print(f"  {i}. {os.path.basename(csv_path)}")
@@ -201,6 +257,12 @@ Examples:
     if args.dry_run:
         print("*** DRY RUN MODE ***")
     print("=" * 60)
+    
+    # Save exclusion log if we have completion summary
+    if completion_summary is not None and not args.dry_run:
+        log_path = save_exclusion_log(completion_summary, args.run_root,
+                                      filename="insitu_job_excluded_lakes.csv")
+        print(f"Exclusion log saved: {log_path}")
     
     # Custom SLURM template with user options
     # Note: selection_csv_arg is inserted directly (not as a format placeholder)

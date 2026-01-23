@@ -27,6 +27,17 @@ import numpy as np
 import xarray as xr
 from scipy.io import FortranFile
 
+# Import completion check utilities for fair comparison filtering
+try:
+    from completion_check import (
+        get_fair_comparison_lakes,
+        save_exclusion_log,
+        CompletionSummary
+    )
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
+
 
 @dataclass
 class CVResult:
@@ -337,36 +348,65 @@ NOTE: DINEOF CV uses CVpoints_*.dat files because dineof_results.nc is trained
       comparison from the model trained WITHOUT CV points.
       
       DINCAE does not retrain after CV, so we can use dincae_results.nc directly.
+
+FAIR COMPARISON MODE (default when auto-discovering lakes):
+  Only includes lakes where BOTH DINEOF and DINCAE completed processing.
+  Use --no-fair-comparison to include all available data.
         """
     )
     parser.add_argument("--run-root", required=True, help="Experiment root directory")
     parser.add_argument("--lake-id", type=int, help="Single lake ID")
     parser.add_argument("--lake-ids", type=int, nargs="+", help="Multiple lake IDs")
     parser.add_argument("--alpha", default="a1000", help="Alpha slug (default: a1000)")
-    parser.add_argument("--output", "-o", default="cv_results.csv", help="Output CSV file")
+    parser.add_argument("--output", "-o", default=None, help="Output CSV file")
     parser.add_argument("-q", "--quiet", action="store_true", help="Less verbose output")
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering")
     
     args = parser.parse_args()
     verbose = not args.quiet
     
-    # Determine lake IDs
+    # Determine lake IDs with fair comparison filtering
     lake_ids = []
+    completion_summary = None
+    
     if args.lake_id:
         lake_ids = [args.lake_id]
     elif args.lake_ids:
         lake_ids = args.lake_ids
     else:
-        # Auto-discover from prepared directory
-        prepared_dir = os.path.join(args.run_root, "prepared")
-        if os.path.exists(prepared_dir):
-            for d in os.listdir(prepared_dir):
-                if d.isdigit():
-                    lake_ids.append(int(d))
-        lake_ids.sort()
+        # Auto-discover - apply fair comparison filter by default
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            print("=" * 70)
+            print("FAIR COMPARISON MODE: Getting lakes with both methods complete")
+            print("=" * 70)
+            
+            lake_ids, completion_summary = get_fair_comparison_lakes(
+                args.run_root, args.alpha, verbose=True
+            )
+            
+            if not lake_ids:
+                print("ERROR: No lakes found with both DINEOF and DINCAE complete!")
+                print("Use --no-fair-comparison to include partial results")
+                sys.exit(1)
+        else:
+            # Fallback: discover from prepared directory
+            prepared_dir = os.path.join(args.run_root, "prepared")
+            if os.path.exists(prepared_dir):
+                for d in os.listdir(prepared_dir):
+                    if d.isdigit():
+                        lake_ids.append(int(d))
+            lake_ids.sort()
     
     if not lake_ids:
         print("No lake IDs specified or found")
         sys.exit(1)
+    
+    # Determine output path
+    if args.output is None:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.output = os.path.join(args.run_root, f"cv_results_{timestamp}.csv")
     
     print("=" * 70)
     print("CV Validation")
@@ -377,6 +417,7 @@ NOTE: DINEOF CV uses CVpoints_*.dat files because dineof_results.nc is trained
     print(f"Lakes: {len(lake_ids)}")
     print(f"Alpha: {args.alpha}")
     print(f"Output: {args.output}")
+    print(f"Fair comparison: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
     print("=" * 70)
     
     all_results = []
@@ -394,6 +435,13 @@ NOTE: DINEOF CV uses CVpoints_*.dat files because dineof_results.nc is trained
                 writer.writerow([r.lake_id, r.alpha, r.method, 
                                 f"{r.rmse:.6f}", f"{r.mae:.6f}", f"{r.bias:.6f}", r.n_points])
         print(f"\nResults written to: {args.output}")
+        
+        # Save exclusion log if we have completion summary
+        if completion_summary is not None:
+            log_dir = os.path.dirname(args.output) or "."
+            log_path = save_exclusion_log(completion_summary, log_dir, 
+                                          filename="cv_excluded_lakes_log.csv")
+            print(f"Exclusion log saved: {log_path}")
     
     # Summary table
     print("\n" + "=" * 70)

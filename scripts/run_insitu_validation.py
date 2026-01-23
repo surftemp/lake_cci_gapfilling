@@ -65,6 +65,17 @@ else:
 
 from insitu_validation import InsituValidationStep, INSITU_CONFIG
 
+# Import completion check utilities for fair comparison filtering
+try:
+    from completion_check import (
+        get_fair_comparison_lakes,
+        save_exclusion_log,
+        CompletionSummary
+    )
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
+
 
 
 @dataclass
@@ -223,6 +234,12 @@ Output:
     lake_group.add_argument("--all", action="store_true",
                             help="Process all lakes in the experiment")
     
+    # Fair comparison filtering
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering (process lakes even if one method missing)")
+    parser.add_argument("--alpha", default=None,
+                        help="Specific alpha slug for fair comparison check (e.g., 'a1000')")
+    
     # Configuration - can load from experiment JSON or override individually
     parser.add_argument("--config-file",
                         help="Path to experiment JSON config file (reads insitu_validation section)")
@@ -339,9 +356,29 @@ Output:
         print(f"Observed/missing split analysis: {status} (default)")
     
     # Determine which lakes to process
+    completion_summary = None
+    
     if args.all:
-        lake_ids = find_lakes_in_experiment(args.run_root)
-        print(f"Found {len(lake_ids)} lakes in {args.run_root}")
+        # When processing all lakes, apply fair comparison filter by default
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            print("=" * 60)
+            print("FAIR COMPARISON MODE: Getting lakes with both methods complete")
+            print("=" * 60)
+            
+            lake_ids, completion_summary = get_fair_comparison_lakes(
+                args.run_root, args.alpha, verbose=True
+            )
+            
+            if not lake_ids:
+                print("WARNING: No lakes found with both DINEOF and DINCAE complete!")
+                print("Falling back to all lakes in post/ directory...")
+                lake_ids = find_lakes_in_experiment(args.run_root)
+        else:
+            lake_ids = find_lakes_in_experiment(args.run_root)
+            if not args.no_fair_comparison and not HAS_COMPLETION_CHECK:
+                print("Note: completion_check module not available, processing all lakes")
+        
+        print(f"Found {len(lake_ids)} lakes to process")
     elif args.lake_ids:
         lake_ids = args.lake_ids
     else:
@@ -357,6 +394,7 @@ Output:
     print(f"{'='*60}")
     print(f"Run root: {args.run_root}")
     print(f"Lakes to process: {len(lake_ids)}")
+    print(f"Fair comparison: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
     print(f"Buoy dir: {config['buoy_dir']}")
     
     # Show selection CSV info
@@ -371,6 +409,12 @@ Output:
     split_status = "ENABLED" if config.get("split_observed_missing", True) else "DISABLED"
     print(f"Observed/missing split: {split_status}")
     print(f"{'='*60}\n")
+    
+    # Save exclusion log if we have completion summary
+    if completion_summary is not None:
+        log_path = save_exclusion_log(completion_summary, args.run_root, 
+                                      filename="insitu_validation_excluded_lakes.csv")
+        print(f"Exclusion log saved: {log_path}\n")
     
     success_count = 0
     skip_count = 0

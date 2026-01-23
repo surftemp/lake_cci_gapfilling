@@ -24,7 +24,7 @@ import os
 import sys
 from glob import glob
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -33,6 +33,21 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from scipy import stats
+
+# Import completion check utilities for fair comparison filtering
+try:
+    from completion_check import (
+        get_fair_comparison_lakes,
+        filter_dataframe_to_fair_comparison,
+        save_exclusion_log,
+        generate_unique_output_dir,
+        print_fair_comparison_header,
+        CompletionSummary
+    )
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
+    print("Note: completion_check module not found - fair comparison filtering disabled")
 
 # Try to import cartopy for global maps
 try:
@@ -938,17 +953,63 @@ def create_per_lake_table(df: pd.DataFrame, output_dir: str):
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze in-situ validation results across all lakes")
+    parser = argparse.ArgumentParser(
+        description="Analyze in-situ validation results across all lakes",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+FAIR COMPARISON MODE (default):
+  Only includes lakes where BOTH DINEOF and DINCAE completed processing.
+  This ensures all comparative statistics are computed on the same sample.
+  
+  Use --no-fair-comparison to include all available data (not recommended
+  for method comparisons).
+
+OUTPUT DIRECTORY:
+  Default: {run_root}/insitu_validation_analysis/ (overwrites previous)
+  
+  Use --archive to also save a timestamped copy:
+    {run_root}/archive_insitu_validation_analysis/insitu_validation_analysis_{ts}_{hash}/
+
+Examples:
+    # Standard analysis with fair comparison (recommended)
+    python analyze_insitu_validation.py --run_root /path/to/experiment
+    
+    # Also preserve a timestamped archive copy
+    python analyze_insitu_validation.py --run_root /path/to/experiment --archive
+    
+    # Include all data (not recommended for comparisons)
+    python analyze_insitu_validation.py --run_root /path/to/experiment --no-fair-comparison
+        """
+    )
     parser.add_argument("--run_root", required=True, help="Path to run root directory")
     parser.add_argument("--alpha", default=None, help="Specific alpha slug (e.g., 'a1000')")
     parser.add_argument("--output_dir", default=None, help="Output directory for results")
     parser.add_argument("--lake_metadata", default=None, help="Optional CSV with lake metadata (lat, lon)")
     
+    # Fair comparison arguments
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filtering (include lakes with incomplete methods)")
+    parser.add_argument("--archive", action="store_true",
+                        help="Also save a timestamped copy to archive_insitu_validation_analysis/")
+    
     args = parser.parse_args()
     
+    # Determine output directory - always use fixed path for working copy
     if args.output_dir is None:
         args.output_dir = os.path.join(args.run_root, "insitu_validation_analysis")
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Determine archive directory if --archive is set
+    archive_dir = None
+    if args.archive and HAS_COMPLETION_CHECK:
+        timestamp_suffix = generate_unique_output_dir("", prefix="insitu_validation_analysis")
+        timestamp_suffix = os.path.basename(timestamp_suffix)  # Just the folder name
+        archive_dir = os.path.join(
+            args.run_root, 
+            "archive_insitu_validation_analysis",
+            timestamp_suffix
+        )
+        os.makedirs(archive_dir, exist_ok=True)
     
     print("=" * 70)
     print("IN-SITU VALIDATION ANALYSIS (WITH ALL 6 METRICS)")
@@ -956,8 +1017,39 @@ def main():
     print(f"Run root: {args.run_root}")
     print(f"Alpha: {args.alpha or 'all'}")
     print(f"Output: {args.output_dir}")
+    if archive_dir:
+        print(f"Archive: {archive_dir}")
     print(f"Core metrics: {', '.join(CORE_METRICS)}")
+    print(f"Fair comparison mode: {'DISABLED' if args.no_fair_comparison else 'ENABLED'}")
     print("=" * 70)
+    
+    # =========================================================================
+    # FAIR COMPARISON FILTERING
+    # =========================================================================
+    fair_lake_ids = None
+    completion_summary = None
+    
+    if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+        print("\n" + "=" * 70)
+        print("STEP 0: Fair Comparison Pre-filtering")
+        print("=" * 70)
+        
+        fair_lake_ids, completion_summary = get_fair_comparison_lakes(
+            args.run_root, args.alpha, verbose=True
+        )
+        
+        if not fair_lake_ids:
+            print("ERROR: No lakes found with both DINEOF and DINCAE complete!")
+            print("Check your experiment directory or use --no-fair-comparison")
+            sys.exit(1)
+        
+        # Save exclusion log
+        log_path = save_exclusion_log(completion_summary, args.output_dir)
+        print(f"Exclusion log saved: {log_path}")
+    
+    # =========================================================================
+    # DATA LOADING
+    # =========================================================================
     
     # Find and load data
     csv_files = find_validation_csvs(args.run_root, args.alpha)
@@ -976,10 +1068,43 @@ def main():
     
     print(f"Loaded {len(df)} records from {df['lake_id_cci'].nunique()} lakes")
     
-    # Save combined raw data
+    # =========================================================================
+    # APPLY FAIR COMPARISON FILTER
+    # =========================================================================
+    
+    if fair_lake_ids is not None:
+        print("\n" + "-" * 70)
+        print("Applying fair comparison filter to loaded data...")
+        df = filter_dataframe_to_fair_comparison(
+            df, fair_lake_ids, lake_id_column='lake_id_cci', verbose=True
+        )
+        print("-" * 70)
+        
+        if df.empty:
+            print("ERROR: No data remaining after fair comparison filter!")
+            sys.exit(1)
+    
+    # Save combined raw data (after filtering)
     raw_path = os.path.join(args.output_dir, "all_insitu_stats_combined.csv")
     df.to_csv(raw_path, index=False)
     print(f"Saved combined data: {raw_path}")
+    
+    # Add fair comparison metadata to the saved file
+    if completion_summary is not None:
+        metadata_path = os.path.join(args.output_dir, "analysis_metadata.txt")
+        with open(metadata_path, 'w') as f:
+            f.write(f"Analysis Timestamp: {datetime.now().isoformat()}\n")
+            f.write(f"Run Root: {args.run_root}\n")
+            f.write(f"Alpha: {args.alpha or 'all'}\n")
+            f.write(f"Fair Comparison Mode: ENABLED\n")
+            f.write(f"\n{completion_summary}\n")
+            f.write(f"\nIncluded Lakes ({len(fair_lake_ids)}):\n")
+            f.write(", ".join(map(str, fair_lake_ids)) + "\n")
+            f.write(f"\nExcluded Lakes ({len(completion_summary.excluded_lake_ids)}):\n")
+            for lake_id in completion_summary.excluded_lake_ids:
+                reason = completion_summary.exclusion_reasons.get(lake_id, "Unknown")
+                f.write(f"  {lake_id}: {reason}\n")
+        print(f"Saved analysis metadata: {metadata_path}")
     
     # Compute aggregate statistics (ALL 6 METRICS)
     print("\nComputing aggregate statistics (all 6 metrics)...")
@@ -1097,6 +1222,19 @@ def main():
     print("\nGenerated files:")
     for f in sorted(os.listdir(args.output_dir)):
         print(f"  - {f}")
+    
+    # Copy to archive if --archive was specified
+    if archive_dir:
+        import shutil
+        print(f"\nArchiving to: {archive_dir}")
+        for item in os.listdir(args.output_dir):
+            src = os.path.join(args.output_dir, item)
+            dst = os.path.join(archive_dir, item)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+            elif os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+        print(f"Archive complete: {archive_dir}")
 
 
 if __name__ == "__main__":
