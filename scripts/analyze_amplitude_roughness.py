@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 """
-Amplitude vs Roughness Analysis for Bulk Effect Hypothesis
-===========================================================
+Peak Matching vs Roughness Analysis for Bulk Effect Hypothesis
+===============================================================
 
-This script tests whether the CV validation discrepancy (DINCAE wins satellite CV,
-DINEOF wins in-situ CV) can be explained by differences in signal characteristics.
+This script tests whether the CV validation discrepancy (DINEOF wins satellite CV,
+DINCAE catches up in in-situ CV) can be explained by differences in signal characteristics.
 
 Hypothesis:
-- In-situ buoys may measure a "damped" signal (lower amplitude, smoother) compared 
+- In-situ buoys may measure a "damped" signal (lower variability, smoother) compared 
   to satellite skin temperature
-- If so, the method that produces smoother/lower-amplitude reconstructions would
-  match in-situ better
+- If a method produces reconstructions that underestimate peaks/troughs, it would
+  match the damped in-situ signal better
 
-Key distinction:
-- AMPLITUDE: Range of signal (peak to trough) - measured by IQR
-- ROUGHNESS: High-frequency variability - measured by lag-1 autocorrelation or 
-  first-difference variance
-
-Same STD can arise from:
-- Large smooth oscillations (high amplitude, low roughness)  
-- Flat signal with noisy jumps (low amplitude, high roughness)
+Key metrics:
+- PEAK MATCHING: Error at extreme times (when insitu is at peaks or troughs)
+  - Defined by insitu > P75 (highs) or insitu < P25 (lows)
+  - Lower MAE at extremes = better peak matching
+- ROUGHNESS: High-frequency variability - measured by 1 - lag-1 autocorrelation
+  - Higher value = rougher (more high-frequency noise)
 
 Tests:
-1. Characterize ground truths: Is in-situ lower amplitude? Smoother? Both?
-2. Characterize methods: Is DINEOF lower amplitude? Smoother? Both?
-3. What predicts winning: amplitude matching, roughness matching, or both?
+1. Characterize ground truths: Is in-situ lower variability? Smoother? 
+2. Characterize methods: Is DINEOF worse at peaks? Smoother? Does it underestimate?
+3. What predicts winning: better peak matching, or roughness matching?
 
 Limitations (explicitly stated):
 - These tests show CONSISTENCY with hypotheses, not proof
-- Correlation ≠ causation
+- Correlation ≠ causation  
 - Alternative explanations may exist
+- Roughness metric approximate for irregularly sampled data
 
 Author: Shaerdan / NCEO / University of Reading
 Date: January 2026
@@ -58,37 +57,10 @@ try:
 except ImportError:
     HAS_COMPLETION_CHECK = False
 
-try:
-    import xarray as xr
-    HAS_XARRAY = True
-except ImportError:
-    HAS_XARRAY = False
-    print("ERROR: xarray is required. Install with: pip install xarray")
-    sys.exit(1)
-
 
 # =============================================================================
-# METRICS: Amplitude and Roughness
+# METRICS: Peak Matching and Roughness
 # =============================================================================
-
-def compute_amplitude(x: np.ndarray) -> float:
-    """
-    Compute amplitude as IQR (interquartile range).
-    
-    IQR is robust to outliers and captures the "typical" range of the signal.
-    
-    Args:
-        x: 1D array of values
-    
-    Returns:
-        IQR (75th - 25th percentile)
-    """
-    x = np.asarray(x).flatten()
-    x = x[np.isfinite(x)]
-    if len(x) < 4:
-        return np.nan
-    return np.percentile(x, 75) - np.percentile(x, 25)
-
 
 def compute_roughness_autocorr(x: np.ndarray) -> float:
     """
@@ -151,20 +123,119 @@ def compute_roughness_diffvar(x: np.ndarray) -> float:
     return var_diff / var_x
 
 
-def compute_all_metrics(x: np.ndarray) -> Dict[str, float]:
-    """Compute all signal characterization metrics."""
+def compute_extreme_matching_error(method_vals: np.ndarray, insitu_vals: np.ndarray, 
+                                    high_mask: np.ndarray, low_mask: np.ndarray) -> Dict[str, float]:
+    """
+    Compute how well a method matches insitu at extreme times (peaks and troughs).
+    
+    Extreme times are defined by insitu values:
+    - High extremes: insitu > P75(insitu)
+    - Low extremes: insitu < P25(insitu)
+    
+    Args:
+        method_vals: Method reconstruction values (matched timestamps)
+        insitu_vals: Insitu values (matched timestamps)
+        high_mask: Boolean mask for high extreme times (insitu > P75)
+        low_mask: Boolean mask for low extreme times (insitu < P25)
+    
+    Returns:
+        Dict with:
+        - extreme_mae: MAE at all extreme times (lower = better matching)
+        - high_error: mean(method - insitu) at high times (negative = underestimates peaks)
+        - low_error: mean(method - insitu) at low times (positive = overestimates troughs)
+        - n_extremes: number of extreme points
+    """
+    method_vals = np.asarray(method_vals).flatten()
+    insitu_vals = np.asarray(insitu_vals).flatten()
+    
+    # Combine masks for all extremes
+    extreme_mask = high_mask | low_mask
+    n_extremes = extreme_mask.sum()
+    
+    if n_extremes < 3:
+        return {
+            'extreme_mae': np.nan,
+            'high_error': np.nan,
+            'low_error': np.nan,
+            'n_extremes': n_extremes,
+        }
+    
+    # Error at all extremes
+    extreme_errors = method_vals[extreme_mask] - insitu_vals[extreme_mask]
+    extreme_mae = np.mean(np.abs(extreme_errors))
+    
+    # Separate high and low errors
+    high_error = np.nan
+    low_error = np.nan
+    
+    if high_mask.sum() > 0:
+        high_error = np.mean(method_vals[high_mask] - insitu_vals[high_mask])
+    
+    if low_mask.sum() > 0:
+        low_error = np.mean(method_vals[low_mask] - insitu_vals[low_mask])
+    
     return {
-        'amplitude_iqr': compute_amplitude(x),
+        'extreme_mae': extreme_mae,
+        'high_error': high_error,
+        'low_error': low_error,
+        'n_extremes': n_extremes,
+    }
+
+
+def compute_signal_metrics(x: np.ndarray) -> Dict[str, float]:
+    """Compute signal characterization metrics (roughness, std)."""
+    x = np.asarray(x).flatten()
+    x_valid = x[np.isfinite(x)]
+    
+    return {
         'roughness_autocorr': compute_roughness_autocorr(x),
         'roughness_diffvar': compute_roughness_diffvar(x),
-        'std': np.nanstd(x),
-        'n_points': np.sum(np.isfinite(x)),
+        'std': np.nanstd(x_valid) if len(x_valid) > 0 else np.nan,
+        'n_points': len(x_valid),
     }
 
 
 # =============================================================================
-# DATA LOADING
+# DATA LOADING - From timeseries CSVs produced by insitu_validation.py
 # =============================================================================
+
+def load_timeseries_csv(run_root: str, lake_id_cci: int, alpha: str) -> Optional[pd.DataFrame]:
+    """
+    Load matched timeseries CSV produced by insitu_validation.py.
+    
+    File location: post/{lake_id}/{alpha}/insitu_cv_validation/LAKE{id}_insitu_timeseries_site*.csv
+    
+    Returns DataFrame with columns:
+    - date, insitu_temp, satellite_obs_temp, dineof_recon_temp, dincae_recon_temp, was_observed
+    """
+    lake_str = f"{lake_id_cci:09d}"
+    val_dir = os.path.join(run_root, "post", lake_str, alpha, "insitu_cv_validation")
+    
+    if not os.path.exists(val_dir):
+        # Try unpadded
+        val_dir = os.path.join(run_root, "post", str(lake_id_cci), alpha, "insitu_cv_validation")
+    
+    if not os.path.exists(val_dir):
+        return None
+    
+    # Find timeseries CSV
+    pattern = os.path.join(val_dir, f"LAKE{lake_str}_insitu_timeseries_site*.csv")
+    files = glob(pattern)
+    
+    if not files:
+        # Try unpadded pattern
+        pattern = os.path.join(val_dir, f"LAKE*_insitu_timeseries_site*.csv")
+        files = glob(pattern)
+    
+    if not files:
+        return None
+    
+    try:
+        df = pd.read_csv(files[0], parse_dates=['date'])
+        return df
+    except Exception:
+        return None
+
 
 def ensure_celsius(temps: np.ndarray, threshold: float = 100.0) -> np.ndarray:
     """Convert to Celsius if values appear to be in Kelvin."""
@@ -176,167 +247,6 @@ def ensure_celsius(temps: np.ndarray, threshold: float = 100.0) -> np.ndarray:
     return temps
 
 
-def find_buoy_info_for_lake(lake_id_cci: int, selection_csvs: List[str]) -> Optional[Tuple[int, int]]:
-    """
-    Find lake_id and site_id for a given lake_id_cci from selection CSVs.
-    
-    Selection CSVs have columns: lake_id_cci, lake_id, site_id, latitude, longitude, etc.
-    
-    Returns (lake_id, site_id) tuple or None if not found.
-    """
-    for csv_path in selection_csvs:
-        if not os.path.exists(csv_path):
-            continue
-        try:
-            df = pd.read_csv(csv_path)
-            df.columns = df.columns.str.strip()
-            
-            if 'lake_id_cci' not in df.columns:
-                continue
-            
-            lake_rows = df[df['lake_id_cci'] == lake_id_cci]
-            if lake_rows.empty:
-                continue
-            
-            # Get first site for this lake
-            row = lake_rows.iloc[0]
-            lake_id = int(row['lake_id'])
-            site_id = int(row['site_id'])
-            return (lake_id, site_id)
-        except Exception:
-            continue
-    
-    return None
-
-
-def load_buoy_data(buoy_dir: str, lake_id: int, site_id: int) -> Optional[Dict]:
-    """
-    Load buoy data for a lake.
-    
-    Buoy files are named: ID{lake_id:06d}{site_id:02d}.csv
-    
-    Returns dict with 'dates' and 'temps' arrays, or None if not found.
-    """
-    # Construct buoy filename
-    buoy_filename = f"ID{lake_id:06d}{site_id:02d}.csv"
-    buoy_path = os.path.join(buoy_dir, buoy_filename)
-    
-    if not os.path.exists(buoy_path):
-        return None
-    
-    try:
-        df = pd.read_csv(buoy_path, parse_dates=['dateTime'])
-        df = df.dropna(subset=['dateTime', 'insituTemp'])
-        
-        # Filter by QC flag if available (keep only good quality: 0)
-        if 'qcFlag' in df.columns:
-            df = df[df['qcFlag'] == 0]
-        elif 'q' in df.columns:
-            df = df[df['q'] == 0]
-        
-        if df.empty:
-            return None
-        
-        return {
-            'dates': df['dateTime'].values,
-            'temps': ensure_celsius(df['insituTemp'].values),
-        }
-    except Exception:
-        return None
-
-
-def load_netcdf_timeseries(nc_path: str, var_name: str) -> Optional[Dict]:
-    """
-    Load lake-averaged time series from a NetCDF file.
-    
-    Args:
-        nc_path: Path to NetCDF file
-        var_name: Variable name to extract ('temp_filled' or 'lake_surface_water_temperature')
-    
-    Returns dict with 'dates' and 'temps' arrays.
-    """
-    if not os.path.exists(nc_path):
-        return None
-    
-    try:
-        ds = xr.open_dataset(nc_path)
-        
-        if var_name not in ds:
-            ds.close()
-            return None
-        
-        temps = ds[var_name].values
-        times = pd.to_datetime(ds['time'].values)
-        
-        # Get lake mask from lakeid variable
-        if 'lakeid' in ds:
-            lakeid = ds['lakeid'].values
-            if np.nanmax(lakeid) == 1:
-                mask = lakeid == 1
-            else:
-                mask = np.isfinite(lakeid) & (lakeid != 0)
-        else:
-            # Fallback: use any valid data in first timestep
-            mask = np.isfinite(temps[0])
-        
-        ds.close()
-        
-        # Average over lake pixels per timestep
-        lake_temps = []
-        for t in range(temps.shape[0]):
-            frame = temps[t]
-            lake_vals = frame[mask]
-            lake_vals = lake_vals[np.isfinite(lake_vals)]
-            if len(lake_vals) > 0:
-                lake_temps.append(np.mean(lake_vals))
-            else:
-                lake_temps.append(np.nan)
-        
-        return {
-            'dates': times,
-            'temps': ensure_celsius(np.array(lake_temps)),
-        }
-    except Exception as e:
-        return None
-
-
-def load_reconstruction_data(post_dir: str, method: str) -> Optional[Dict]:
-    """
-    Load reconstruction (temp_filled) for a method.
-    
-    Args:
-        post_dir: Path to post/{lake_id}/{alpha}/
-        method: 'dineof' or 'dincae'
-    
-    Returns dict with 'dates' and 'temps' arrays.
-    """
-    pattern = os.path.join(post_dir, f"*_{method}.nc")
-    files = glob(pattern)
-    
-    if not files:
-        return None
-    
-    return load_netcdf_timeseries(files[0], 'temp_filled')
-
-
-def load_satellite_observation_data(post_dir: str, method: str = 'dineof') -> Optional[Dict]:
-    """
-    Load original satellite observations (lake_surface_water_temperature) from post output.
-    
-    This variable is copied from original lake file to the post-processed output.
-    We use the dineof output file by default since it should be present.
-    
-    Returns lake-averaged time series of observed (non-gap-filled) temperatures.
-    """
-    pattern = os.path.join(post_dir, f"*_{method}.nc")
-    files = glob(pattern)
-    
-    if not files:
-        return None
-    
-    return load_netcdf_timeseries(files[0], 'lake_surface_water_temperature')
-
-
 # =============================================================================
 # ANALYSIS
 # =============================================================================
@@ -345,71 +255,139 @@ def analyze_lake(
     run_root: str,
     lake_id_cci: int,
     alpha: str,
-    buoy_dir: str,
-    selection_csvs: List[str],
     verbose: bool = False
 ) -> Optional[Dict]:
     """
-    Analyze amplitude and roughness for a single lake.
+    Analyze extreme matching and roughness for a single lake.
     
-    Returns dict with metrics for insitu, satellite, dineof, dincae.
+    Extreme matching: How well does each method capture peaks (highs) and troughs (lows)?
+    - Defined by insitu values: high = insitu > P75, low = insitu < P25
+    - Metric: MAE at extreme times (lower = better peak matching)
+    
+    Roughness: How smooth/rough is each signal?
+    - Metric: 1 - lag1_autocorrelation (higher = rougher)
+    
+    IMPORTANT: All metrics computed on matched timestamps only.
+    
+    Returns dict with extreme matching and roughness metrics.
     """
-    # Paths
-    lake_str = f"{lake_id_cci:09d}"
-    post_dir = os.path.join(run_root, "post", lake_str, alpha)
+    # Load timeseries CSV
+    df = load_timeseries_csv(run_root, lake_id_cci, alpha)
     
-    if not os.path.exists(post_dir):
-        # Try unpadded
-        post_dir = os.path.join(run_root, "post", str(lake_id_cci), alpha)
-    
-    if not os.path.exists(post_dir):
+    if df is None:
         if verbose:
-            print(f"  Lake {lake_id_cci}: post directory not found")
+            print(f"  Lake {lake_id_cci}: no timeseries CSV found")
         return None
     
-    # Find buoy info (lake_id, site_id) for this lake_id_cci
-    buoy_info = find_buoy_info_for_lake(lake_id_cci, selection_csvs)
-    if buoy_info is None:
+    # Check we have the required columns
+    required_cols = ['insitu_temp', 'dineof_recon_temp', 'dincae_recon_temp']
+    for col in required_cols:
+        if col not in df.columns:
+            if verbose:
+                print(f"  Lake {lake_id_cci}: missing column {col}")
+            return None
+    
+    # ==========================================================================
+    # Filter to matched timestamps (all three have valid values)
+    # ==========================================================================
+    mask_recon = (
+        df['insitu_temp'].notna() & 
+        df['dineof_recon_temp'].notna() & 
+        df['dincae_recon_temp'].notna()
+    )
+    df_matched = df[mask_recon].copy()
+    
+    if len(df_matched) < 10:
         if verbose:
-            print(f"  Lake {lake_id_cci}: not found in selection CSVs")
+            print(f"  Lake {lake_id_cci}: too few matched points ({len(df_matched)})")
         return None
     
-    lake_id, site_id = buoy_info
+    # Extract matched arrays
+    insitu = df_matched['insitu_temp'].values
+    dineof = df_matched['dineof_recon_temp'].values
+    dincae = df_matched['dincae_recon_temp'].values
     
-    # Load buoy data
-    buoy_data = load_buoy_data(buoy_dir, lake_id, site_id)
-    if buoy_data is None:
+    # ==========================================================================
+    # Define extreme times based on INSITU (the reference)
+    # ==========================================================================
+    p25 = np.percentile(insitu, 25)
+    p75 = np.percentile(insitu, 75)
+    
+    high_mask = insitu > p75  # Peak highs (summer)
+    low_mask = insitu < p25   # Peak lows (winter)
+    
+    n_highs = high_mask.sum()
+    n_lows = low_mask.sum()
+    
+    if n_highs < 2 or n_lows < 2:
         if verbose:
-            print(f"  Lake {lake_id_cci}: no buoy data (lake_id={lake_id}, site_id={site_id})")
+            print(f"  Lake {lake_id_cci}: too few extremes (highs={n_highs}, lows={n_lows})")
         return None
     
-    # Load satellite observations from post output
-    satellite_data = load_satellite_observation_data(post_dir, 'dineof')
+    # ==========================================================================
+    # Compute extreme matching for each method
+    # ==========================================================================
+    dineof_extreme = compute_extreme_matching_error(dineof, insitu, high_mask, low_mask)
+    dincae_extreme = compute_extreme_matching_error(dincae, insitu, high_mask, low_mask)
     
-    # Load reconstructions
-    dineof_data = load_reconstruction_data(post_dir, 'dineof')
-    dincae_data = load_reconstruction_data(post_dir, 'dincae')
+    # ==========================================================================
+    # Compute roughness for each series
+    # ==========================================================================
+    insitu_metrics = compute_signal_metrics(insitu)
+    dineof_metrics = compute_signal_metrics(dineof)
+    dincae_metrics = compute_signal_metrics(dincae)
     
-    if dineof_data is None or dincae_data is None:
-        if verbose:
-            print(f"  Lake {lake_id_cci}: missing reconstruction data")
-        return None
-    
-    # Compute metrics for each data source
+    # ==========================================================================
+    # Build result
+    # ==========================================================================
     result = {
         'lake_id': lake_id_cci,
-        'insitu': compute_all_metrics(buoy_data['temps']),
-        'dineof': compute_all_metrics(dineof_data['temps']),
-        'dincae': compute_all_metrics(dincae_data['temps']),
+        'n_matched': len(df_matched),
+        'n_extremes': n_highs + n_lows,
+        'n_highs': n_highs,
+        'n_lows': n_lows,
+        'insitu_p25': p25,
+        'insitu_p75': p75,
+        
+        # Extreme matching (lower MAE = better peak matching)
+        'dineof_extreme_mae': dineof_extreme['extreme_mae'],
+        'dincae_extreme_mae': dincae_extreme['extreme_mae'],
+        'dineof_high_error': dineof_extreme['high_error'],
+        'dincae_high_error': dincae_extreme['high_error'],
+        'dineof_low_error': dineof_extreme['low_error'],
+        'dincae_low_error': dincae_extreme['low_error'],
+        
+        # Roughness (higher = rougher)
+        'insitu_roughness': insitu_metrics['roughness_autocorr'],
+        'dineof_roughness': dineof_metrics['roughness_autocorr'],
+        'dincae_roughness': dincae_metrics['roughness_autocorr'],
+        
+        # Additional metrics
+        'insitu_std': insitu_metrics['std'],
+        'dineof_std': dineof_metrics['std'],
+        'dincae_std': dincae_metrics['std'],
     }
     
-    if satellite_data is not None:
-        result['satellite'] = compute_all_metrics(satellite_data['temps'])
+    # Add satellite metrics if available
+    if 'satellite_obs_temp' in df_matched.columns:
+        sat_mask = df_matched['satellite_obs_temp'].notna()
+        if sat_mask.sum() >= 10:
+            satellite = df_matched.loc[sat_mask, 'satellite_obs_temp'].values
+            insitu_sat = df_matched.loc[sat_mask, 'insitu_temp'].values
+            
+            sat_metrics = compute_signal_metrics(satellite)
+            insitu_sat_metrics = compute_signal_metrics(insitu_sat)
+            
+            result['n_satellite'] = sat_mask.sum()
+            result['satellite_roughness'] = sat_metrics['roughness_autocorr']
+            result['satellite_std'] = sat_metrics['std']
+            result['insitu_sat_roughness'] = insitu_sat_metrics['roughness_autocorr']
+            result['insitu_sat_std'] = insitu_sat_metrics['std']
     
     if verbose:
-        print(f"  Lake {lake_id_cci}: insitu IQR={result['insitu']['amplitude_iqr']:.2f}, "
-              f"DINEOF IQR={result['dineof']['amplitude_iqr']:.2f}, "
-              f"DINCAE IQR={result['dincae']['amplitude_iqr']:.2f}")
+        print(f"  Lake {lake_id_cci}: N={len(df_matched)}, extremes={n_highs}+{n_lows}, "
+              f"DINEOF extreme_MAE={dineof_extreme['extreme_mae']:.3f}, "
+              f"DINCAE extreme_MAE={dincae_extreme['extreme_mae']:.3f}")
     
     return result
 
@@ -467,16 +445,20 @@ def load_winner_from_validation(run_root: str, alpha: str) -> Dict[int, str]:
 
 def create_test1_plot(results_df: pd.DataFrame, output_dir: str):
     """
-    Test 1: Characterize ground truths - is insitu lower amplitude? smoother?
+    Test 1: Characterize ground truths - is insitu lower STD / smoother than satellite?
+    
+    This tests whether the bulk effect premise holds: buoys should show damped signals.
     """
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
     
-    # A) Amplitude comparison: insitu vs satellite
+    # Use satellite-matched insitu for fair comparison
+    mask = results_df['satellite_std'].notna() & results_df['insitu_sat_std'].notna()
+    
+    # A) STD comparison: insitu vs satellite
     ax = axes[0]
-    mask = results_df['satellite_amplitude_iqr'].notna()
     if mask.sum() > 2:
-        x = results_df.loc[mask, 'satellite_amplitude_iqr']
-        y = results_df.loc[mask, 'insitu_amplitude_iqr']
+        x = results_df.loc[mask, 'satellite_std']
+        y = results_df.loc[mask, 'insitu_sat_std']
         
         ax.scatter(x, y, alpha=0.7, edgecolors='black', linewidth=0.5)
         
@@ -484,25 +466,24 @@ def create_test1_plot(results_df: pd.DataFrame, output_dir: str):
         lims = [min(x.min(), y.min()), max(x.max(), y.max())]
         ax.plot(lims, lims, 'k--', alpha=0.5, label='1:1 line')
         
-        # Stats
         below_line = (y < x).sum()
         total = len(x)
         
-        ax.set_xlabel('Satellite Amplitude (IQR) [°C]')
-        ax.set_ylabel('In-situ Amplitude (IQR) [°C]')
-        ax.set_title(f'A) Amplitude: In-situ vs Satellite\n'
-                     f'In-situ lower: {below_line}/{total} ({100*below_line/total:.0f}%)')
+        ax.set_xlabel('Satellite STD [°C]')
+        ax.set_ylabel('In-situ STD [°C]')
+        ax.set_title(f'A) Variability: In-situ vs Satellite\n'
+                     f'In-situ lower STD: {below_line}/{total} ({100*below_line/total:.0f}%)')
         ax.legend()
     else:
         ax.text(0.5, 0.5, 'Insufficient data', ha='center', va='center', transform=ax.transAxes)
-        ax.set_title('A) Amplitude: In-situ vs Satellite')
+        ax.set_title('A) Variability: In-situ vs Satellite')
     
     # B) Roughness comparison: insitu vs satellite
     ax = axes[1]
-    mask = results_df['satellite_roughness_autocorr'].notna()
-    if mask.sum() > 2:
-        x = results_df.loc[mask, 'satellite_roughness_autocorr']
-        y = results_df.loc[mask, 'insitu_roughness_autocorr']
+    mask_rough = results_df['satellite_roughness'].notna() & results_df['insitu_sat_roughness'].notna()
+    if mask_rough.sum() > 2:
+        x = results_df.loc[mask_rough, 'satellite_roughness']
+        y = results_df.loc[mask_rough, 'insitu_sat_roughness']
         
         ax.scatter(x, y, alpha=0.7, edgecolors='black', linewidth=0.5)
         
@@ -524,21 +505,20 @@ def create_test1_plot(results_df: pd.DataFrame, output_dir: str):
     # C) Summary bar chart
     ax = axes[2]
     
-    # Compute systematic differences
-    amp_diff = results_df['insitu_amplitude_iqr'] - results_df['satellite_amplitude_iqr']
-    rough_diff = results_df['insitu_roughness_autocorr'] - results_df['satellite_roughness_autocorr']
+    std_diff = results_df['insitu_sat_std'] - results_df['satellite_std']
+    rough_diff = results_df['insitu_sat_roughness'] - results_df['satellite_roughness']
     
-    categories = ['Amplitude\n(IQR)', 'Roughness\n(1-autocorr)']
-    means = [np.nanmean(amp_diff), np.nanmean(rough_diff)]
-    sems = [np.nanstd(amp_diff) / np.sqrt(np.sum(np.isfinite(amp_diff))),
-            np.nanstd(rough_diff) / np.sqrt(np.sum(np.isfinite(rough_diff)))]
+    categories = ['STD\n(variability)', 'Roughness\n(1-autocorr)']
+    means = [np.nanmean(std_diff), np.nanmean(rough_diff)]
+    sems = [np.nanstd(std_diff) / np.sqrt(np.sum(np.isfinite(std_diff))) if np.sum(np.isfinite(std_diff)) > 0 else 0,
+            np.nanstd(rough_diff) / np.sqrt(np.sum(np.isfinite(rough_diff))) if np.sum(np.isfinite(rough_diff)) > 0 else 0]
     
     colors = ['green' if m < 0 else 'red' for m in means]
     bars = ax.bar(categories, means, yerr=sems, capsize=5, color=colors, alpha=0.7)
     
     ax.axhline(0, color='black', linewidth=0.5)
     ax.set_ylabel('In-situ - Satellite')
-    ax.set_title('C) Systematic Difference\n(Negative = In-situ lower)')
+    ax.set_title('C) Systematic Difference\n(Negative = In-situ lower/smoother)')
     
     plt.tight_layout()
     
@@ -550,35 +530,38 @@ def create_test1_plot(results_df: pd.DataFrame, output_dir: str):
 
 def create_test2_plot(results_df: pd.DataFrame, output_dir: str):
     """
-    Test 2: Characterize methods - is DINEOF lower amplitude? smoother?
+    Test 2: Characterize methods - extreme matching and roughness.
+    
+    - Is DINEOF worse at extreme matching (higher MAE at peaks/troughs)?
+    - Is DINEOF smoother (lower roughness)?
     """
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
     
     # Color by winner
     colors = results_df['winner'].map({'dineof': '#5DA5DA', 'dincae': '#FAA43A'}).fillna('gray')
     
-    # A) Amplitude: DINEOF vs DINCAE
+    # A) Extreme Matching: DINEOF vs DINCAE (lower = better)
     ax = axes[0]
-    x = results_df['dincae_amplitude_iqr']
-    y = results_df['dineof_amplitude_iqr']
+    x = results_df['dincae_extreme_mae']
+    y = results_df['dineof_extreme_mae']
     
     ax.scatter(x, y, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5)
     
     lims = [min(x.min(), y.min()), max(x.max(), y.max())]
     ax.plot(lims, lims, 'k--', alpha=0.5)
     
-    dineof_lower = (y < x).sum()
+    dineof_worse = (y > x).sum()
     total = len(x)
     
-    ax.set_xlabel('DINCAE Amplitude (IQR) [°C]')
-    ax.set_ylabel('DINEOF Amplitude (IQR) [°C]')
-    ax.set_title(f'A) Amplitude: DINEOF vs DINCAE\n'
-                 f'DINEOF lower: {dineof_lower}/{total} ({100*dineof_lower/total:.0f}%)')
+    ax.set_xlabel('DINCAE Extreme MAE [°C]')
+    ax.set_ylabel('DINEOF Extreme MAE [°C]')
+    ax.set_title(f'A) Peak Matching (lower=better)\n'
+                 f'DINEOF worse: {dineof_worse}/{total} ({100*dineof_worse/total:.0f}%)')
     
     # B) Roughness: DINEOF vs DINCAE
     ax = axes[1]
-    x = results_df['dincae_roughness_autocorr']
-    y = results_df['dineof_roughness_autocorr']
+    x = results_df['dincae_roughness']
+    y = results_df['dineof_roughness']
     
     ax.scatter(x, y, c=colors, alpha=0.7, edgecolors='black', linewidth=0.5)
     
@@ -589,40 +572,30 @@ def create_test2_plot(results_df: pd.DataFrame, output_dir: str):
     
     ax.set_xlabel('DINCAE Roughness (1-autocorr)')
     ax.set_ylabel('DINEOF Roughness (1-autocorr)')
-    ax.set_title(f'B) Roughness: DINEOF vs DINCAE\n'
+    ax.set_title(f'B) Roughness (lower=smoother)\n'
                  f'DINEOF smoother: {dineof_smoother}/{total} ({100*dineof_smoother/total:.0f}%)')
     
-    # C) Winner breakdown
+    # C) Peak errors breakdown (high vs low)
     ax = axes[2]
     
-    # When DINEOF is smoother, who wins?
-    dineof_smoother_mask = results_df['dineof_roughness_autocorr'] < results_df['dincae_roughness_autocorr']
+    # DINEOF errors at highs and lows
+    dineof_high = results_df['dineof_high_error'].mean()
+    dineof_low = results_df['dineof_low_error'].mean()
+    dincae_high = results_df['dincae_high_error'].mean()
+    dincae_low = results_df['dincae_low_error'].mean()
     
-    dineof_smoother_dineof_wins = ((dineof_smoother_mask) & (results_df['winner'] == 'dineof')).sum()
-    dineof_smoother_dincae_wins = ((dineof_smoother_mask) & (results_df['winner'] == 'dincae')).sum()
-    dincae_smoother_dineof_wins = ((~dineof_smoother_mask) & (results_df['winner'] == 'dineof')).sum()
-    dincae_smoother_dincae_wins = ((~dineof_smoother_mask) & (results_df['winner'] == 'dincae')).sum()
-    
-    categories = ['DINEOF\nsmoother', 'DINCAE\nsmoother']
-    dineof_wins = [dineof_smoother_dineof_wins, dincae_smoother_dineof_wins]
-    dincae_wins = [dineof_smoother_dincae_wins, dincae_smoother_dincae_wins]
-    
-    x_pos = np.arange(len(categories))
+    x_pos = np.arange(2)
     width = 0.35
     
-    ax.bar(x_pos - width/2, dineof_wins, width, label='DINEOF wins', color='#5DA5DA')
-    ax.bar(x_pos + width/2, dincae_wins, width, label='DINCAE wins', color='#FAA43A')
+    ax.bar(x_pos - width/2, [dineof_high, dineof_low], width, label='DINEOF', color='#5DA5DA', alpha=0.7)
+    ax.bar(x_pos + width/2, [dincae_high, dincae_low], width, label='DINCAE', color='#FAA43A', alpha=0.7)
     
+    ax.axhline(0, color='black', linewidth=0.5)
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(categories)
-    ax.set_ylabel('Number of lakes')
-    ax.set_title('C) Does smoother method win?')
+    ax.set_xticklabels(['At Highs\n(summer peaks)', 'At Lows\n(winter troughs)'])
+    ax.set_ylabel('Mean Error (method - insitu) [°C]')
+    ax.set_title('C) Systematic Bias at Extremes\n(negative=underestimate, positive=overestimate)')
     ax.legend()
-    
-    # Add counts on bars
-    for i, (d, c) in enumerate(zip(dineof_wins, dincae_wins)):
-        ax.text(i - width/2, d + 0.3, str(d), ha='center', fontsize=9)
-        ax.text(i + width/2, c + 0.3, str(c), ha='center', fontsize=9)
     
     plt.tight_layout()
     
@@ -634,31 +607,32 @@ def create_test2_plot(results_df: pd.DataFrame, output_dir: str):
 
 def create_test3_plot(results_df: pd.DataFrame, output_dir: str):
     """
-    Test 3: What predicts winning - amplitude match or roughness match?
-    """
-    # Compute matching metrics (smaller = better match with insitu)
-    results_df = results_df.copy()
-    results_df['dineof_amp_match'] = np.abs(results_df['dineof_amplitude_iqr'] - results_df['insitu_amplitude_iqr'])
-    results_df['dincae_amp_match'] = np.abs(results_df['dincae_amplitude_iqr'] - results_df['insitu_amplitude_iqr'])
-    results_df['dineof_rough_match'] = np.abs(results_df['dineof_roughness_autocorr'] - results_df['insitu_roughness_autocorr'])
-    results_df['dincae_rough_match'] = np.abs(results_df['dincae_roughness_autocorr'] - results_df['insitu_roughness_autocorr'])
+    Test 3: What predicts winning - better extreme matching or lower roughness?
     
-    # Delta: positive = DINEOF worse match
-    results_df['delta_amp_match'] = results_df['dineof_amp_match'] - results_df['dincae_amp_match']
+    - Extreme matching: lower MAE at peaks/troughs = better
+    - Roughness matching: closer roughness to insitu = better
+    """
+    results_df = results_df.copy()
+    
+    # Compute roughness matching (smaller = better match with insitu)
+    results_df['dineof_rough_match'] = np.abs(results_df['dineof_roughness'] - results_df['insitu_roughness'])
+    results_df['dincae_rough_match'] = np.abs(results_df['dincae_roughness'] - results_df['insitu_roughness'])
+    
+    # Delta: positive = DINEOF worse
+    results_df['delta_extreme'] = results_df['dineof_extreme_mae'] - results_df['dincae_extreme_mae']
     results_df['delta_rough_match'] = results_df['dineof_rough_match'] - results_df['dincae_rough_match']
     
-    # Also load RMSE delta from validation if available
-    # For now, use winner as proxy
     results_df['winner_numeric'] = results_df['winner'].map({'dineof': -1, 'dincae': 1})
     
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
     
     colors = results_df['winner'].map({'dineof': '#5DA5DA', 'dincae': '#FAA43A'}).fillna('gray')
     
-    # A) Amplitude match predicts winner?
+    # A) Extreme matching predicts winner?
     ax = axes[0]
-    x = results_df['delta_amp_match']
+    x = results_df['delta_extreme']
     y = results_df['winner_numeric']
+    total = len(x)
     
     ax.scatter(x, y + np.random.uniform(-0.1, 0.1, len(y)), c=colors, alpha=0.7, 
                edgecolors='black', linewidth=0.5)
@@ -667,17 +641,13 @@ def create_test3_plot(results_df: pd.DataFrame, output_dir: str):
     ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
     
     # Count quadrants
-    q1 = ((x > 0) & (y > 0)).sum()  # DINEOF worse match, DINCAE wins - consistent
-    q2 = ((x < 0) & (y > 0)).sum()  # DINEOF better match, DINCAE wins - inconsistent
-    q3 = ((x < 0) & (y < 0)).sum()  # DINEOF better match, DINEOF wins - consistent
-    q4 = ((x > 0) & (y < 0)).sum()  # DINEOF worse match, DINEOF wins - inconsistent
-    
+    q1 = ((x > 0) & (y > 0)).sum()  # DINEOF worse extreme, DINCAE wins - consistent
+    q3 = ((x < 0) & (y < 0)).sum()  # DINEOF better extreme, DINEOF wins - consistent
     consistent = q1 + q3
-    total = len(x)
     
-    ax.set_xlabel('Δ(Amplitude match)\n+ = DINEOF worse match')
+    ax.set_xlabel('Δ(Extreme MAE)\n+ = DINEOF worse at peaks')
     ax.set_ylabel('Winner\n(-1=DINEOF, +1=DINCAE)')
-    ax.set_title(f'A) Amplitude matching predicts winner?\n'
+    ax.set_title(f'A) Peak matching predicts winner?\n'
                  f'Consistent: {consistent}/{total} ({100*consistent/total:.0f}%)')
     ax.set_yticks([-1, 1])
     ax.set_yticklabels(['DINEOF', 'DINCAE'])
@@ -708,13 +678,13 @@ def create_test3_plot(results_df: pd.DataFrame, output_dir: str):
     ax = axes[2]
     
     # Count how often each property correctly predicts winner
-    amp_correct = ((results_df['delta_amp_match'] > 0) & (results_df['winner'] == 'dincae') |
-                   (results_df['delta_amp_match'] < 0) & (results_df['winner'] == 'dineof')).sum()
+    extreme_correct = ((results_df['delta_extreme'] > 0) & (results_df['winner'] == 'dincae') |
+                       (results_df['delta_extreme'] < 0) & (results_df['winner'] == 'dineof')).sum()
     rough_correct = ((results_df['delta_rough_match'] > 0) & (results_df['winner'] == 'dincae') |
                      (results_df['delta_rough_match'] < 0) & (results_df['winner'] == 'dineof')).sum()
     
-    categories = ['Amplitude\nmatching', 'Roughness\nmatching']
-    accuracy = [100 * amp_correct / total, 100 * rough_correct / total]
+    categories = ['Peak\nmatching', 'Roughness\nmatching']
+    accuracy = [100 * extreme_correct / total, 100 * rough_correct / total]
     
     bars = ax.bar(categories, accuracy, color=['#2ecc71', '#3498db'], alpha=0.7)
     ax.axhline(50, color='red', linestyle='--', label='Random chance (50%)')
@@ -740,43 +710,57 @@ def create_summary_report(results_df: pd.DataFrame, output_dir: str):
     
     report = []
     report.append("=" * 70)
-    report.append("AMPLITUDE vs ROUGHNESS ANALYSIS - SUMMARY REPORT")
+    report.append("PEAK MATCHING vs ROUGHNESS ANALYSIS - SUMMARY REPORT")
     report.append("=" * 70)
     report.append(f"\nTotal lakes analyzed: {len(results_df)}")
-    report.append(f"Lakes with satellite data: {results_df['satellite_amplitude_iqr'].notna().sum()}")
+    report.append(f"Lakes with satellite data: {results_df['satellite_std'].notna().sum()}")
     
     # Test 1 results
     report.append("\n" + "-" * 70)
     report.append("TEST 1: Ground Truth Characterization (In-situ vs Satellite)")
     report.append("-" * 70)
+    report.append("  Note: Computed on timestamps where BOTH have valid values")
     
-    mask = results_df['satellite_amplitude_iqr'].notna()
+    mask = results_df['satellite_std'].notna() & results_df['insitu_sat_std'].notna()
     if mask.sum() > 0:
-        amp_insitu_lower = (results_df.loc[mask, 'insitu_amplitude_iqr'] < 
-                           results_df.loc[mask, 'satellite_amplitude_iqr']).sum()
-        rough_insitu_lower = (results_df.loc[mask, 'insitu_roughness_autocorr'] < 
-                             results_df.loc[mask, 'satellite_roughness_autocorr']).sum()
+        std_insitu_lower = (results_df.loc[mask, 'insitu_sat_std'] < 
+                           results_df.loc[mask, 'satellite_std']).sum()
+        rough_insitu_lower = (results_df.loc[mask, 'insitu_sat_roughness'] < 
+                             results_df.loc[mask, 'satellite_roughness']).sum()
         n = mask.sum()
         
-        report.append(f"  In-situ has LOWER amplitude: {amp_insitu_lower}/{n} ({100*amp_insitu_lower/n:.0f}%)")
-        report.append(f"  In-situ is SMOOTHER:         {rough_insitu_lower}/{n} ({100*rough_insitu_lower/n:.0f}%)")
+        report.append(f"  In-situ has LOWER STD:    {std_insitu_lower}/{n} ({100*std_insitu_lower/n:.0f}%)")
+        report.append(f"  In-situ is SMOOTHER:      {rough_insitu_lower}/{n} ({100*rough_insitu_lower/n:.0f}%)")
         
-        if amp_insitu_lower / n > 0.6 and rough_insitu_lower / n > 0.6:
+        if std_insitu_lower / n > 0.6 and rough_insitu_lower / n > 0.6:
             report.append("  --> CONSISTENT with damped signal hypothesis")
         else:
             report.append("  --> NOT consistently supporting damped signal hypothesis")
+    else:
+        report.append("  Insufficient data for Test 1")
     
     # Test 2 results
     report.append("\n" + "-" * 70)
     report.append("TEST 2: Method Characterization (DINEOF vs DINCAE)")
     report.append("-" * 70)
+    report.append("  Note: Computed on matched timestamps")
     
     n = len(results_df)
-    dineof_lower_amp = (results_df['dineof_amplitude_iqr'] < results_df['dincae_amplitude_iqr']).sum()
-    dineof_smoother = (results_df['dineof_roughness_autocorr'] < results_df['dincae_roughness_autocorr']).sum()
+    dineof_worse_extreme = (results_df['dineof_extreme_mae'] > results_df['dincae_extreme_mae']).sum()
+    dineof_smoother = (results_df['dineof_roughness'] < results_df['dincae_roughness']).sum()
     
-    report.append(f"  DINEOF has LOWER amplitude: {dineof_lower_amp}/{n} ({100*dineof_lower_amp/n:.0f}%)")
-    report.append(f"  DINEOF is SMOOTHER:         {dineof_smoother}/{n} ({100*dineof_smoother/n:.0f}%)")
+    report.append(f"  DINEOF worse at extremes:  {dineof_worse_extreme}/{n} ({100*dineof_worse_extreme/n:.0f}%)")
+    report.append(f"  DINEOF is SMOOTHER:        {dineof_smoother}/{n} ({100*dineof_smoother/n:.0f}%)")
+    
+    # Mean errors at extremes
+    dineof_high_mean = results_df['dineof_high_error'].mean()
+    dineof_low_mean = results_df['dineof_low_error'].mean()
+    dincae_high_mean = results_df['dincae_high_error'].mean()
+    dincae_low_mean = results_df['dincae_low_error'].mean()
+    
+    report.append(f"\n  Mean error at highs: DINEOF={dineof_high_mean:+.2f}°C, DINCAE={dincae_high_mean:+.2f}°C")
+    report.append(f"  Mean error at lows:  DINEOF={dineof_low_mean:+.2f}°C, DINCAE={dincae_low_mean:+.2f}°C")
+    report.append("  (negative at highs = underestimates peaks, positive at lows = overestimates troughs)")
     
     # Test 3 results
     report.append("\n" + "-" * 70)
@@ -784,18 +768,17 @@ def create_summary_report(results_df: pd.DataFrame, output_dir: str):
     report.append("-" * 70)
     
     # Compute matching
-    dineof_amp_match = np.abs(results_df['dineof_amplitude_iqr'] - results_df['insitu_amplitude_iqr'])
-    dincae_amp_match = np.abs(results_df['dincae_amplitude_iqr'] - results_df['insitu_amplitude_iqr'])
-    dineof_rough_match = np.abs(results_df['dineof_roughness_autocorr'] - results_df['insitu_roughness_autocorr'])
-    dincae_rough_match = np.abs(results_df['dincae_roughness_autocorr'] - results_df['insitu_roughness_autocorr'])
+    dineof_rough_match = np.abs(results_df['dineof_roughness'] - results_df['insitu_roughness'])
+    dincae_rough_match = np.abs(results_df['dincae_roughness'] - results_df['insitu_roughness'])
     
-    amp_correct = ((dineof_amp_match < dincae_amp_match) & (results_df['winner'] == 'dineof') |
-                   (dineof_amp_match > dincae_amp_match) & (results_df['winner'] == 'dincae')).sum()
+    extreme_correct = ((results_df['dineof_extreme_mae'] < results_df['dincae_extreme_mae']) & (results_df['winner'] == 'dineof') |
+                       (results_df['dineof_extreme_mae'] > results_df['dincae_extreme_mae']) & (results_df['winner'] == 'dincae')).sum()
     rough_correct = ((dineof_rough_match < dincae_rough_match) & (results_df['winner'] == 'dineof') |
                      (dineof_rough_match > dincae_rough_match) & (results_df['winner'] == 'dincae')).sum()
     
-    report.append(f"  Amplitude matching predicts winner: {amp_correct}/{n} ({100*amp_correct/n:.0f}%)")
+    report.append(f"  Peak matching predicts winner:      {extreme_correct}/{n} ({100*extreme_correct/n:.0f}%)")
     report.append(f"  Roughness matching predicts winner: {rough_correct}/{n} ({100*rough_correct/n:.0f}%)")
+    report.append(f"  (Random chance would be 50%)")
     
     # Winner breakdown
     dineof_wins = (results_df['winner'] == 'dineof').sum()
@@ -813,13 +796,14 @@ def create_summary_report(results_df: pd.DataFrame, output_dir: str):
     report.append("     - Spatial averaging effects")
     report.append("     - Temporal sampling differences")
     report.append("  4. Sample size may be limited")
-    report.append("  5. Lake-averaged metrics may mask spatial heterogeneity")
+    report.append("  5. Extremes defined by percentiles of matched timestamps only")
+    report.append("  6. Roughness metric is approximate for irregularly sampled data")
     
     report.append("\n" + "=" * 70)
     
     report_text = "\n".join(report)
     
-    out_path = os.path.join(output_dir, 'amplitude_roughness_summary.txt')
+    out_path = os.path.join(output_dir, 'peak_roughness_summary.txt')
     with open(out_path, 'w') as f:
         f.write(report_text)
     
@@ -853,8 +837,6 @@ Example:
     parser.add_argument("--run-root", required=True, help="Experiment root directory")
     parser.add_argument("--alpha", default="a1000", help="Alpha slug (default: a1000)")
     parser.add_argument("--output-dir", default=None, help="Output directory")
-    parser.add_argument("--buoy-dir", default=None, help="Buoy data directory")
-    parser.add_argument("--selection-csvs", nargs="+", default=None, help="Selection CSV files")
     parser.add_argument("--no-fair-comparison", action="store_true",
                         help="Process all lakes (not just those with both methods)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
@@ -866,24 +848,13 @@ Example:
         args.output_dir = os.path.join(args.run_root, "amplitude_roughness_analysis")
     os.makedirs(args.output_dir, exist_ok=True)
     
-    if args.buoy_dir is None:
-        args.buoy_dir = "/gws/ssde/j25b/nceo_uor/users/lcarrea01/INSITU/Buoy_Laura/ALL_FILES_QC"
-    
-    if args.selection_csvs is None:
-        _csv_dir = "/home/users/shaerdan/general_purposes/insitu_cv"
-        args.selection_csvs = [
-            f"{_csv_dir}/L3S_QL_MDB_2010_selection.csv",
-            f"{_csv_dir}/L3S_QL_MDB_2007_selection.csv",
-            f"{_csv_dir}/L3S_QL_MDB_2018_selection.csv",
-            f"{_csv_dir}/L3S_QL_MDB_2020_selection.csv",
-        ]
-    
     print("=" * 70)
-    print("AMPLITUDE vs ROUGHNESS ANALYSIS")
+    print("PEAK MATCHING vs ROUGHNESS ANALYSIS")
     print("=" * 70)
     print(f"Run root: {args.run_root}")
     print(f"Alpha: {args.alpha}")
     print(f"Output: {args.output_dir}")
+    print("NOTE: Requires timeseries CSVs from insitu_validation.py")
     print("=" * 70)
     
     # Get lake list
@@ -914,7 +885,6 @@ Example:
     for lake_id in lake_ids:
         result = analyze_lake(
             args.run_root, lake_id, args.alpha,
-            args.buoy_dir, args.selection_csvs,
             verbose=args.verbose
         )
         if result is not None:
@@ -927,19 +897,8 @@ Example:
         print("ERROR: Not enough lakes with complete data for analysis")
         return 1
     
-    # Build results DataFrame
-    rows = []
-    for r in results:
-        row = {'lake_id': r['lake_id'], 'winner': r['winner']}
-        
-        for source in ['insitu', 'satellite', 'dineof', 'dincae']:
-            if source in r:
-                for metric, value in r[source].items():
-                    row[f'{source}_{metric}'] = value
-        
-        rows.append(row)
-    
-    results_df = pd.DataFrame(rows)
+    # Build results DataFrame (results are already flat dicts)
+    results_df = pd.DataFrame(results)
     
     # Filter to lakes with winner data
     results_df = results_df[results_df['winner'].notna()]
@@ -950,7 +909,7 @@ Example:
         return 1
     
     # Save raw results
-    csv_path = os.path.join(args.output_dir, 'amplitude_roughness_metrics.csv')
+    csv_path = os.path.join(args.output_dir, 'peak_roughness_metrics.csv')
     results_df.to_csv(csv_path, index=False)
     print(f"Saved: {csv_path}")
     

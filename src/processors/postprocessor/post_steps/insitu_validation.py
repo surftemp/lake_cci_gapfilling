@@ -1005,6 +1005,11 @@ class InsituValidationStep(PostProcessingStep):
                     self._save_yearly_csv(results, plot_dir)
                 except Exception as e:
                     print(f"[InsituValidation] Error saving yearly CSV: {e}")
+                
+                try:
+                    self._save_timeseries_csv(results, plot_dir)
+                except Exception as e:
+                    print(f"[InsituValidation] Error saving timeseries CSV: {e}")
         
         except Exception as e:
             print(f"[InsituValidation] Unexpected error in _validate_site: {e}")
@@ -1785,3 +1790,95 @@ class InsituValidationStep(PostProcessingStep):
                 print(f"[InsituValidation] Saved: {os.path.basename(csv_path)}")
         except Exception as e:
             print(f"[InsituValidation] Error saving yearly CSV: {e}")
+    
+    def _save_timeseries_csv(self, results: Dict, plot_dir: str):
+        """
+        Save matched time series data to CSV for downstream analysis.
+        
+        This saves the actual temperature values (not just statistics) for:
+        - In-situ measurements
+        - Satellite observations (where available)
+        - DINEOF reconstruction
+        - DINCAE reconstruction
+        
+        Output columns:
+        - date: timestamp of matched observation
+        - insitu_temp: in-situ buoy temperature (°C)
+        - satellite_obs_temp: satellite observation temperature (°C) - may have gaps
+        - dineof_recon_temp: DINEOF reconstruction temperature (°C)
+        - dincae_recon_temp: DINCAE reconstruction temperature (°C)
+        - was_observed: whether satellite observation existed at this timestamp
+        """
+        try:
+            # Collect all unique dates across all methods
+            all_dates = set()
+            for method_name, method_data in results['methods'].items():
+                if 'recon' in method_data:
+                    for d in method_data['recon']['dates']:
+                        all_dates.add(d)
+                if 'obs' in method_data:
+                    for d in method_data['obs']['dates']:
+                        all_dates.add(d)
+            
+            if not all_dates:
+                print(f"[InsituValidation] No dates found for timeseries export")
+                return
+            
+            all_dates = sorted(all_dates)
+            
+            # Build lookup dicts for each data source
+            # In-situ from buoy_date_temp
+            insitu_lookup = results.get('buoy_date_temp', {})
+            
+            # Initialize lookups for each method
+            dineof_recon = {}
+            dineof_obs = {}
+            dineof_was_observed = {}
+            dincae_recon = {}
+            dincae_obs = {}
+            dincae_was_observed = {}
+            
+            for method_name, method_data in results['methods'].items():
+                if method_name == 'dineof':
+                    if 'recon' in method_data:
+                        for i, d in enumerate(method_data['recon']['dates']):
+                            dineof_recon[d] = method_data['recon']['satellite_temps'][i]
+                            if 'was_observed' in method_data['recon'] and method_data['recon']['was_observed'] is not None:
+                                dineof_was_observed[d] = method_data['recon']['was_observed'][i]
+                    if 'obs' in method_data:
+                        for i, d in enumerate(method_data['obs']['dates']):
+                            dineof_obs[d] = method_data['obs']['satellite_temps'][i]
+                
+                elif method_name == 'dincae':
+                    if 'recon' in method_data:
+                        for i, d in enumerate(method_data['recon']['dates']):
+                            dincae_recon[d] = method_data['recon']['satellite_temps'][i]
+                            if 'was_observed' in method_data['recon'] and method_data['recon']['was_observed'] is not None:
+                                dincae_was_observed[d] = method_data['recon']['was_observed'][i]
+                    if 'obs' in method_data:
+                        for i, d in enumerate(method_data['obs']['dates']):
+                            dincae_obs[d] = method_data['obs']['satellite_temps'][i]
+            
+            # Build rows
+            rows = []
+            for d in all_dates:
+                row = {
+                    'date': d,
+                    'insitu_temp': insitu_lookup.get(d, np.nan),
+                    'satellite_obs_temp': dineof_obs.get(d, dincae_obs.get(d, np.nan)),
+                    'dineof_recon_temp': dineof_recon.get(d, np.nan),
+                    'dincae_recon_temp': dincae_recon.get(d, np.nan),
+                    'was_observed': dineof_was_observed.get(d, dincae_was_observed.get(d, None)),
+                }
+                rows.append(row)
+            
+            if rows:
+                os.makedirs(plot_dir, exist_ok=True)
+                csv_path = os.path.join(plot_dir, f"LAKE{results['lake_id_cci']:09d}_insitu_timeseries_site{results['site_id']}.csv")
+                df = pd.DataFrame(rows)
+                df.to_csv(csv_path, index=False)
+                print(f"[InsituValidation] Saved timeseries: {os.path.basename(csv_path)} ({len(rows)} points)")
+        except Exception as e:
+            print(f"[InsituValidation] Error saving timeseries CSV: {e}")
+            import traceback
+            traceback.print_exc()
