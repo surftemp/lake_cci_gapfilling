@@ -268,6 +268,11 @@ Output:
     split_group.add_argument("--no-split-observed-missing", action="store_false", dest="split_obs_miss",
                              help="Disable observed/missing split analysis")
     
+    # NEW: Buoy location source
+    parser.add_argument("--use-selection-location", action="store_true",
+                        default=False,
+                        help="Use lat/lon from selection CSV instead of source buoy file (default: use source file)")
+    
     args = parser.parse_args()
     
     # Validate run_root
@@ -354,6 +359,13 @@ Output:
         config["split_observed_missing"] = config.get("split_observed_missing", True)
         status = "enabled" if config["split_observed_missing"] else "disabled"
         print(f"Observed/missing split analysis: {status} (default)")
+    
+    # Set use_selection_location: default False (use source file lat/lon)
+    config["use_selection_location"] = args.use_selection_location
+    if args.use_selection_location:
+        print("Buoy location: using lat/lon from selection CSV")
+    else:
+        print("Buoy location: using lat/lon from source buoy file (default)")
     
     # Determine which lakes to process
     completion_summary = None

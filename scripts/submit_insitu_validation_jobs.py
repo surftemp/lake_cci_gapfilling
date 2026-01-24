@@ -143,6 +143,11 @@ Examples:
     parser.add_argument("--alpha", default=None,
                         help="Alpha slug for fair comparison check (e.g., 'a1000')")
     
+    # Buoy location source
+    parser.add_argument("--use-selection-location", action="store_true",
+                        default=False,
+                        help="Use lat/lon from selection CSV instead of source buoy file (default: use source file)")
+    
     # SLURM options
     parser.add_argument("--partition", default="standard", help="SLURM partition")
     parser.add_argument("--qos", default="long", help="SLURM QoS")
@@ -232,6 +237,11 @@ Examples:
     if args.quality_threshold is not None:
         quality_arg = f"--quality-threshold {args.quality_threshold}"
     
+    # Build use_selection_location argument
+    location_arg = ""
+    if args.use_selection_location:
+        location_arg = "--use-selection-location"
+    
     # Create log directory
     if not args.dry_run:
         os.makedirs(log_dir, exist_ok=True)
@@ -252,6 +262,10 @@ Examples:
         print(f"Quality threshold: >= {args.quality_threshold}")
     else:
         print(f"Quality threshold: (from config or default=3)")
+    if args.use_selection_location:
+        print("Buoy location: selection CSV")
+    else:
+        print("Buoy location: source file (default)")
     print(f"Lakes:       {len(lake_ids)}")
     print(f"SLURM:       partition={args.partition}, qos={args.qos}, time={args.time}, mem={args.mem}")
     if args.dry_run:
@@ -285,7 +299,7 @@ cd {{script_dir}}
 python run_insitu_validation.py \\
     --run-root {{run_root}} \\
     --lake-id {{lake_id}} \\
-    {selection_csv_arg} {quality_arg} {{config_arg}}
+    {selection_csv_arg} {quality_arg} {location_arg} {{config_arg}}
 """
     
     submitted = 0

@@ -407,35 +407,57 @@ class InsituValidationStep(PostProcessingStep):
     def _get_lake_sites(self, lake_id_cci: int) -> pd.DataFrame:
         """
         Get ALL unique sites for a given lake_id_cci from ALL selection CSVs.
+        
+        For each site, uses the most frequently occurring (lat, lon) pair (mode)
+        to handle drifting buoy positions in selection files.
         """
         matches = self._find_all_selections_for_lake(lake_id_cci)
         
         if not matches:
             return pd.DataFrame()
         
-        all_sites = []
+        all_rows = []
         for csv_path, df in matches:
             lake_df = df[df['lake_id_cci'] == lake_id_cci]
             if not lake_df.empty:
-                sites = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].drop_duplicates(
-                    subset=['lake_id', 'site_id']
-                ).copy()
-                sites['source_csv'] = os.path.basename(csv_path)
-                all_sites.append(sites)
+                rows = lake_df[['lake_id', 'site_id', 'latitude', 'longitude']].copy()
+                rows['source_csv'] = os.path.basename(csv_path)
+                all_rows.append(rows)
         
-        if not all_sites:
+        if not all_rows:
             return pd.DataFrame()
         
-        combined = pd.concat(all_sites, ignore_index=True)
-        combined = combined.drop_duplicates(subset=['lake_id', 'site_id'], keep='first')
-        combined['lake_id'] = combined['lake_id'].astype(int)
-        combined['site_id'] = combined['site_id'].astype(int)
+        combined = pd.concat(all_rows, ignore_index=True)
         
-        n_sites = len(combined)
-        n_sources = combined['source_csv'].nunique()
+        # For each (lake_id, site_id), find the most frequent (lat, lon) pair
+        result_rows = []
+        for (lake_id, site_id), group in combined.groupby(['lake_id', 'site_id']):
+            # Create lat_lon tuple for mode computation
+            lat_lon_counts = group.groupby(['latitude', 'longitude']).size()
+            most_frequent_idx = lat_lon_counts.idxmax()
+            mode_lat, mode_lon = most_frequent_idx
+            
+            # Get source_csv from first row with this lat/lon (for reference)
+            source_csv = group[(group['latitude'] == mode_lat) & 
+                              (group['longitude'] == mode_lon)]['source_csv'].iloc[0]
+            
+            result_rows.append({
+                'lake_id': int(lake_id),
+                'site_id': int(site_id),
+                'latitude': mode_lat,
+                'longitude': mode_lon,
+                'source_csv': source_csv,
+                'n_occurrences': int(lat_lon_counts.max()),
+                'n_total_rows': len(group),
+            })
+        
+        result = pd.DataFrame(result_rows)
+        
+        n_sites = len(result)
+        n_sources = result['source_csv'].nunique()
         print(f"[InsituValidation] Lake {lake_id_cci}: {n_sites} unique site(s) from {n_sources} CSV(s)")
         
-        return combined.sort_values('site_id').reset_index(drop=True)
+        return result.sort_values('site_id').reset_index(drop=True)
     
     def _get_buoy_filepath(self, lake_id: int, site_id: int) -> Optional[str]:
         """Construct path to buoy CSV file."""
@@ -477,8 +499,15 @@ class InsituValidationStep(PostProcessingStep):
         return hour_day_counts.idxmax() if not hour_day_counts.empty else None
     
     def _load_buoy_data(self, lake_id: int, site_id: int, 
-                        rep_hour: Optional[int]) -> Optional[pd.DataFrame]:
-        """Load and filter buoy CSV data."""
+                        rep_hour: Optional[int]) -> Optional[Dict]:
+        """
+        Load and filter buoy CSV data.
+        
+        Returns dict with:
+        - 'df': filtered DataFrame
+        - 'source_lat': median latitude from source file (or None if not available)
+        - 'source_lon': median longitude from source file (or None if not available)
+        """
         buoy_path = self._get_buoy_filepath(lake_id, site_id)
         if buoy_path is None:
             return None
@@ -488,6 +517,14 @@ class InsituValidationStep(PostProcessingStep):
         except Exception as e:
             print(f"[InsituValidation] Error reading buoy file: {e}")
             return None
+        
+        # Extract lat/lon from source file before filtering
+        source_lat = None
+        source_lon = None
+        if 'lat' in df.columns and 'lon' in df.columns:
+            # Use median to handle drift
+            source_lat = float(df['lat'].median())
+            source_lon = float(df['lon'].median())
         
         # Detect daily vs hourly
         readings_per_day = df.groupby(df['dateTime'].dt.date).size()
@@ -503,7 +540,14 @@ class InsituValidationStep(PostProcessingStep):
         elif 'q' in df.columns:
             df = df[df['q'] == 0]
         
-        return df if not df.empty else None
+        if df.empty:
+            return None
+        
+        return {
+            'df': df,
+            'source_lat': source_lat,
+            'source_lon': source_lon,
+        }
     
     def _find_nearest_grid_point(self, lat_array: np.ndarray, lon_array: np.ndarray,
                                   target_lat: float, target_lon: float) -> Tuple[Tuple[int, int], float]:
@@ -625,17 +669,37 @@ class InsituValidationStep(PostProcessingStep):
                 try:
                     lake_id = site_row['lake_id']
                     site_id = site_row['site_id']
-                    site_lat = site_row['latitude']
-                    site_lon = site_row['longitude']
-                    
-                    print(f"[InsituValidation] Processing site {site_id} at ({site_lat:.4f}, {site_lon:.4f})")
+                    selection_lat = site_row['latitude']
+                    selection_lon = site_row['longitude']
                     
                     rep_hour = self._determine_representative_hour(lake_id, site_id, lake_id_cci)
                     
-                    buoy_df = self._load_buoy_data(lake_id, site_id, rep_hour)
-                    if buoy_df is None or buoy_df.empty:
+                    buoy_result = self._load_buoy_data(lake_id, site_id, rep_hour)
+                    if buoy_result is None:
                         print(f"[InsituValidation] No buoy data for site {site_id}, skipping site")
                         continue
+                    
+                    buoy_df = buoy_result['df']
+                    source_lat = buoy_result['source_lat']
+                    source_lon = buoy_result['source_lon']
+                    
+                    # Determine which lat/lon to use
+                    # Default: use source file lat/lon (more accurate, from original data author)
+                    # Option: use selection CSV lat/lon (if --use-selection-location flag is set)
+                    use_selection_location = self.config.get("use_selection_location", False)
+                    
+                    if use_selection_location or source_lat is None or source_lon is None:
+                        site_lat = selection_lat
+                        site_lon = selection_lon
+                        loc_source = "selection CSV (mode)"
+                        if source_lat is None or source_lon is None:
+                            loc_source = "selection CSV (mode, source file has no lat/lon columns)"
+                    else:
+                        site_lat = source_lat
+                        site_lon = source_lon
+                        loc_source = "source file (median)"
+                    
+                    print(f"[InsituValidation] Processing site {site_id} at ({site_lat:.6f}, {site_lon:.6f}) from {loc_source}")
                     
                     buoy_date_temp = buoy_df.groupby(buoy_df['dateTime'].dt.date)['Tw'].mean().to_dict()
                     if not buoy_date_temp:
@@ -799,22 +863,89 @@ class InsituValidationStep(PostProcessingStep):
         try:
             results = {
                 'lake_id': lake_id, 'lake_id_cci': lake_id_cci, 'site_id': site_id,
-                'buoy_date_temp': buoy_date_temp, 'methods': {}
+                'buoy_date_temp': buoy_date_temp, 'methods': {},
+                # Pixel location info - will be populated when grid_idx is found
+                'buoy_lat': site_lat, 'buoy_lon': site_lon,
+                'pixel_lat': None, 'pixel_lon': None,
+                'pixel_lat_idx': None, 'pixel_lon_idx': None,
+                'distance_from_shore_px': None,
+                # Config time range - will be populated from NetCDF attrs
+                'config_start_date': None, 'config_end_date': None,
             }
             
             grid_idx = None
             unique_buoy_dates = list(buoy_date_temp.keys())
             
-            # Get prepared.nc path for checking originally observed status
-            prepared_path = None
+            # Get prepared.nc path - needed for:
+            # 1. Checking originally observed status (if split_observed_missing is enabled)
+            # 2. Extracting config time range
+            prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
+            
             if self.config.get("split_observed_missing", True):
-                prepared_path = self._get_prepared_path(plot_dir, lake_id_cci)
                 if prepared_path:
                     print(f"[InsituValidation] Using prepared.nc for observed/missing split: {os.path.basename(prepared_path)}")
                 else:
                     print(f"[InsituValidation] prepared.nc not found, skipping observed/missing split")
             else:
                 print(f"[InsituValidation] Observed/missing split disabled in config")
+            
+            # Extract config time range BEFORE processing methods
+            # This is needed to filter buoy dates to the valid reconstruction range
+            try:
+                if prepared_path and os.path.exists(prepared_path):
+                    with xr.open_dataset(prepared_path, decode_times=False) as ds_prep:
+                        if 'time_start_date' in ds_prep.attrs and 'time_end_date' in ds_prep.attrs:
+                            results['config_start_date'] = ds_prep.attrs['time_start_date']
+                            results['config_end_date'] = ds_prep.attrs['time_end_date']
+                            print(f"[InsituValidation] Config time range from prepared.nc: {results['config_start_date']} to {results['config_end_date']}")
+                
+                # If still not found, try reading from manifest.json in run root
+                if results['config_start_date'] is None:
+                    import json
+                    # Navigate from plot_dir to run_root using same logic as _get_prepared_path
+                    parts = plot_dir.split(os.sep)
+                    if 'post' in parts:
+                        post_idx = parts.index('post')
+                        run_root = os.sep.join(parts[:post_idx])
+                    else:
+                        run_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(plot_dir))))
+                    
+                    manifest_path = os.path.join(run_root, "manifest.json")
+                    if os.path.exists(manifest_path):
+                        with open(manifest_path, 'r') as f:
+                            manifest = json.load(f)
+                        preproc_opts = manifest.get('preprocessing_options', {})
+                        if 'start_date' in preproc_opts and 'end_date' in preproc_opts:
+                            results['config_start_date'] = preproc_opts['start_date']
+                            results['config_end_date'] = preproc_opts['end_date']
+                            print(f"[InsituValidation] Config time range from manifest.json: {results['config_start_date']} to {results['config_end_date']}")
+                
+                # Warn if still not found
+                if results['config_start_date'] is None:
+                    print(f"[InsituValidation] WARNING: Could not find config time range in prepared.nc or manifest.json")
+            except Exception as e:
+                print(f"[InsituValidation] Warning: Could not extract config time range: {e}")
+            
+            # Filter unique_buoy_dates to config time range
+            if results['config_start_date'] and results['config_end_date']:
+                from datetime import date as dt_date
+                try:
+                    start_date = dt_date.fromisoformat(results['config_start_date'])
+                    end_date = dt_date.fromisoformat(results['config_end_date'])
+                    original_count = len(unique_buoy_dates)
+                    unique_buoy_dates = [d for d in unique_buoy_dates if start_date <= d <= end_date]
+                    filtered_count = original_count - len(unique_buoy_dates)
+                    if filtered_count > 0:
+                        print(f"[InsituValidation] Filtered {filtered_count} buoy dates outside config range, {len(unique_buoy_dates)} remaining")
+                    
+                    # Also filter buoy_date_temp in results for consistency
+                    results['buoy_date_temp'] = {d: t for d, t in buoy_date_temp.items() if start_date <= d <= end_date}
+                except Exception as e:
+                    print(f"[InsituValidation] Warning: Could not filter buoy dates: {e}")
+            
+            if not unique_buoy_dates:
+                print(f"[InsituValidation] No buoy dates within config time range, skipping site")
+                return
             
             for method_name, nc_path in outputs.items():
                 if nc_path is None:
@@ -838,6 +969,31 @@ class InsituValidationStep(PostProcessingStep):
                             print(f"[InsituValidation] Distance {distance:.4f}° exceeds threshold, skipping site")
                             ds.close()
                             return
+                        
+                        # Store pixel location info in results
+                        results['pixel_lat_idx'] = int(grid_idx[0])
+                        results['pixel_lon_idx'] = int(grid_idx[1])
+                        results['pixel_lat'] = float(ds['lat'].values[grid_idx[0]])
+                        results['pixel_lon'] = float(ds['lon'].values[grid_idx[1]])
+                        
+                        # Compute distance from shore if lakeid available
+                        try:
+                            from scipy import ndimage
+                            if 'lakeid' in ds:
+                                lakeid = ds['lakeid'].values
+                                if np.nanmax(lakeid) == 1:
+                                    lake_mask = lakeid == 1
+                                else:
+                                    lake_mask = np.isfinite(lakeid) & (lakeid != 0)
+                                distance_map = ndimage.distance_transform_edt(lake_mask)
+                                results['distance_from_shore_px'] = float(distance_map[grid_idx])
+                                # Store full maps for visualization
+                                results['distance_map'] = distance_map
+                                results['lake_mask'] = lake_mask
+                                results['lat_array'] = ds['lat'].values
+                                results['lon_array'] = ds['lon'].values
+                        except Exception:
+                            pass
                     
                     # Extract RECONSTRUCTION (temp_filled)
                     recon_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'temp_filled')
@@ -886,7 +1042,8 @@ class InsituValidationStep(PostProcessingStep):
                         }
                         
                         # Check which reconstruction points were originally observed vs missing
-                        if prepared_path and grid_idx is not None:
+                        # Only if split_observed_missing is enabled in config
+                        if self.config.get("split_observed_missing", True) and prepared_path and grid_idx is not None:
                             was_observed = self._check_originally_observed(
                                 prepared_path, grid_idx, 
                                 recon_extracted['matched_dates'], 
@@ -1010,6 +1167,21 @@ class InsituValidationStep(PostProcessingStep):
                     self._save_timeseries_csv(results, plot_dir)
                 except Exception as e:
                     print(f"[InsituValidation] Error saving timeseries CSV: {e}")
+                
+                try:
+                    self._save_metadata_json(results, plot_dir)
+                except Exception as e:
+                    print(f"[InsituValidation] Error saving metadata JSON: {e}")
+                
+                try:
+                    self._save_distance_map(results, plot_dir)
+                except Exception as e:
+                    print(f"[InsituValidation] Error saving distance map: {e}")
+                
+                try:
+                    self._plot_distance_map(results, plot_dir)
+                except Exception as e:
+                    print(f"[InsituValidation] Error plotting distance map: {e}")
         
         except Exception as e:
             print(f"[InsituValidation] Unexpected error in _validate_site: {e}")
@@ -1034,9 +1206,46 @@ class InsituValidationStep(PostProcessingStep):
             if not methods:
                 return
             
-            # All in-situ data
-            all_insitu_dates = list(results['buoy_date_temp'].keys())
-            all_insitu_temps = list(results['buoy_date_temp'].values())
+            # Get reconstruction time range to filter in-situ data
+            recon_dates = []
+            for method_data in methods.values():
+                if 'recon' in method_data and 'dates' in method_data['recon']:
+                    recon_dates.extend(method_data['recon']['dates'])
+            
+            # Use config time range if available, otherwise fall back to recon dates
+            config_start = results.get('config_start_date')
+            config_end = results.get('config_end_date')
+            
+            if config_start and config_end:
+                try:
+                    from datetime import date as dt_date
+                    recon_min_date = dt_date.fromisoformat(config_start)
+                    recon_max_date = dt_date.fromisoformat(config_end)
+                except:
+                    if recon_dates:
+                        recon_min_date = min(recon_dates)
+                        recon_max_date = max(recon_dates)
+                    else:
+                        recon_min_date = None
+                        recon_max_date = None
+            elif recon_dates:
+                recon_min_date = min(recon_dates)
+                recon_max_date = max(recon_dates)
+            else:
+                recon_min_date = None
+                recon_max_date = None
+            
+            # All in-situ data - filtered to reconstruction time range
+            buoy_date_temp = results['buoy_date_temp']
+            if recon_min_date is not None and recon_max_date is not None:
+                # Filter to reconstruction time range
+                filtered_buoy = {d: t for d, t in buoy_date_temp.items() 
+                                 if recon_min_date <= d <= recon_max_date}
+            else:
+                filtered_buoy = buoy_date_temp
+            
+            all_insitu_dates = list(filtered_buoy.keys())
+            all_insitu_temps = list(filtered_buoy.values())
             
             if not all_insitu_dates:
                 return
@@ -1213,10 +1422,43 @@ class InsituValidationStep(PostProcessingStep):
             if not methods:
                 return
             
-            # Find all years with in-situ data
+            # Get reconstruction time range to filter years
+            recon_dates = []
+            for method_data in methods.values():
+                if 'recon' in method_data and 'dates' in method_data['recon']:
+                    recon_dates.extend(method_data['recon']['dates'])
+            
+            # Use config time range if available, otherwise fall back to recon dates
+            config_start = results.get('config_start_date')
+            config_end = results.get('config_end_date')
+            
+            if config_start and config_end:
+                try:
+                    from datetime import date as dt_date
+                    min_year = dt_date.fromisoformat(config_start).year
+                    max_year = dt_date.fromisoformat(config_end).year
+                except:
+                    if recon_dates:
+                        min_year = min(d.year for d in recon_dates)
+                        max_year = max(d.year for d in recon_dates)
+                    else:
+                        min_year = None
+                        max_year = None
+            elif recon_dates:
+                min_year = min(d.year for d in recon_dates)
+                max_year = max(d.year for d in recon_dates)
+            else:
+                min_year = None
+                max_year = None
+            
+            # Find all years with in-situ data - filtered to reconstruction range
             all_insitu_years = set()
             for d in buoy_date_temp.keys():
-                all_insitu_years.add(d.year)
+                if min_year is not None and max_year is not None:
+                    if min_year <= d.year <= max_year:
+                        all_insitu_years.add(d.year)
+                else:
+                    all_insitu_years.add(d.year)
             
             os.makedirs(plot_dir, exist_ok=True)
             colors = {'obs': 'green', 'recon': 'blue', 'insitu': 'red', 'diff': 'purple'}
@@ -1238,6 +1480,10 @@ class InsituValidationStep(PostProcessingStep):
                     if has_obs:
                         for d in method_data['obs']['dates']:
                             method_years.add(d.year)
+                    
+                    # Filter to reconstruction time range (safety check)
+                    if min_year is not None and max_year is not None:
+                        method_years = {y for y in method_years if min_year <= y <= max_year}
                     
                     method_years = sorted(method_years)
                     
@@ -1677,10 +1923,21 @@ class InsituValidationStep(PostProcessingStep):
             rows = []
             buoy_date_temp = results['buoy_date_temp']
             
-            # Find all years
+            # Get reconstruction time range to filter years
+            recon_dates = []
+            for method_data in results['methods'].values():
+                if 'recon' in method_data and 'dates' in method_data['recon']:
+                    recon_dates.extend(method_data['recon']['dates'])
+            
+            if recon_dates:
+                min_year = min(d.year for d in recon_dates)
+                max_year = max(d.year for d in recon_dates)
+            else:
+                min_year = None
+                max_year = None
+            
+            # Find all years - only from reconstruction data (not buoy data)
             all_years = set()
-            for d in buoy_date_temp.keys():
-                all_years.add(d.year)
             for method_name, method_data in results['methods'].items():
                 if 'recon' in method_data:
                     for d in method_data['recon']['dates']:
@@ -1688,6 +1945,10 @@ class InsituValidationStep(PostProcessingStep):
                 if 'obs' in method_data:
                     for d in method_data['obs']['dates']:
                         all_years.add(d.year)
+            
+            # Filter to reconstruction time range (safety check)
+            if min_year is not None and max_year is not None:
+                all_years = {y for y in all_years if min_year <= y <= max_year}
             
             all_years = sorted(all_years)
             
@@ -1802,6 +2063,10 @@ class InsituValidationStep(PostProcessingStep):
         - DINCAE reconstruction
         
         Output columns:
+        - lake_id: Lake CCI ID
+        - site_id: Buoy site ID
+        - pixel_location: "lat,lon" in degrees
+        - pixel_indices: "lat_idx,lon_idx" in grid
         - date: timestamp of matched observation
         - insitu_temp: in-situ buoy temperature (°C)
         - satellite_obs_temp: satellite observation temperature (°C) - may have gaps
@@ -1825,6 +2090,26 @@ class InsituValidationStep(PostProcessingStep):
                 return
             
             all_dates = sorted(all_dates)
+            
+            # Filter dates to config time range if available
+            config_start = results.get('config_start_date')
+            config_end = results.get('config_end_date')
+            if config_start and config_end:
+                try:
+                    from datetime import date as dt_date
+                    start_date = dt_date.fromisoformat(config_start)
+                    end_date = dt_date.fromisoformat(config_end)
+                    all_dates_filtered = [d for d in all_dates if start_date <= d <= end_date]
+                    n_filtered = len(all_dates) - len(all_dates_filtered)
+                    if n_filtered > 0:
+                        print(f"[InsituValidation] Filtered {n_filtered} dates outside config range ({config_start} to {config_end})")
+                    all_dates = all_dates_filtered
+                except Exception as e:
+                    print(f"[InsituValidation] Warning: Could not filter by time range: {e}")
+            
+            if not all_dates:
+                print(f"[InsituValidation] No dates in config range for timeseries export")
+                return
             
             # Build lookup dicts for each data source
             # In-situ from buoy_date_temp
@@ -1859,10 +2144,25 @@ class InsituValidationStep(PostProcessingStep):
                         for i, d in enumerate(method_data['obs']['dates']):
                             dincae_obs[d] = method_data['obs']['satellite_temps'][i]
             
+            # Get pixel location info
+            lake_id = results['lake_id']
+            site_id = results['site_id']
+            pixel_lat = results.get('pixel_lat')
+            pixel_lon = results.get('pixel_lon')
+            pixel_lat_idx = results.get('pixel_lat_idx')
+            pixel_lon_idx = results.get('pixel_lon_idx')
+            
+            pixel_location = f"{pixel_lat:.6f},{pixel_lon:.6f}" if pixel_lat is not None else ""
+            pixel_indices = f"{pixel_lat_idx},{pixel_lon_idx}" if pixel_lat_idx is not None else ""
+            
             # Build rows
             rows = []
             for d in all_dates:
                 row = {
+                    'lake_id': lake_id,
+                    'site_id': site_id,
+                    'pixel_location': pixel_location,
+                    'pixel_indices': pixel_indices,
                     'date': d,
                     'insitu_temp': insitu_lookup.get(d, np.nan),
                     'satellite_obs_temp': dineof_obs.get(d, dincae_obs.get(d, np.nan)),
@@ -1880,5 +2180,332 @@ class InsituValidationStep(PostProcessingStep):
                 print(f"[InsituValidation] Saved timeseries: {os.path.basename(csv_path)} ({len(rows)} points)")
         except Exception as e:
             print(f"[InsituValidation] Error saving timeseries CSV: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _save_metadata_json(self, results: Dict, plot_dir: str):
+        """
+        Save comprehensive metadata JSON file for reproducibility.
+        
+        Contains all information needed to understand and reproduce the validation:
+        - Lake and site identifiers
+        - Buoy location and nearest pixel info
+        - Time range and sample counts
+        - Validation metrics summary
+        """
+        import json
+        from datetime import datetime
+        
+        try:
+            lake_id = results['lake_id']
+            lake_id_cci = results['lake_id_cci']
+            site_id = results['site_id']
+            
+            # Get date range from data
+            all_dates = []
+            for method_data in results['methods'].values():
+                if 'recon' in method_data:
+                    all_dates.extend(method_data['recon']['dates'])
+            
+            if all_dates:
+                all_dates_sorted = sorted(all_dates)
+                recon_start = str(all_dates_sorted[0])
+                recon_end = str(all_dates_sorted[-1])
+                n_recon_timestamps = len(set(all_dates))
+            else:
+                recon_start = None
+                recon_end = None
+                n_recon_timestamps = 0
+            
+            # Get buoy dates - filtered to reconstruction time range
+            all_buoy_dates = list(results.get('buoy_date_temp', {}).keys())
+            if all_dates and all_buoy_dates:
+                recon_min = min(all_dates)
+                recon_max = max(all_dates)
+                buoy_dates = [d for d in all_buoy_dates if recon_min <= d <= recon_max]
+            else:
+                buoy_dates = all_buoy_dates
+            
+            if buoy_dates:
+                buoy_dates_sorted = sorted(buoy_dates)
+                insitu_start = str(buoy_dates_sorted[0])
+                insitu_end = str(buoy_dates_sorted[-1])
+                n_insitu_in_range = len(buoy_dates)
+            else:
+                insitu_start = None
+                insitu_end = None
+                n_insitu_in_range = 0
+            
+            # Also store total in-situ count for reference
+            n_insitu_total = len(all_buoy_dates)
+            
+            # Count matched samples
+            n_matched = 0
+            n_matched_observed = 0
+            n_matched_missing = 0
+            
+            for method_data in results['methods'].values():
+                if 'recon' in method_data:
+                    n_matched = max(n_matched, method_data['recon'].get('n_matches', 0))
+                if 'recon_observed' in method_data:
+                    n_matched_observed = max(n_matched_observed, method_data['recon_observed'].get('n_matches', 0))
+                if 'recon_missing' in method_data:
+                    n_matched_missing = max(n_matched_missing, method_data['recon_missing'].get('n_matches', 0))
+            
+            # Build validation metrics summary
+            validation_summary = {}
+            for method_name, method_data in results['methods'].items():
+                method_summary = {}
+                
+                if 'obs' in method_data:
+                    method_summary['observation'] = {
+                        'rmse': method_data['obs'].get('rmse'),
+                        'bias': method_data['obs'].get('bias'),
+                        'n': method_data['obs'].get('n_matches'),
+                    }
+                
+                if 'recon' in method_data:
+                    method_summary['reconstruction'] = {
+                        'rmse': method_data['recon'].get('rmse'),
+                        'bias': method_data['recon'].get('bias'),
+                        'n': method_data['recon'].get('n_matches'),
+                    }
+                
+                if 'recon_observed' in method_data:
+                    method_summary['reconstruction_observed'] = {
+                        'rmse': method_data['recon_observed'].get('rmse'),
+                        'bias': method_data['recon_observed'].get('bias'),
+                        'n': method_data['recon_observed'].get('n_matches'),
+                    }
+                
+                if 'recon_missing' in method_data:
+                    method_summary['reconstruction_missing'] = {
+                        'rmse': method_data['recon_missing'].get('rmse'),
+                        'bias': method_data['recon_missing'].get('bias'),
+                        'n': method_data['recon_missing'].get('n_matches'),
+                    }
+                
+                validation_summary[method_name] = method_summary
+            
+            # Determine winner
+            dineof_rmse = None
+            dincae_rmse = None
+            for method_name, method_data in results['methods'].items():
+                if 'recon' in method_data:
+                    rmse = method_data['recon'].get('rmse')
+                    if method_name == 'dineof':
+                        dineof_rmse = rmse
+                    elif method_name == 'dincae':
+                        dincae_rmse = rmse
+            
+            if dineof_rmse is not None and dincae_rmse is not None:
+                winner = 'dineof' if dineof_rmse < dincae_rmse else 'dincae'
+            else:
+                winner = None
+            
+            # Build metadata dict
+            metadata = {
+                "generation_info": {
+                    "created": datetime.utcnow().isoformat() + "Z",
+                    "script": "insitu_validation.py",
+                },
+                "lake_info": {
+                    "lake_id": lake_id,
+                    "lake_id_cci": lake_id_cci,
+                    "lake_id_str": f"{lake_id_cci:09d}",
+                },
+                "buoy_info": {
+                    "site_id": site_id,
+                    "buoy_lat_deg": results.get('buoy_lat'),
+                    "buoy_lon_deg": results.get('buoy_lon'),
+                },
+                "pixel_info": {
+                    "pixel_lat_idx": results.get('pixel_lat_idx'),
+                    "pixel_lon_idx": results.get('pixel_lon_idx'),
+                    "pixel_lat_deg": results.get('pixel_lat'),
+                    "pixel_lon_deg": results.get('pixel_lon'),
+                    "pixel_location_str": f"{results.get('pixel_lat', 0):.6f},{results.get('pixel_lon', 0):.6f}" if results.get('pixel_lat') else None,
+                    "pixel_indices_str": f"{results.get('pixel_lat_idx')},{results.get('pixel_lon_idx')}" if results.get('pixel_lat_idx') is not None else None,
+                    "distance_from_shore_px": results.get('distance_from_shore_px'),
+                },
+                "time_info": {
+                    "config_start_date": results.get('config_start_date'),
+                    "config_end_date": results.get('config_end_date'),
+                    "n_reconstruction_timestamps": n_recon_timestamps,
+                    "insitu_start": insitu_start,
+                    "insitu_end": insitu_end,
+                    "n_insitu_in_recon_range": n_insitu_in_range,
+                    "n_insitu_total": n_insitu_total,
+                    "note": "insitu dates filtered to config time range"
+                },
+                "sample_counts": {
+                    "n_matched_total": n_matched,
+                    "n_matched_observed": n_matched_observed,
+                    "n_matched_missing": n_matched_missing,
+                },
+                "validation_summary": validation_summary,
+                "winner_reconstruction": winner,
+                "units": {
+                    "temperature": "degrees_Celsius",
+                    "distance": "pixels",
+                    "coordinates": "degrees",
+                },
+            }
+            
+            # Save JSON
+            os.makedirs(plot_dir, exist_ok=True)
+            json_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_insitu_metadata_site{site_id}.json")
+            with open(json_path, 'w') as f:
+                json.dump(metadata, f, indent=2, default=str)
+            print(f"[InsituValidation] Saved metadata: {os.path.basename(json_path)}")
+            
+        except Exception as e:
+            print(f"[InsituValidation] Error saving metadata JSON: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _save_distance_map(self, results: Dict, plot_dir: str):
+        """
+        Save distance-from-shore map as CSV for the lake.
+        
+        Output includes:
+        - lat, lon coordinates
+        - lake_mask (1=lake, 0=non-lake)
+        - distance_from_shore (in pixels)
+        - buoy_pixel marker (1 at buoy location, 0 elsewhere)
+        """
+        try:
+            if 'distance_map' not in results or results['distance_map'] is None:
+                return
+            
+            lake_id_cci = results['lake_id_cci']
+            site_id = results['site_id']
+            distance_map = results['distance_map']
+            lake_mask = results['lake_mask']
+            lat_array = results['lat_array']
+            lon_array = results['lon_array']
+            buoy_lat_idx = results.get('pixel_lat_idx')
+            buoy_lon_idx = results.get('pixel_lon_idx')
+            
+            # Build CSV rows - only for lake pixels to keep file size manageable
+            rows = []
+            for i in range(len(lat_array)):
+                for j in range(len(lon_array)):
+                    if lake_mask[i, j]:
+                        is_buoy_pixel = 1 if (i == buoy_lat_idx and j == buoy_lon_idx) else 0
+                        rows.append({
+                            'lat_idx': i,
+                            'lon_idx': j,
+                            'lat': lat_array[i],
+                            'lon': lon_array[j],
+                            'lake_mask': int(lake_mask[i, j]),
+                            'distance_from_shore_px': distance_map[i, j],
+                            'is_buoy_pixel': is_buoy_pixel,
+                        })
+            
+            if rows:
+                os.makedirs(plot_dir, exist_ok=True)
+                csv_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_distance_map_site{site_id}.csv")
+                pd.DataFrame(rows).to_csv(csv_path, index=False)
+                print(f"[InsituValidation] Saved distance map: {os.path.basename(csv_path)} ({len(rows)} lake pixels)")
+        
+        except Exception as e:
+            print(f"[InsituValidation] Error saving distance map CSV: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _plot_distance_map(self, results: Dict, plot_dir: str):
+        """
+        Plot distance-from-shore map with buoy location highlighted.
+        
+        Creates a heatmap showing:
+        - Distance from shore for all lake pixels
+        - Lake boundary (contour)
+        - Buoy pixel location (marked with star)
+        """
+        try:
+            if 'distance_map' not in results or results['distance_map'] is None:
+                return
+            
+            lake_id = results['lake_id']
+            lake_id_cci = results['lake_id_cci']
+            site_id = results['site_id']
+            distance_map = results['distance_map']
+            lake_mask = results['lake_mask']
+            lat_array = results['lat_array']
+            lon_array = results['lon_array']
+            buoy_lat_idx = results.get('pixel_lat_idx')
+            buoy_lon_idx = results.get('pixel_lon_idx')
+            buoy_distance = results.get('distance_from_shore_px', 0)
+            
+            # Mask non-lake pixels for visualization
+            distance_masked = np.where(lake_mask, distance_map, np.nan)
+            
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+            
+            # Panel 1: Distance map heatmap
+            ax1 = axes[0]
+            
+            # Create meshgrid for pcolormesh
+            lon_grid, lat_grid = np.meshgrid(lon_array, lat_array)
+            
+            # Plot distance as heatmap
+            im = ax1.pcolormesh(lon_grid, lat_grid, distance_masked, 
+                               cmap='viridis', shading='auto')
+            cbar = plt.colorbar(im, ax=ax1, label='Distance from shore (pixels)')
+            
+            # Add lake boundary contour
+            ax1.contour(lon_grid, lat_grid, lake_mask.astype(int), 
+                       levels=[0.5], colors='black', linewidths=1.5)
+            
+            # Mark buoy location
+            if buoy_lat_idx is not None and buoy_lon_idx is not None:
+                buoy_lat = lat_array[buoy_lat_idx]
+                buoy_lon = lon_array[buoy_lon_idx]
+                ax1.scatter(buoy_lon, buoy_lat, marker='*', s=300, c='red', 
+                           edgecolor='white', linewidth=2, zorder=10,
+                           label=f'Buoy (dist={buoy_distance:.1f}px)')
+                ax1.legend(loc='upper right')
+            
+            ax1.set_xlabel('Longitude')
+            ax1.set_ylabel('Latitude')
+            ax1.set_title(f'Lake {lake_id} - Distance from Shore Map\n(Site {site_id})')
+            ax1.set_aspect('equal')
+            
+            # Panel 2: Histogram of distances + buoy location
+            ax2 = axes[1]
+            
+            lake_distances = distance_map[lake_mask].flatten()
+            
+            ax2.hist(lake_distances, bins=30, color='steelblue', edgecolor='black', alpha=0.7)
+            ax2.axvline(buoy_distance, color='red', linewidth=2, linestyle='--',
+                       label=f'Buoy distance: {buoy_distance:.1f}px')
+            
+            # Add percentile info
+            percentile = 100 * (lake_distances < buoy_distance).sum() / len(lake_distances)
+            ax2.axvline(np.median(lake_distances), color='orange', linewidth=2, linestyle=':',
+                       label=f'Median: {np.median(lake_distances):.1f}px')
+            
+            ax2.set_xlabel('Distance from shore (pixels)')
+            ax2.set_ylabel('Number of pixels')
+            ax2.set_title(f'Distribution of Shore Distances\n(Buoy at {percentile:.0f}th percentile)')
+            ax2.legend()
+            
+            # Add text box with summary
+            textstr = f'Lake pixels: {lake_mask.sum()}\nMax distance: {lake_distances.max():.1f}px\nBuoy distance: {buoy_distance:.1f}px'
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+            ax2.text(0.95, 0.95, textstr, transform=ax2.transAxes, fontsize=10,
+                    verticalalignment='top', horizontalalignment='right', bbox=props)
+            
+            plt.tight_layout()
+            
+            os.makedirs(plot_dir, exist_ok=True)
+            save_path = os.path.join(plot_dir, f"LAKE{lake_id_cci:09d}_distance_map_site{site_id}.png")
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"[InsituValidation] Saved distance map plot: {os.path.basename(save_path)}")
+        
+        except Exception as e:
+            print(f"[InsituValidation] Error plotting distance map: {e}")
             import traceback
             traceback.print_exc()
