@@ -37,6 +37,16 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy import ndimage
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+
+# Optional fair comparison support
+try:
+    from completion_check import get_fair_comparison_lakes
+    HAS_COMPLETION_CHECK = True
+except ImportError:
+    HAS_COMPLETION_CHECK = False
 
 # =============================================================================
 # CONFIGURATION
@@ -111,6 +121,114 @@ def find_nearest_pixel(lat_array: np.ndarray, lon_array: np.ndarray,
     return np.unravel_index(np.argmin(distance), distance.shape)
 
 
+def plot_distance_map_with_pixels(
+    lake_mask: np.ndarray,
+    distance_map: np.ndarray,
+    lat_array: np.ndarray,
+    lon_array: np.ndarray,
+    lake_id: int,
+    output_path: str,
+    center_idx: Optional[Tuple[int, int]] = None,
+    shore_idx: Optional[Tuple[int, int]] = None,
+    buoy_idx: Optional[Tuple[int, int]] = None,
+    center_dist: float = None,
+    shore_dist: float = None,
+    buoy_dist: float = None,
+):
+    """
+    Plot distance-from-shore map with key pixel locations highlighted.
+    
+    Creates a figure with:
+    - Left panel: Distance map heatmap with pixel locations marked
+    - Right panel: Histogram of distances with pixel locations marked
+    """
+    # Mask non-lake pixels
+    distance_masked = np.where(lake_mask, distance_map, np.nan)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # Panel 1: Distance map heatmap
+    ax1 = axes[0]
+    lon_grid, lat_grid = np.meshgrid(lon_array, lat_array)
+    
+    im = ax1.pcolormesh(lon_grid, lat_grid, distance_masked, 
+                        cmap='viridis', shading='auto')
+    cbar = plt.colorbar(im, ax=ax1, label='Distance from shore (pixels)')
+    
+    # Add lake boundary contour
+    ax1.contour(lon_grid, lat_grid, lake_mask.astype(int), 
+               levels=[0.5], colors='black', linewidths=1.5)
+    
+    # Mark pixel locations
+    markers = []
+    if center_idx is not None:
+        center_lat = lat_array[center_idx[0]]
+        center_lon = lon_array[center_idx[1]]
+        ax1.scatter(center_lon, center_lat, marker='o', s=200, c='red', 
+                   edgecolor='white', linewidth=2, zorder=10,
+                   label=f'Center (dist={center_dist:.1f}px)' if center_dist else 'Center')
+        markers.append('center')
+    
+    if shore_idx is not None:
+        shore_lat = lat_array[shore_idx[0]]
+        shore_lon = lon_array[shore_idx[1]]
+        ax1.scatter(shore_lon, shore_lat, marker='s', s=200, c='orange', 
+                   edgecolor='white', linewidth=2, zorder=10,
+                   label=f'Shore (dist={shore_dist:.1f}px)' if shore_dist else 'Shore')
+        markers.append('shore')
+    
+    if buoy_idx is not None:
+        buoy_lat = lat_array[buoy_idx[0]]
+        buoy_lon = lon_array[buoy_idx[1]]
+        ax1.scatter(buoy_lon, buoy_lat, marker='*', s=300, c='cyan', 
+                   edgecolor='white', linewidth=2, zorder=10,
+                   label=f'Buoy (dist={buoy_dist:.1f}px)' if buoy_dist else 'Buoy')
+        markers.append('buoy')
+    
+    if markers:
+        ax1.legend(loc='upper right')
+    
+    ax1.set_xlabel('Longitude')
+    ax1.set_ylabel('Latitude')
+    ax1.set_title(f'Lake {lake_id} - Distance from Shore Map\nwith Key Pixel Locations')
+    ax1.set_aspect('equal')
+    
+    # Panel 2: Histogram of distances
+    ax2 = axes[1]
+    lake_distances = distance_map[lake_mask].flatten()
+    
+    ax2.hist(lake_distances, bins=30, color='steelblue', edgecolor='black', alpha=0.7)
+    
+    # Mark pixel locations on histogram
+    if center_dist is not None:
+        ax2.axvline(center_dist, color='red', linewidth=2, linestyle='--',
+                   label=f'Center: {center_dist:.1f}px')
+    if shore_dist is not None:
+        ax2.axvline(shore_dist, color='orange', linewidth=2, linestyle='--',
+                   label=f'Shore: {shore_dist:.1f}px')
+    if buoy_dist is not None:
+        ax2.axvline(buoy_dist, color='cyan', linewidth=2, linestyle='--',
+                   label=f'Buoy: {buoy_dist:.1f}px')
+    
+    ax2.axvline(np.median(lake_distances), color='gray', linewidth=2, linestyle=':',
+               label=f'Median: {np.median(lake_distances):.1f}px')
+    
+    ax2.set_xlabel('Distance from shore (pixels)')
+    ax2.set_ylabel('Number of pixels')
+    ax2.set_title('Distribution of Shore Distances')
+    ax2.legend()
+    
+    # Add text box with summary
+    textstr = f'Lake pixels: {lake_mask.sum()}\nMax distance: {lake_distances.max():.1f}px'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+    ax2.text(0.95, 0.95, textstr, transform=ax2.transAxes, fontsize=10,
+            verticalalignment='top', horizontalalignment='right', bbox=props)
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
 # =============================================================================
 # DATA EXTRACTION
 # =============================================================================
@@ -122,7 +240,7 @@ def extract_timeseries_at_pixel(ds: xr.Dataset, lat_idx: int, lon_idx: int,
     
     Returns DataFrame with columns:
     - date
-    - satellite_obs (NaN if no observation)
+    - satellite_obs (actual lake_surface_water_temperature, NaN if no valid observation)
     - quality_level (NaN if no observation)
     - reconstruction value
     - is_observed (1 or 0)
@@ -137,12 +255,22 @@ def extract_timeseries_at_pixel(ds: xr.Dataset, lat_idx: int, lon_idx: int,
     if np.nanmean(recon) > 100:
         recon = recon - 273.15
     
-    # Get quality level to identify observations
+    # Get actual satellite observation (lake_surface_water_temperature)
+    if 'lake_surface_water_temperature' in ds:
+        sat_obs_raw = ds['lake_surface_water_temperature'].isel(lat=lat_idx, lon=lon_idx).values
+        # Convert to Celsius if needed
+        if np.nanmean(sat_obs_raw[np.isfinite(sat_obs_raw)]) > 100 if np.any(np.isfinite(sat_obs_raw)) else False:
+            sat_obs_raw = sat_obs_raw - 273.15
+    else:
+        sat_obs_raw = np.full(len(times), np.nan)
+    
+    # Get quality level to identify valid observations
     if 'quality_level' in ds:
         quality = ds['quality_level'].isel(lat=lat_idx, lon=lon_idx).values
-        is_observed = (np.isfinite(quality) & (quality >= quality_threshold)).astype(int)
-        # Satellite obs = reconstruction value where observed, NaN otherwise
-        satellite_obs = np.where(is_observed == 1, recon, np.nan)
+        # Only count as observed if quality meets threshold AND satellite obs is finite
+        is_observed = (np.isfinite(quality) & (quality >= quality_threshold) & np.isfinite(sat_obs_raw)).astype(int)
+        # Satellite obs = actual observation where valid, NaN otherwise
+        satellite_obs = np.where(is_observed == 1, sat_obs_raw, np.nan)
     else:
         quality = np.full(len(times), np.nan)
         is_observed = np.zeros(len(times), dtype=int)
@@ -162,6 +290,39 @@ def get_time_range_from_attrs(ds: xr.Dataset) -> Tuple[Optional[str], Optional[s
     start = ds.attrs.get('time_start_date', None)
     end = ds.attrs.get('time_end_date', None)
     return start, end
+
+
+def get_time_range_from_manifest(run_root: str) -> Tuple[Optional[str], Optional[str]]:
+    """Get config time range from manifest.json in run root."""
+    try:
+        manifest_path = os.path.join(run_root, "manifest.json")
+        if os.path.exists(manifest_path):
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+            preproc_opts = manifest.get('preprocessing_options', {})
+            start = preproc_opts.get('start_date')
+            end = preproc_opts.get('end_date')
+            if start and end:
+                return start, end
+    except Exception:
+        pass
+    return None, None
+
+
+def get_time_range_from_prepared(run_root: str, lake_id: int) -> Tuple[Optional[str], Optional[str]]:
+    """Get config time range from prepared.nc for a lake."""
+    try:
+        lake_str = f"{lake_id:09d}"
+        prepared_path = os.path.join(run_root, "prepared", lake_str, "prepared.nc")
+        if os.path.exists(prepared_path):
+            with xr.open_dataset(prepared_path, decode_times=False) as ds:
+                start = ds.attrs.get('time_start_date')
+                end = ds.attrs.get('time_end_date')
+                if start and end:
+                    return start, end
+    except Exception:
+        pass
+    return None, None
 
 
 def load_selection_csvs(csv_paths: List[str]) -> pd.DataFrame:
@@ -247,8 +408,12 @@ def export_lake(run_root: str, lake_id: int, alpha: str,
         lats = ds_dineof['lat'].values
         lons = ds_dineof['lon'].values
         
-        # Get time range from attributes
-        time_start, time_end = get_time_range_from_attrs(ds_dineof)
+        # Get time range from prepared.nc or manifest.json (NOT from post-processed file attrs)
+        time_start, time_end = get_time_range_from_prepared(run_root, lake_id)
+        if time_start is None or time_end is None:
+            time_start, time_end = get_time_range_from_manifest(run_root)
+        if time_start and time_end and verbose:
+            print(f"  Lake {lake_id}: Config time range {time_start} to {time_end}")
         
         # Get actual timestamps
         times = pd.to_datetime(ds_dineof['time'].values)
@@ -396,6 +561,10 @@ def export_lake(run_root: str, lake_id: int, alpha: str,
         # SHORE PIXEL
         # =====================================================================
         shore_idx = find_shore_pixel(lake_mask, distance_map, shore_margin)
+        if shore_idx is None:
+            if verbose:
+                max_dist = float(distance_map[lake_mask].max()) if lake_mask.any() else 0
+                print(f"  Lake {lake_id}: No shore pixel found (max_distance={max_dist:.1f}px, margin={shore_margin}px)")
         if shore_idx is not None:
             shore_lat = float(lats[shore_idx[0]])
             shore_lon = float(lons[shore_idx[1]])
@@ -439,6 +608,8 @@ def export_lake(run_root: str, lake_id: int, alpha: str,
                 dineof_rmse = np.nan
                 dincae_rmse = np.nan
                 winner = None
+                if verbose:
+                    print(f"  Lake {lake_id}: Shore pixel has only {n_observed} observations (need >=5 for RMSE)")
             
             # Update metadata
             metadata['pixels']['shore'] = {
@@ -567,9 +738,66 @@ def export_lake(run_root: str, lake_id: int, alpha: str,
                 summary['buoy_winner'] = winner
         
         # Save metadata JSON
+        # Convert numpy types to native Python types for JSON serialization
+        def json_serializer(obj):
+            if isinstance(obj, (np.integer, np.floating)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+        
         metadata_path = os.path.join(lake_output_dir, "metadata.json")
         with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+            json.dump(metadata, f, indent=2, default=json_serializer)
+        
+        # Plot distance map with pixel locations
+        try:
+            # Get pixel indices and distances from metadata
+            center_info = metadata['pixels'].get('center', {})
+            shore_info = metadata['pixels'].get('shore', {})
+            buoy_info = metadata['pixels'].get('buoy', {})
+            
+            plot_center_idx = None
+            plot_shore_idx = None
+            plot_buoy_idx = None
+            plot_center_dist = None
+            plot_shore_dist = None
+            plot_buoy_dist = None
+            
+            if center_info.get('lat_idx') is not None:
+                plot_center_idx = (center_info['lat_idx'], center_info['lon_idx'])
+                plot_center_dist = center_info.get('distance_from_shore_px')
+            
+            if shore_info.get('lat_idx') is not None:
+                plot_shore_idx = (shore_info['lat_idx'], shore_info['lon_idx'])
+                plot_shore_dist = shore_info.get('distance_from_shore_px')
+            
+            if buoy_info.get('pixel_lat_idx') is not None:
+                plot_buoy_idx = (buoy_info['pixel_lat_idx'], buoy_info['pixel_lon_idx'])
+                plot_buoy_dist = buoy_info.get('distance_from_shore_px')
+            
+            plot_path = os.path.join(lake_output_dir, "distance_map_pixels.png")
+            plot_distance_map_with_pixels(
+                lake_mask=lake_mask,
+                distance_map=distance_map,
+                lat_array=lats,
+                lon_array=lons,
+                lake_id=lake_id,
+                output_path=plot_path,
+                center_idx=plot_center_idx,
+                shore_idx=plot_shore_idx,
+                buoy_idx=plot_buoy_idx,
+                center_dist=plot_center_dist,
+                shore_dist=plot_shore_dist,
+                buoy_dist=plot_buoy_dist,
+            )
+            if verbose:
+                print(f"  Lake {lake_id}: saved distance map plot")
+        except Exception as e:
+            if verbose:
+                print(f"  Lake {lake_id}: failed to plot distance map: {e}")
         
         if verbose:
             center_win = metadata['validation_metrics'].get('center', {}).get('winner', '?')
@@ -614,6 +842,8 @@ Output structure:
     parser.add_argument("--output-dir", default=None, help="Output directory")
     parser.add_argument("--shore-margin", type=int, default=3, help="Min pixels from shore")
     parser.add_argument("--selection-csvs", nargs="+", default=None)
+    parser.add_argument("--no-fair-comparison", action="store_true",
+                        help="Disable fair comparison filter (include lakes without both methods)")
     parser.add_argument("-v", "--verbose", action="store_true")
     
     args = parser.parse_args()
@@ -639,16 +869,30 @@ Output structure:
         print("No selection CSVs loaded - buoy pixels will not be exported")
         selection_df = None
     
-    # Find all lakes
+    # Find all lakes - with optional fair comparison filtering
     post_dir = os.path.join(args.run_root, "post")
-    lake_ids = []
-    for folder in os.listdir(post_dir):
-        try:
-            lake_id = int(folder.lstrip('0') or '0')
-            if lake_id > 0:
-                lake_ids.append(lake_id)
-        except:
-            continue
+    
+    if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+        print("=" * 70)
+        print("FAIR COMPARISON MODE: Getting lakes with both methods complete")
+        print("=" * 70)
+        lake_ids, completion_summary = get_fair_comparison_lakes(
+            args.run_root, args.alpha, verbose=True
+        )
+        if not lake_ids:
+            print("ERROR: No lakes found with both methods complete")
+            sys.exit(1)
+    else:
+        if not args.no_fair_comparison and not HAS_COMPLETION_CHECK:
+            print("WARNING: completion_check.py not found, processing all lakes")
+        lake_ids = []
+        for folder in os.listdir(post_dir):
+            try:
+                lake_id = int(folder.lstrip('0') or '0')
+                if lake_id > 0:
+                    lake_ids.append(lake_id)
+            except:
+                continue
     
     lake_ids = sorted(lake_ids)
     print(f"Found {len(lake_ids)} lakes to process")
