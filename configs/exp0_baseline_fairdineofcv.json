@@ -16,6 +16,7 @@
 
   "paths": {
     "_run_tag_note": "Leave empty to auto-generate: {mode}-{date}-{hash}-{note}",
+    "run_tag": "anomaly-20260125-4d8546-exp0_dineof_noretrain",  
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",

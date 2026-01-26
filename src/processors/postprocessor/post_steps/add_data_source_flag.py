@@ -104,8 +104,10 @@ class AddDataSourceFlagStep(PostProcessingStep):
         n_lat = len(lat_vals)
         n_lon = len(lon_vals)
         
-        # Initialize flag array: default to FLAG_TRUE_GAP (0)
-        flag = np.zeros((n_time, n_lat, n_lon), dtype=np.uint8)
+        # Initialize flag array: default to FLAG_NOT_RECONSTRUCTED (255)
+        # Only timesteps in prepared.nc will get 0/1/2 values
+        FLAG_NOT_RECONSTRUCTED = 255
+        flag = np.full((n_time, n_lat, n_lon), FLAG_NOT_RECONSTRUCTED, dtype=np.uint8)
         
         # --- Step 1: Load prepared.nc to get observation mask ---
         # Observations are where the LSWT variable is NOT NaN
@@ -131,6 +133,7 @@ class AddDataSourceFlagStep(PostProcessingStep):
                 obs_mask_prep = ~np.isnan(prep_data)
                 print(f"[{self.name}] Prepared data shape: {prep_data.shape}")
                 print(f"[{self.name}] Valid observations in prepared.nc: {obs_mask_prep.sum():,}")
+                print(f"[{self.name}] Number of reconstructed timesteps: {len(prep_time_days)}")
         
         # --- Step 2: Map prepared time to output time ---
         # The output may have a different (expanded) time axis
@@ -143,12 +146,14 @@ class AddDataSourceFlagStep(PostProcessingStep):
             prep_to_out_idx.append(out_time_set.get(int(d), -1))
         prep_to_out_idx = np.array(prep_to_out_idx, dtype=np.int64)
         
-        # --- Step 3: Set FLAG_OBSERVED_SEEN where observations exist ---
+        # --- Step 3: For each prepared timestep, set flags ---
+        # Only these timesteps have reconstruction; others stay as 255
         if prep_data is not None:
             for t_prep in range(len(prep_time_days)):
                 t_out = prep_to_out_idx[t_prep]
                 if t_out >= 0:
-                    # Mark observed pixels as FLAG_OBSERVED_SEEN
+                    # For this timestep: mark observed pixels as FLAG_OBSERVED_SEEN,
+                    # missing pixels as FLAG_TRUE_GAP
                     flag[t_out, :, :] = np.where(
                         obs_mask_prep[t_prep, :, :],
                         FLAG_OBSERVED_SEEN,
@@ -170,26 +175,30 @@ class AddDataSourceFlagStep(PostProcessingStep):
             coords={"time": time_vals, "lat": lat_vals, "lon": lon_vals},
             attrs={
                 "long_name": "data source flag",
-                "flag_values": [0, 1, 2],
-                "flag_meanings": "true_gap observed_seen cv_withheld",
+                "flag_values": [0, 1, 2, 255],
+                "flag_meanings": "true_gap observed_seen cv_withheld not_reconstructed",
                 "comment": (
-                    "0=true gap (originally missing), "
+                    "0=true gap (originally missing, within reconstructed timesteps), "
                     "1=observed and seen in training, "
-                    "2=CV point (withheld observation)"
+                    "2=CV point (withheld observation), "
+                    "255=not reconstructed (timestep not in prepared.nc)"
                 ),
             }
         )
         
-        # Summary statistics
+        # Summary statistics - only count within reconstructed timesteps
+        n_not_recon = (flag == 255).sum()
         n_gap = (flag == FLAG_TRUE_GAP).sum()
         n_observed = (flag == FLAG_OBSERVED_SEEN).sum()
         n_cv = (flag == FLAG_CV_WITHHELD).sum()
-        total = flag.size
+        n_reconstructed = n_gap + n_observed + n_cv
         
         print(f"[{self.name}] Data source flag summary:")
-        print(f"[{self.name}]   True gaps:      {n_gap:>12,} ({100*n_gap/total:.2f}%)")
-        print(f"[{self.name}]   Observed/seen:  {n_observed:>12,} ({100*n_observed/total:.2f}%)")
-        print(f"[{self.name}]   CV withheld:    {n_cv:>12,} ({100*n_cv/total:.2f}%)")
+        print(f"[{self.name}]   Not reconstructed (255): {n_not_recon:>12,} (timesteps outside prepared.nc)")
+        print(f"[{self.name}]   --- Within reconstructed timesteps ({n_reconstructed:,} pixels) ---")
+        print(f"[{self.name}]   True gaps (0):     {n_gap:>12,} ({100*n_gap/n_reconstructed:.2f}%)")
+        print(f"[{self.name}]   Observed/seen (1): {n_observed:>12,} ({100*n_observed/n_reconstructed:.2f}%)")
+        print(f"[{self.name}]   CV withheld (2):   {n_cv:>12,} ({100*n_cv/n_reconstructed:.2f}%)")
         
         return ds
     
