@@ -108,6 +108,50 @@ class MergeOutputsStep(PostProcessingStep):
             if misses:
                 print(f"[MergeOutputs] Skipped {misses} sub timesteps not present in original timeline.")
     
+            # Apply lake mask: ensure only lake pixels have values
+            # This is critical for DINCAE which fills the entire cropped rectangle
+            # including buffer pixels outside the lake mask
+            # Use lakeid from prepared.nc (same mask DINEOF uses) for consistency
+            lake_mask_applied = False
+            with xr.open_dataset(ctx.dineof_input_path) as ds_prep:
+                if "lakeid" in ds_prep:
+                    lakeid_raw = ds_prep["lakeid"].values
+                    lake_mask_2d = np.isfinite(lakeid_raw) & (lakeid_raw != 0)  # True for lake pixels
+                    non_lake_2d = ~lake_mask_2d
+                    
+                    # Count how many non-lake pixels had values (for logging)
+                    n_non_lake_with_value = 0
+                    for t in range(t_len):
+                        frame = out[t, :, :]
+                        n_non_lake_with_value += int(np.sum(~np.isnan(frame) & non_lake_2d))
+                        out[t, non_lake_2d] = np.nan
+                    
+                    lake_mask_applied = True
+                    if n_non_lake_with_value > 0:
+                        print(f"[MergeOutputs] Applied lake mask from prepared.nc: removed {n_non_lake_with_value:,} values outside lake mask")
+                    else:
+                        print(f"[MergeOutputs] Lake mask applied (no non-lake values found)")
+                else:
+                    print(f"[MergeOutputs] WARNING: No 'lakeid' in prepared.nc, cannot apply lake mask")
+            
+            if not lake_mask_applied:
+                # Fallback to original lake file
+                if "lakeid" in ds_orig:
+                    lakeid_raw = ds_orig["lakeid"].values
+                    lake_mask_2d = np.isfinite(lakeid_raw) & (lakeid_raw != 0)
+                    non_lake_2d = ~lake_mask_2d
+                    
+                    n_non_lake_with_value = 0
+                    for t in range(t_len):
+                        frame = out[t, :, :]
+                        n_non_lake_with_value += int(np.sum(~np.isnan(frame) & non_lake_2d))
+                        out[t, non_lake_2d] = np.nan
+                    
+                    if n_non_lake_with_value > 0:
+                        print(f"[MergeOutputs] Applied lake mask from original file: removed {n_non_lake_with_value:,} values outside lake mask")
+                else:
+                    print(f"[MergeOutputs] WARNING: No 'lakeid' found in any source file")
+    
             # Optional: keep prepared→original mapping as metadata (do NOT use it to fill)
             map_idx = np.array([idx_map.get(int(d), -1) for d in prep_days], dtype="int64")
             if np.any(map_idx < 0):

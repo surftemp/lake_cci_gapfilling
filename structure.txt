@@ -1,0 +1,638 @@
+.
+├── configs
+│   ├── exp0_baseline_fairdineofcv.json
+│   ├── exp1_baseline.json
+│   ├── exp1_post_patch.json
+│   ├── exp2_temperature.json
+│   ├── exp3_baseline.json
+│   ├── exp3_ntime3_patch.json
+│   ├── exp5_ntime5_stable_ntimewin.json
+│   ├── exp6_ntime7_stable_ntimewin.json
+│   ├── patch.json
+│   ├── pilot_dincae.json
+│   ├── pilot_ntimewin.json
+│   └── pilot_tmp.json
+├── cv_pairs_mapping_manual.md
+├── LICENSE
+├── orchestration
+│   ├── lswtctl.py
+│   ├── pipeline_structure.md
+│   └── stage.slurm
+├── pyproject.toml
+├── README.md
+├── scripts
+│   ├── analyze_amplitude_roughness.py
+│   ├── analyze_insitu_validation.py
+│   ├── analyze_insitu_validation.py.backup
+│   ├── analyze_spatial_patterns.py
+│   ├── analyze_winner_prediction.py
+│   ├── CHANGELOG_FAIR_COMPARISON.md
+│   ├── compare_insitu_vs_satellite.py
+│   ├── compare_recon_roughness.py
+│   ├── compare_satellite_insitu_cv.py
+│   ├── completion_check.py
+│   ├── comprehensive_timeseries_analysis.py
+│   ├── cv_validation.py
+│   ├── export_pixel_timeseries.py
+│   ├── extract_dineof_dincae_metrics_exp1.ipynb
+│   ├── extract_dineof_dincae_metrics_exp3.ipynb
+│   ├── extract_dineof_dincae_metrics_with_filter.ipynb
+│   ├── filtered_lakes_lake_summary_results_from2000_QL45.csv
+│   ├── insitu_validation_5_questions.py
+│   ├── lakes_with_insitu.csv
+│   ├── logs_insitu
+│   │   ├── insitu_000000009.err
+│   │   ├── insitu_000000009.out
+│   │   ├── insitu_000000011.err
+│   │   ├── insitu_000000011.out
+│   │   ├── insitu_000000012.err
+│   │   ├── insitu_000000012.out
+│   │   ├── insitu_000000013.err
+│   │   ├── insitu_000000013.out
+│   │   ├── insitu_000000015.err
+│   │   ├── insitu_000000015.out
+│   │   ├── insitu_000000016.err
+│   │   ├── insitu_000000016.out
+│   │   ├── insitu_000000017.err
+│   │   ├── insitu_000000017.out
+│   │   ├── insitu_000000020.err
+│   │   ├── insitu_000000020.out
+│   │   ├── insitu_000000021.err
+│   │   ├── insitu_000000021.out
+│   │   ├── insitu_000000025.err
+│   │   ├── insitu_000000025.out
+│   │   ├── insitu_000000026.err
+│   │   ├── insitu_000000026.out
+│   │   ├── insitu_000000035.err
+│   │   ├── insitu_000000035.out
+│   │   ├── insitu_000000044.err
+│   │   ├── insitu_000000044.out
+│   │   ├── insitu_000000051.err
+│   │   ├── insitu_000000051.out
+│   │   ├── insitu_000000052.err
+│   │   ├── insitu_000000052.out
+│   │   ├── insitu_000000081.err
+│   │   ├── insitu_000000081.out
+│   │   ├── insitu_000000084.err
+│   │   ├── insitu_000000084.out
+│   │   ├── insitu_000000088.err
+│   │   ├── insitu_000000088.out
+│   │   ├── insitu_000000091.err
+│   │   ├── insitu_000000091.out
+│   │   ├── insitu_000000133.err
+│   │   ├── insitu_000000133.out
+│   │   ├── insitu_000000146.err
+│   │   ├── insitu_000000146.out
+│   │   ├── insitu_000000165.err
+│   │   ├── insitu_000000165.out
+│   │   ├── insitu_000000170.err
+│   │   ├── insitu_000000170.out
+│   │   ├── insitu_000000171.err
+│   │   ├── insitu_000000171.out
+│   │   ├── insitu_000000174.err
+│   │   ├── insitu_000000174.out
+│   │   ├── insitu_000000177.err
+│   │   ├── insitu_000000177.out
+│   │   ├── insitu_000000198.err
+│   │   ├── insitu_000000198.out
+│   │   ├── insitu_000000223.err
+│   │   ├── insitu_000000223.out
+│   │   ├── insitu_000000227.err
+│   │   ├── insitu_000000227.out
+│   │   ├── insitu_000000236.err
+│   │   ├── insitu_000000236.out
+│   │   ├── insitu_000000257.err
+│   │   ├── insitu_000000257.out
+│   │   ├── insitu_000000295.err
+│   │   ├── insitu_000000295.out
+│   │   ├── insitu_000000298.err
+│   │   ├── insitu_000000298.out
+│   │   ├── insitu_000000310.err
+│   │   ├── insitu_000000310.out
+│   │   ├── insitu_000000311.err
+│   │   ├── insitu_000000311.out
+│   │   ├── insitu_000000314.err
+│   │   ├── insitu_000000314.out
+│   │   ├── insitu_000000318.err
+│   │   ├── insitu_000000318.out
+│   │   ├── insitu_000000319.err
+│   │   ├── insitu_000000319.out
+│   │   ├── insitu_000000321.err
+│   │   ├── insitu_000000321.out
+│   │   ├── insitu_000000327.err
+│   │   ├── insitu_000000327.out
+│   │   ├── insitu_000000335.err
+│   │   ├── insitu_000000335.out
+│   │   ├── insitu_000000375.err
+│   │   ├── insitu_000000375.out
+│   │   ├── insitu_000000380.err
+│   │   ├── insitu_000000380.out
+│   │   ├── insitu_000000395.err
+│   │   ├── insitu_000000395.out
+│   │   ├── insitu_000000423.err
+│   │   ├── insitu_000000423.out
+│   │   ├── insitu_000000443.err
+│   │   ├── insitu_000000443.out
+│   │   ├── insitu_000000463.err
+│   │   ├── insitu_000000463.out
+│   │   ├── insitu_000000488.err
+│   │   ├── insitu_000000488.out
+│   │   ├── insitu_000000492.err
+│   │   ├── insitu_000000492.out
+│   │   ├── insitu_000000505.err
+│   │   ├── insitu_000000505.out
+│   │   ├── insitu_000000513.err
+│   │   ├── insitu_000000513.out
+│   │   ├── insitu_000000523.err
+│   │   ├── insitu_000000523.out
+│   │   ├── insitu_000000546.err
+│   │   ├── insitu_000000546.out
+│   │   ├── insitu_000000571.err
+│   │   ├── insitu_000000571.out
+│   │   ├── insitu_000000586.err
+│   │   ├── insitu_000000586.out
+│   │   ├── insitu_000000604.err
+│   │   ├── insitu_000000604.out
+│   │   ├── insitu_000000648.err
+│   │   ├── insitu_000000648.out
+│   │   ├── insitu_000000674.err
+│   │   ├── insitu_000000674.out
+│   │   ├── insitu_000000679.err
+│   │   ├── insitu_000000679.out
+│   │   ├── insitu_000000688.err
+│   │   ├── insitu_000000688.out
+│   │   ├── insitu_000000829.err
+│   │   ├── insitu_000000829.out
+│   │   ├── insitu_000000893.err
+│   │   ├── insitu_000000893.out
+│   │   ├── insitu_000000905.err
+│   │   ├── insitu_000000905.out
+│   │   ├── insitu_000000917.err
+│   │   ├── insitu_000000917.out
+│   │   ├── insitu_000000920.err
+│   │   ├── insitu_000000920.out
+│   │   ├── insitu_000001046.err
+│   │   ├── insitu_000001046.out
+│   │   ├── insitu_000001115.err
+│   │   ├── insitu_000001115.out
+│   │   ├── insitu_000001146.err
+│   │   ├── insitu_000001146.out
+│   │   ├── insitu_000001196.err
+│   │   ├── insitu_000001196.out
+│   │   ├── insitu_000001204.err
+│   │   ├── insitu_000001204.out
+│   │   ├── insitu_000001241.err
+│   │   ├── insitu_000001241.out
+│   │   ├── insitu_000001307.err
+│   │   ├── insitu_000001307.out
+│   │   ├── insitu_000001437.err
+│   │   ├── insitu_000001437.out
+│   │   ├── insitu_000001555.err
+│   │   ├── insitu_000001555.out
+│   │   ├── insitu_000001771.err
+│   │   ├── insitu_000001771.out
+│   │   ├── insitu_000001774.err
+│   │   ├── insitu_000001774.out
+│   │   ├── insitu_000001801.err
+│   │   ├── insitu_000001801.out
+│   │   ├── insitu_000001902.err
+│   │   ├── insitu_000001902.out
+│   │   ├── insitu_000001951.err
+│   │   ├── insitu_000001951.out
+│   │   ├── insitu_000001955.err
+│   │   ├── insitu_000001955.out
+│   │   ├── insitu_000001975.err
+│   │   ├── insitu_000001975.out
+│   │   ├── insitu_000002099.err
+│   │   ├── insitu_000002099.out
+│   │   ├── insitu_000002965.err
+│   │   ├── insitu_000002965.out
+│   │   ├── insitu_000003007.err
+│   │   ├── insitu_000003007.out
+│   │   ├── insitu_000004503.err
+│   │   ├── insitu_000004503.out
+│   │   ├── insitu_000006785.err
+│   │   ├── insitu_000006785.out
+│   │   ├── insitu_000012471.err
+│   │   ├── insitu_000012471.out
+│   │   ├── insitu_000013377.err
+│   │   ├── insitu_000013377.out
+│   │   ├── insitu_300000138.err
+│   │   ├── insitu_300000138.out
+│   │   ├── insitu_300000140.err
+│   │   ├── insitu_300000140.out
+│   │   ├── insitu_300000311.err
+│   │   ├── insitu_300000311.out
+│   │   ├── insitu_300000579.err
+│   │   ├── insitu_300000579.out
+│   │   ├── insitu_300000853.err
+│   │   ├── insitu_300000853.out
+│   │   ├── insitu_300000918.err
+│   │   ├── insitu_300000918.out
+│   │   ├── insitu_300001118.err
+│   │   ├── insitu_300001118.out
+│   │   ├── insitu_300001141.err
+│   │   ├── insitu_300001141.out
+│   │   ├── insitu_300001612.err
+│   │   ├── insitu_300001612.out
+│   │   ├── insitu_300001625.err
+│   │   ├── insitu_300001625.out
+│   │   ├── insitu_300001645.err
+│   │   ├── insitu_300001645.out
+│   │   ├── insitu_300002883.err
+│   │   ├── insitu_300002883.out
+│   │   ├── insitu_300004634.err
+│   │   ├── insitu_300004634.out
+│   │   ├── insitu_300004816.err
+│   │   ├── insitu_300004816.out
+│   │   ├── insitu_300004882.err
+│   │   ├── insitu_300004882.out
+│   │   ├── insitu_300004974.err
+│   │   ├── insitu_300004974.out
+│   │   ├── insitu_300009807.err
+│   │   ├── insitu_300009807.out
+│   │   ├── insitu_300010187.err
+│   │   ├── insitu_300010187.out
+│   │   ├── insitu_300010196.err
+│   │   ├── insitu_300010196.out
+│   │   ├── insitu_300010537.err
+│   │   ├── insitu_300010537.out
+│   │   ├── insitu_300010539.err
+│   │   ├── insitu_300010539.out
+│   │   ├── insitu_300010540.err
+│   │   ├── insitu_300010540.out
+│   │   ├── insitu_300010866.err
+│   │   ├── insitu_300010866.out
+│   │   ├── insitu_300012284.err
+│   │   ├── insitu_300012284.out
+│   │   ├── insitu_300012336.err
+│   │   ├── insitu_300012336.out
+│   │   ├── insitu_300012341.err
+│   │   ├── insitu_300012341.out
+│   │   ├── insitu_300015376.err
+│   │   ├── insitu_300015376.out
+│   │   ├── insitu_300016649.err
+│   │   └── insitu_300016649.out
+│   ├── logs_lswt_plots
+│   │   ├── lswt_plot_000000009.err
+│   │   ├── lswt_plot_000000009.out
+│   │   ├── lswt_plot_000000011.err
+│   │   ├── lswt_plot_000000011.out
+│   │   ├── lswt_plot_000000012.err
+│   │   ├── lswt_plot_000000012.out
+│   │   ├── lswt_plot_000000013.err
+│   │   ├── lswt_plot_000000013.out
+│   │   ├── lswt_plot_000000015.err
+│   │   ├── lswt_plot_000000015.out
+│   │   ├── lswt_plot_000000020.err
+│   │   ├── lswt_plot_000000020.out
+│   │   ├── lswt_plot_000000021.err
+│   │   ├── lswt_plot_000000021.out
+│   │   ├── lswt_plot_000000025.err
+│   │   ├── lswt_plot_000000025.out
+│   │   ├── lswt_plot_000000026.err
+│   │   ├── lswt_plot_000000026.out
+│   │   ├── lswt_plot_000000035.err
+│   │   ├── lswt_plot_000000035.out
+│   │   ├── lswt_plot_000000044.err
+│   │   ├── lswt_plot_000000044.out
+│   │   ├── lswt_plot_000000051.err
+│   │   ├── lswt_plot_000000051.out
+│   │   ├── lswt_plot_000000052.err
+│   │   ├── lswt_plot_000000052.out
+│   │   ├── lswt_plot_000000081.err
+│   │   ├── lswt_plot_000000081.out
+│   │   ├── lswt_plot_000000084.err
+│   │   ├── lswt_plot_000000084.out
+│   │   ├── lswt_plot_000000088.err
+│   │   ├── lswt_plot_000000088.out
+│   │   ├── lswt_plot_000000091.err
+│   │   ├── lswt_plot_000000091.out
+│   │   ├── lswt_plot_000000133.err
+│   │   ├── lswt_plot_000000133.out
+│   │   ├── lswt_plot_000000146.err
+│   │   ├── lswt_plot_000000146.out
+│   │   ├── lswt_plot_000000165.err
+│   │   ├── lswt_plot_000000165.out
+│   │   ├── lswt_plot_000000170.err
+│   │   ├── lswt_plot_000000170.out
+│   │   ├── lswt_plot_000000171.err
+│   │   ├── lswt_plot_000000171.out
+│   │   ├── lswt_plot_000000174.err
+│   │   ├── lswt_plot_000000174.out
+│   │   ├── lswt_plot_000000177.err
+│   │   ├── lswt_plot_000000177.out
+│   │   ├── lswt_plot_000000198.err
+│   │   ├── lswt_plot_000000198.out
+│   │   ├── lswt_plot_000000223.err
+│   │   ├── lswt_plot_000000223.out
+│   │   ├── lswt_plot_000000227.err
+│   │   ├── lswt_plot_000000227.out
+│   │   ├── lswt_plot_000000236.err
+│   │   ├── lswt_plot_000000236.out
+│   │   ├── lswt_plot_000000257.err
+│   │   ├── lswt_plot_000000257.out
+│   │   ├── lswt_plot_000000295.err
+│   │   ├── lswt_plot_000000295.out
+│   │   ├── lswt_plot_000000298.err
+│   │   ├── lswt_plot_000000298.out
+│   │   ├── lswt_plot_000000310.err
+│   │   ├── lswt_plot_000000310.out
+│   │   ├── lswt_plot_000000311.err
+│   │   ├── lswt_plot_000000311.out
+│   │   ├── lswt_plot_000000314.err
+│   │   ├── lswt_plot_000000314.out
+│   │   ├── lswt_plot_000000318.err
+│   │   ├── lswt_plot_000000318.out
+│   │   ├── lswt_plot_000000319.err
+│   │   ├── lswt_plot_000000319.out
+│   │   ├── lswt_plot_000000321.err
+│   │   ├── lswt_plot_000000321.out
+│   │   ├── lswt_plot_000000327.err
+│   │   ├── lswt_plot_000000327.out
+│   │   ├── lswt_plot_000000335.err
+│   │   ├── lswt_plot_000000335.out
+│   │   ├── lswt_plot_000000375.err
+│   │   ├── lswt_plot_000000375.out
+│   │   ├── lswt_plot_000000380.err
+│   │   ├── lswt_plot_000000380.out
+│   │   ├── lswt_plot_000000395.err
+│   │   ├── lswt_plot_000000395.out
+│   │   ├── lswt_plot_000000423.err
+│   │   ├── lswt_plot_000000423.out
+│   │   ├── lswt_plot_000000443.err
+│   │   ├── lswt_plot_000000443.out
+│   │   ├── lswt_plot_000000463.err
+│   │   ├── lswt_plot_000000463.out
+│   │   ├── lswt_plot_000000488.err
+│   │   ├── lswt_plot_000000488.out
+│   │   ├── lswt_plot_000000492.err
+│   │   ├── lswt_plot_000000492.out
+│   │   ├── lswt_plot_000000505.err
+│   │   ├── lswt_plot_000000505.out
+│   │   ├── lswt_plot_000000513.err
+│   │   ├── lswt_plot_000000513.out
+│   │   ├── lswt_plot_000000523.err
+│   │   ├── lswt_plot_000000523.out
+│   │   ├── lswt_plot_000000546.err
+│   │   ├── lswt_plot_000000546.out
+│   │   ├── lswt_plot_000000571.err
+│   │   ├── lswt_plot_000000571.out
+│   │   ├── lswt_plot_000000586.err
+│   │   ├── lswt_plot_000000586.out
+│   │   ├── lswt_plot_000000604.err
+│   │   ├── lswt_plot_000000604.out
+│   │   ├── lswt_plot_000000648.err
+│   │   ├── lswt_plot_000000648.out
+│   │   ├── lswt_plot_000000674.err
+│   │   ├── lswt_plot_000000674.out
+│   │   ├── lswt_plot_000000679.err
+│   │   ├── lswt_plot_000000679.out
+│   │   ├── lswt_plot_000000688.err
+│   │   ├── lswt_plot_000000688.out
+│   │   ├── lswt_plot_000000829.err
+│   │   ├── lswt_plot_000000829.out
+│   │   ├── lswt_plot_000000893.err
+│   │   ├── lswt_plot_000000893.out
+│   │   ├── lswt_plot_000000905.err
+│   │   ├── lswt_plot_000000905.out
+│   │   ├── lswt_plot_000000917.err
+│   │   ├── lswt_plot_000000917.out
+│   │   ├── lswt_plot_000000920.err
+│   │   ├── lswt_plot_000000920.out
+│   │   ├── lswt_plot_000001046.err
+│   │   ├── lswt_plot_000001046.out
+│   │   ├── lswt_plot_000001115.err
+│   │   ├── lswt_plot_000001115.out
+│   │   ├── lswt_plot_000001146.err
+│   │   ├── lswt_plot_000001146.out
+│   │   ├── lswt_plot_000001196.err
+│   │   ├── lswt_plot_000001196.out
+│   │   ├── lswt_plot_000001204.err
+│   │   ├── lswt_plot_000001204.out
+│   │   ├── lswt_plot_000001241.err
+│   │   ├── lswt_plot_000001241.out
+│   │   ├── lswt_plot_000001307.err
+│   │   ├── lswt_plot_000001307.out
+│   │   ├── lswt_plot_000001437.err
+│   │   ├── lswt_plot_000001437.out
+│   │   ├── lswt_plot_000001555.err
+│   │   ├── lswt_plot_000001555.out
+│   │   ├── lswt_plot_000001771.err
+│   │   ├── lswt_plot_000001771.out
+│   │   ├── lswt_plot_000001774.err
+│   │   ├── lswt_plot_000001774.out
+│   │   ├── lswt_plot_000001801.err
+│   │   ├── lswt_plot_000001801.out
+│   │   ├── lswt_plot_000001902.err
+│   │   ├── lswt_plot_000001902.out
+│   │   ├── lswt_plot_000001951.err
+│   │   ├── lswt_plot_000001951.out
+│   │   ├── lswt_plot_000001955.err
+│   │   ├── lswt_plot_000001955.out
+│   │   ├── lswt_plot_000001975.err
+│   │   ├── lswt_plot_000001975.out
+│   │   ├── lswt_plot_000002099.err
+│   │   ├── lswt_plot_000002099.out
+│   │   ├── lswt_plot_000002965.err
+│   │   ├── lswt_plot_000002965.out
+│   │   ├── lswt_plot_000003007.err
+│   │   ├── lswt_plot_000003007.out
+│   │   ├── lswt_plot_000004503.err
+│   │   ├── lswt_plot_000004503.out
+│   │   ├── lswt_plot_000006785.err
+│   │   ├── lswt_plot_000006785.out
+│   │   ├── lswt_plot_000012471.err
+│   │   ├── lswt_plot_000012471.out
+│   │   ├── lswt_plot_000013377.err
+│   │   ├── lswt_plot_000013377.out
+│   │   ├── lswt_plot_300000138.err
+│   │   ├── lswt_plot_300000138.out
+│   │   ├── lswt_plot_300000140.err
+│   │   ├── lswt_plot_300000140.out
+│   │   ├── lswt_plot_300000311.err
+│   │   ├── lswt_plot_300000311.out
+│   │   ├── lswt_plot_300000579.err
+│   │   ├── lswt_plot_300000579.out
+│   │   ├── lswt_plot_300000853.err
+│   │   ├── lswt_plot_300000853.out
+│   │   ├── lswt_plot_300000918.err
+│   │   ├── lswt_plot_300000918.out
+│   │   ├── lswt_plot_300001118.err
+│   │   ├── lswt_plot_300001118.out
+│   │   ├── lswt_plot_300001141.err
+│   │   ├── lswt_plot_300001141.out
+│   │   ├── lswt_plot_300001612.err
+│   │   ├── lswt_plot_300001612.out
+│   │   ├── lswt_plot_300001625.err
+│   │   ├── lswt_plot_300001625.out
+│   │   ├── lswt_plot_300001645.err
+│   │   ├── lswt_plot_300001645.out
+│   │   ├── lswt_plot_300002883.err
+│   │   ├── lswt_plot_300002883.out
+│   │   ├── lswt_plot_300004634.err
+│   │   ├── lswt_plot_300004634.out
+│   │   ├── lswt_plot_300004816.err
+│   │   ├── lswt_plot_300004816.out
+│   │   ├── lswt_plot_300004882.err
+│   │   ├── lswt_plot_300004882.out
+│   │   ├── lswt_plot_300004974.err
+│   │   ├── lswt_plot_300004974.out
+│   │   ├── lswt_plot_300009807.err
+│   │   ├── lswt_plot_300009807.out
+│   │   ├── lswt_plot_300010187.err
+│   │   ├── lswt_plot_300010187.out
+│   │   ├── lswt_plot_300010196.err
+│   │   ├── lswt_plot_300010196.out
+│   │   ├── lswt_plot_300010537.err
+│   │   ├── lswt_plot_300010537.out
+│   │   ├── lswt_plot_300010539.err
+│   │   ├── lswt_plot_300010539.out
+│   │   ├── lswt_plot_300010540.err
+│   │   ├── lswt_plot_300010540.out
+│   │   ├── lswt_plot_300010866.err
+│   │   ├── lswt_plot_300010866.out
+│   │   ├── lswt_plot_300012284.err
+│   │   ├── lswt_plot_300012284.out
+│   │   ├── lswt_plot_300012336.err
+│   │   ├── lswt_plot_300012336.out
+│   │   ├── lswt_plot_300012341.err
+│   │   ├── lswt_plot_300012341.out
+│   │   ├── lswt_plot_300015376.err
+│   │   ├── lswt_plot_300015376.out
+│   │   ├── lswt_plot_300016649.err
+│   │   └── lswt_plot_300016649.out
+│   ├── __pycache__
+│   │   └── completion_check.cpython-310.pyc
+│   ├── run_cv_validation.py
+│   ├── run_insitu_validation.py
+│   ├── run_insitu_validation.py.backup
+│   ├── run_lswt_plots.py
+│   ├── submit_cv_validation_jobs.py
+│   ├── submit_insitu_validation_jobs.py
+│   ├── submit_lswt_plots_jobs.py
+│   └── visualize_findings.py
+├── src
+│   ├── dincae_arm
+│   │   ├── contracts.py
+│   │   ├── dincae_adapter_in.py
+│   │   ├── dincae_adapter_out.py
+│   │   ├── DINCAE_ARM_README.md
+│   │   ├── dincae_runner.py
+│   │   ├── __init__.py
+│   │   └── __pycache__
+│   │       ├── contracts.cpython-310.pyc
+│   │       ├── dincae_adapter_in.cpython-310.pyc
+│   │       ├── dincae_adapter_out.cpython-310.pyc
+│   │       ├── dincae_runner.cpython-310.pyc
+│   │       └── __init__.cpython-310.pyc
+│   ├── lakecci_cli
+│   │   ├── dineof_postprocessor.py
+│   │   ├── dineof_preprocessor.py
+│   │   └── __init__.py
+│   ├── lake_cci_gapfilling.egg-info
+│   │   ├── dependency_links.txt
+│   │   ├── entry_points.txt
+│   │   ├── PKG-INFO
+│   │   ├── SOURCES.txt
+│   │   └── top_level.txt
+│   └── processors
+│       ├── data
+│       │   ├── globolakes-static_lake_centre_fv1.csv
+│       │   ├── __init__.py
+│       │   ├── metadata_reader.py
+│       │   └── __pycache__
+│       │       ├── __init__.cpython-310.pyc
+│       │       └── metadata_reader.cpython-310.pyc
+│       ├── __init__.py
+│       ├── postprocessor
+│       │   ├── batch_eof_plot.py
+│       │   ├── __init__.py
+│       │   ├── post_process.py
+│       │   ├── post_steps
+│       │   │   ├── add_back_climatology.py
+│       │   │   ├── add_back_trend.py
+│       │   │   ├── add_data_source_flag.py
+│       │   │   ├── add_metadata_eofs.py
+│       │   │   ├── add_metadata_init.py
+│       │   │   ├── add_metadata_log.py
+│       │   │   ├── base.py
+│       │   │   ├── copy_aux_flags.py
+│       │   │   ├── filter_eofs.py
+│       │   │   ├── insitu_validation_fixed.py
+│       │   │   ├── insitu_validation.py
+│       │   │   ├── insitu_validation.py.backup
+│       │   │   ├── interpolate_temporal_eofs.py
+│       │   │   ├── lswt_plots.py
+│       │   │   ├── merge_outputs.py
+│       │   │   ├── __pycache__
+│       │   │   │   ├── add_back_climatology.cpython-310.pyc
+│       │   │   │   ├── add_back_trend.cpython-310.pyc
+│       │   │   │   ├── add_data_source_flag.cpython-310.pyc
+│       │   │   │   ├── add_metadata_eofs.cpython-310.pyc
+│       │   │   │   ├── add_metadata_init.cpython-310.pyc
+│       │   │   │   ├── add_metadata_log.cpython-310.pyc
+│       │   │   │   ├── base.cpython-310.pyc
+│       │   │   │   ├── copy_aux_flags.cpython-310.pyc
+│       │   │   │   ├── filter_eofs.cpython-310.pyc
+│       │   │   │   ├── insitu_validation.cpython-310.pyc
+│       │   │   │   ├── interpolate_temporal_eofs.cpython-310.pyc
+│       │   │   │   ├── lswt_plots.cpython-310.pyc
+│       │   │   │   ├── merge_outputs.cpython-310.pyc
+│       │   │   │   ├── qa_plots.cpython-310.pyc
+│       │   │   │   └── reconstruct_from_eofs.cpython-310.pyc
+│       │   │   ├── qa_plots.py
+│       │   │   └── reconstruct_from_eofs.py
+│       │   ├── __pycache__
+│       │   │   ├── batch_eof_plot.cpython-310.pyc
+│       │   │   ├── __init__.cpython-310.pyc
+│       │   │   ├── post_process.cpython-310.pyc
+│       │   │   └── reconstruct_eofs.cpython-310.pyc
+│       │   └── reconstruct_eofs.py
+│       ├── preprocessor
+│       │   ├── convert_data.py
+│       │   ├── examine_inputs.ipynb
+│       │   ├── __init__.py
+│       │   ├── lswt_processing
+│       │   │   ├── base.py
+│       │   │   ├── climatology.py
+│       │   │   ├── config.py
+│       │   │   ├── coverage.jl
+│       │   │   ├── data_loading.py
+│       │   │   ├── detrending.py
+│       │   │   ├── dineof_cvp_cli.jl
+│       │   │   ├── dineof_cvp.jl
+│       │   │   ├── dineof_cv.py
+│       │   │   ├── dineof_scripts.jl
+│       │   │   ├── finalization.py
+│       │   │   ├── final_stats.py
+│       │   │   ├── frame_filters.py
+│       │   │   ├── ice_filter.py
+│       │   │   ├── __init__.py
+│       │   │   ├── __pycache__
+│       │   │   │   ├── base.cpython-310.pyc
+│       │   │   │   ├── climatology.cpython-310.pyc
+│       │   │   │   ├── config.cpython-310.pyc
+│       │   │   │   ├── data_loading.cpython-310.pyc
+│       │   │   │   ├── detrending.cpython-310.pyc
+│       │   │   │   ├── dineof_cv.cpython-310.pyc
+│       │   │   │   ├── finalization.cpython-310.pyc
+│       │   │   │   ├── final_stats.cpython-310.pyc
+│       │   │   │   ├── frame_filters.cpython-310.pyc
+│       │   │   │   ├── ice_filter.cpython-310.pyc
+│       │   │   │   ├── __init__.cpython-310.pyc
+│       │   │   │   ├── quality_filters.cpython-310.pyc
+│       │   │   │   ├── spatial_filters.cpython-310.pyc
+│       │   │   │   └── stats.cpython-310.pyc
+│       │   │   ├── quality_filters.py
+│       │   │   ├── spatial_filters.py
+│       │   │   ├── stats.py
+│       │   │   └── utils.py
+│       │   └── __pycache__
+│       │       ├── convert_data.cpython-310.pyc
+│       │       └── __init__.cpython-310.pyc
+│       └── __pycache__
+│           └── __init__.cpython-310.pyc
+└── structure.txt
+
+23 directories, 612 files

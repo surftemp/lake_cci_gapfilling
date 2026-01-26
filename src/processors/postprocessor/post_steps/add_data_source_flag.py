@@ -105,60 +105,83 @@ class AddDataSourceFlagStep(PostProcessingStep):
         n_lon = len(lon_vals)
         
         # Initialize flag array: default to FLAG_NOT_RECONSTRUCTED (255)
-        # Only timesteps in prepared.nc will get 0/1/2 values
         FLAG_NOT_RECONSTRUCTED = 255
         flag = np.full((n_time, n_lat, n_lon), FLAG_NOT_RECONSTRUCTED, dtype=np.uint8)
         
+        # Get the reconstruction mask from temp_filled
+        # Only pixels where temp_filled is NOT NaN were actually reconstructed
+        if "temp_filled" not in ds:
+            print(f"[{self.name}] Warning: temp_filled not found in output, cannot create flag")
+            return ds
+        
+        temp_filled = ds["temp_filled"].values  # (time, lat, lon)
+        recon_mask = ~np.isnan(temp_filled)  # True where reconstruction exists
+        n_reconstructed = recon_mask.sum()
+        
+        print(f"[{self.name}] Output shape: {temp_filled.shape}")
+        print(f"[{self.name}] Reconstructed pixels (temp_filled not NaN): {n_reconstructed:,}")
+        
         # --- Step 1: Load prepared.nc to get observation mask ---
-        # Observations are where the LSWT variable is NOT NaN
         with xr.open_dataset(ctx.dineof_input_path) as ds_prep:
-            # Get the prepared time indices
             prep_time_days = self.npdatetime_to_days_since_epoch(ds_prep["time"].values)
             
             # Get observation mask from prepared data
-            if self.lswt_var in ds_prep:
-                prep_data = ds_prep[self.lswt_var].values  # (time, lat, lon)
-            else:
-                # Fallback to common variable names
-                for var_name in ["lake_surface_water_temperature", "temp", "sst"]:
-                    if var_name in ds_prep:
-                        prep_data = ds_prep[var_name].values
-                        break
-                else:
-                    print(f"[{self.name}] Warning: Could not find LSWT variable in prepared.nc")
-                    prep_data = None
+            prep_data = None
+            for var_name in [self.lswt_var, "lake_surface_water_temperature", "temp", "sst"]:
+                if var_name in ds_prep:
+                    prep_data = ds_prep[var_name].values  # (time, lat, lon)
+                    break
             
-            if prep_data is not None:
-                # Observation mask: where data is valid (not NaN)
-                obs_mask_prep = ~np.isnan(prep_data)
-                print(f"[{self.name}] Prepared data shape: {prep_data.shape}")
-                print(f"[{self.name}] Valid observations in prepared.nc: {obs_mask_prep.sum():,}")
-                print(f"[{self.name}] Number of reconstructed timesteps: {len(prep_time_days)}")
+            if prep_data is None:
+                print(f"[{self.name}] Warning: Could not find LSWT variable in prepared.nc")
+                return ds
+            
+            obs_mask_prep = ~np.isnan(prep_data)
+            print(f"[{self.name}] Prepared data shape: {prep_data.shape}")
+            print(f"[{self.name}] Valid observations in prepared.nc: {obs_mask_prep.sum():,}")
         
-        # --- Step 2: Map prepared time to output time ---
-        # The output may have a different (expanded) time axis
+        # --- Step 2: Build time mappings ---
         out_time_days = self.npdatetime_to_days_since_epoch(time_vals)
         
-        # Build mapping: for each prepared time, find corresponding output time index
-        out_time_set = {int(d): i for i, d in enumerate(out_time_days)}
+        # Map: output time index -> prepared time index (for looking up observations)
+        prep_day_to_idx = {int(d): i for i, d in enumerate(prep_time_days)}
+        out_to_prep_idx = []
+        for d in out_time_days:
+            out_to_prep_idx.append(prep_day_to_idx.get(int(d), -1))
+        out_to_prep_idx = np.array(out_to_prep_idx, dtype=np.int64)
+        
+        # Map: prepared time index -> output time index (for CV marking)
+        out_day_to_idx = {int(d): i for i, d in enumerate(out_time_days)}
         prep_to_out_idx = []
         for d in prep_time_days:
-            prep_to_out_idx.append(out_time_set.get(int(d), -1))
+            prep_to_out_idx.append(out_day_to_idx.get(int(d), -1))
         prep_to_out_idx = np.array(prep_to_out_idx, dtype=np.int64)
         
-        # --- Step 3: For each prepared timestep, set flags ---
-        # Only these timesteps have reconstruction; others stay as 255
-        if prep_data is not None:
-            for t_prep in range(len(prep_time_days)):
-                t_out = prep_to_out_idx[t_prep]
-                if t_out >= 0:
-                    # For this timestep: mark observed pixels as FLAG_OBSERVED_SEEN,
-                    # missing pixels as FLAG_TRUE_GAP
-                    flag[t_out, :, :] = np.where(
-                        obs_mask_prep[t_prep, :, :],
-                        FLAG_OBSERVED_SEEN,
-                        FLAG_TRUE_GAP
-                    )
+        # --- Step 3: For each reconstructed pixel, determine its source ---
+        # Iterate only where reconstruction exists
+        recon_indices = np.argwhere(recon_mask)  # (N, 3) array of [t, lat, lon]
+        
+        print(f"[{self.name}] Processing {len(recon_indices):,} reconstructed pixels...")
+        
+        for idx in recon_indices:
+            t_out, lat_idx, lon_idx = idx[0], idx[1], idx[2]
+            
+            # Map to prepared time
+            t_prep = out_to_prep_idx[t_out]
+            if t_prep < 0:
+                # Timestep not in prepared.nc - shouldn't happen for reconstructed pixels
+                # but mark as gap if it does
+                flag[t_out, lat_idx, lon_idx] = FLAG_TRUE_GAP
+                continue
+            
+            # Check if this pixel had an observation in prepared.nc
+            if obs_mask_prep[t_prep, lat_idx, lon_idx]:
+                # Had observation - mark as OBSERVED_SEEN for now
+                # Will be overwritten to CV_WITHHELD later if it's a CV point
+                flag[t_out, lat_idx, lon_idx] = FLAG_OBSERVED_SEEN
+            else:
+                # No observation - true gap
+                flag[t_out, lat_idx, lon_idx] = FLAG_TRUE_GAP
         
         # --- Step 4: Load CV points and mark them as FLAG_CV_WITHHELD ---
         clouds_index_path = self._get_clouds_index_path(ctx)
@@ -178,27 +201,36 @@ class AddDataSourceFlagStep(PostProcessingStep):
                 "flag_values": [0, 1, 2, 255],
                 "flag_meanings": "true_gap observed_seen cv_withheld not_reconstructed",
                 "comment": (
-                    "0=true gap (originally missing, within reconstructed timesteps), "
-                    "1=observed and seen in training, "
-                    "2=CV point (withheld observation), "
-                    "255=not reconstructed (timestep not in prepared.nc)"
+                    "0=true gap (originally missing, gapfilled by method), "
+                    "1=observed and seen in training (reconstruction of observation), "
+                    "2=CV point (withheld observation, reconstruction of CV point), "
+                    "255=not reconstructed (temp_filled is NaN at this pixel)"
                 ),
             }
         )
         
-        # Summary statistics - only count within reconstructed timesteps
-        n_not_recon = (flag == 255).sum()
-        n_gap = (flag == FLAG_TRUE_GAP).sum()
-        n_observed = (flag == FLAG_OBSERVED_SEEN).sum()
-        n_cv = (flag == FLAG_CV_WITHHELD).sum()
-        n_reconstructed = n_gap + n_observed + n_cv
+        # Summary statistics - only count within reconstructed pixels (temp_filled not NaN)
+        n_not_recon = int((flag == 255).sum())
+        n_gap = int((flag == FLAG_TRUE_GAP).sum())
+        n_observed = int((flag == FLAG_OBSERVED_SEEN).sum())
+        n_cv = int((flag == FLAG_CV_WITHHELD).sum())
+        n_flagged_recon = n_gap + n_observed + n_cv
+        
+        # Verification: flag counts should match recon_mask
+        n_temp_filled_valid = int(recon_mask.sum())
+        if n_flagged_recon != n_temp_filled_valid:
+            print(f"[{self.name}] WARNING: Flag count mismatch!")
+            print(f"[{self.name}]   temp_filled valid pixels: {n_temp_filled_valid:,}")
+            print(f"[{self.name}]   flag 0+1+2 pixels: {n_flagged_recon:,}")
+            print(f"[{self.name}]   Difference: {n_flagged_recon - n_temp_filled_valid:,}")
         
         print(f"[{self.name}] Data source flag summary:")
-        print(f"[{self.name}]   Not reconstructed (255): {n_not_recon:>12,} (timesteps outside prepared.nc)")
-        print(f"[{self.name}]   --- Within reconstructed timesteps ({n_reconstructed:,} pixels) ---")
-        print(f"[{self.name}]   True gaps (0):     {n_gap:>12,} ({100*n_gap/n_reconstructed:.2f}%)")
-        print(f"[{self.name}]   Observed/seen (1): {n_observed:>12,} ({100*n_observed/n_reconstructed:.2f}%)")
-        print(f"[{self.name}]   CV withheld (2):   {n_cv:>12,} ({100*n_cv/n_reconstructed:.2f}%)")
+        print(f"[{self.name}]   temp_filled valid (recon_mask): {n_temp_filled_valid:>12,}")
+        print(f"[{self.name}]   Not reconstructed (255): {n_not_recon:>12,} (temp_filled is NaN)")
+        print(f"[{self.name}]   --- Within reconstructed pixels ({n_flagged_recon:,} flagged as 0/1/2) ---")
+        print(f"[{self.name}]   True gaps (0):     {n_gap:>12,} ({100*n_gap/n_flagged_recon:.2f}%)")
+        print(f"[{self.name}]   Observed/seen (1): {n_observed:>12,} ({100*n_observed/n_flagged_recon:.2f}%)")
+        print(f"[{self.name}]   CV withheld (2):   {n_cv:>12,} ({100*n_cv/n_flagged_recon:.2f}%)")
         
         return ds
     
@@ -273,6 +305,7 @@ class AddDataSourceFlagStep(PostProcessingStep):
             n_marked = 0
             n_skipped_time = 0
             n_skipped_bounds = 0
+            n_skipped_not_recon = 0
             n_already_gap = 0
             
             for p in range(n_points):
@@ -306,17 +339,26 @@ class AddDataSourceFlagStep(PostProcessingStep):
                 
                 # Mark as CV point (should currently be FLAG_OBSERVED_SEEN)
                 current_flag = flag[t_out, lat_idx, lon_idx]
-                if current_flag == FLAG_TRUE_GAP:
+                if current_flag == 255:
+                    # Not reconstructed (temp_filled is NaN here) - skip
+                    n_skipped_not_recon += 1
+                    continue
+                elif current_flag == FLAG_TRUE_GAP:
                     # This shouldn't happen - CV points should have been observations
                     n_already_gap += 1
-                else:
+                elif current_flag == FLAG_OBSERVED_SEEN:
                     flag[t_out, lat_idx, lon_idx] = FLAG_CV_WITHHELD
                     n_marked += 1
+                else:
+                    # Already marked as CV (duplicate?)
+                    pass
             
             if n_skipped_time > 0:
                 print(f"[{self.name}] Skipped {n_skipped_time} CV points (time mismatch)")
             if n_skipped_bounds > 0:
-                print(f"[{self.name}] Skipped {n_skipped_bounds} CV points (out of bounds)")
+                print(f"[{self.name}] Skipped {n_skipped_bounds} CV points (spatial out of bounds)")
+            if n_skipped_not_recon > 0:
+                print(f"[{self.name}] Skipped {n_skipped_not_recon} CV points (not reconstructed, flag=255)")
             if n_already_gap > 0:
                 print(f"[{self.name}] Warning: {n_already_gap} CV points were already gaps")
             
