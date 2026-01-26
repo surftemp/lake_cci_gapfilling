@@ -55,6 +55,7 @@ from .post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
 from .post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
 from .post_steps.lswt_plots import LSWTPlotsStep
 from .post_steps.insitu_validation import InsituValidationStep
+from .post_steps.add_data_source_flag import AddDataSourceFlagStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -123,7 +124,7 @@ class PostOptions:
     eof_filter_variance_threshold: float = 0.5     # cumulative variance explained threshold
     eof_filter_top_n: int = 3                       # number of top EOFs to filter
     
-    recon_after_eof_filter: bool = True
+    add_data_source_flag: bool = True  # Add data_source flag (CV/observed/gap)
 
 class PostProcessor:
     """
@@ -179,6 +180,10 @@ class PostProcessor:
         # Copy aux flags (e.g., 'ice_replaced') from prepared.nc
         if self.options.copy_aux_flags:
             steps.append(CopyAuxFlagsStep())
+
+        # Add data_source flag (CV/observed/gap)
+        if self.options.add_data_source_flag:
+            steps.append(AddDataSourceFlagStep())
 
         # Optional QA plots
         if self.options.run_qa_plots and self.output_html_folder:
