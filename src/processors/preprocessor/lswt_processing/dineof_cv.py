@@ -132,9 +132,16 @@ class DineofCVGenerationStep(ProcessingStep):
         cv_seed = getattr(config, "cv_seed", 1234)  # Default seed for reproducibility
         min_cloud_frac = getattr(config, "cv_min_cloud_frac", 0.05)
         max_cloud_frac = getattr(config, "cv_max_cloud_frac", 0.70)
+        
+        # NEW: Get minimum observation fraction for CV protection
+        # Reuse min_observation_percent from preprocessing config, or default to 0.05
+        min_obs_frac = getattr(config, "min_observation_percent", 0.05)
+        if min_obs_frac is None:
+            min_obs_frac = 0.05
+        print(f"[CV] min_obs_frac (coverage protection) = {min_obs_frac}")
 
         cmd = [julia_exe, JULIA_SCRIPT, fname, maskfname, out_dir, str(nbclean), 
-               str(cv_seed), str(min_cloud_frac), str(max_cloud_frac)]
+               str(cv_seed), str(min_cloud_frac), str(max_cloud_frac), str(min_obs_frac)]
 
         print(f"[CV] Running Julia dineof_cvp_cli:")
         print("     " + " ".join(cmd))

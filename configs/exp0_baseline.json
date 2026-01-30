@@ -1,22 +1,21 @@
 {
-  "experiment_name": "exp0_dineof_noretrain",
-  "description": "exp0_dineof_noretrain: Full rerun with DINCAE ntime_win=3, skipconnections=2:5",
+  "experiment_name": "exp1_no_ice",
+  "description": "exp1_no_ice: Full rerun without ice replacement step",
   "mode": "anomaly",
-  "note": "exp0_dineof_noretrain",
+  "note": "exp1_no_ice",
   "_note_engine_mode": "dineof | dincae | both ",
   "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [20,44,52,146,165,198,236,295,310,327,375,380,505,679,893,905,1115,1196,1204,1622,2328,4503,6785,12471],
+    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81, 84, 88, 91, 133, 146, 165, 170, 171, 174, 177, 198, 223, 227, 236, 257, 295, 298, 310, 311, 314, 318, 319, 321, 327, 335, 375, 380, 395, 423, 443, 463, 488, 492, 505, 513, 523, 546, 571, 586, 604, 648, 674, 679, 688, 829, 893, 905, 917, 920, 1046, 1115, 1146, 1196, 1204, 1241, 1307, 1437, 1555, 1771, 1774, 1801, 1902, 1951, 1955, 1975, 2099, 2965, 3007, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300000853, 300000918, 300001118, 300001141, 300001612, 300001625, 300001645, 300002883, 300004634, 300004816, 300004882, 300004974, 300009807, 300010187, 300010196, 300010537, 300010539, 300010540, 300010866, 300012284, 300012336, 300012341, 300015376, 300016649],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
 
   "paths": {
     "_run_tag_note": "Leave empty to auto-generate: {mode}-{date}-{hash}-{note}",
-    "run_tag": "anomaly-20260125-4d8546-exp0_dineof_noretrain",  
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
@@ -67,7 +66,7 @@
   },
 
   "preprocessing_options": {
-    "start_date": "2004-01-01",
+    "start_date": "2000-01-01",
     "end_date": "2022-12-31",
     "quality_threshold": 3,
     "cv_enable": true,
@@ -123,7 +122,7 @@
     },
     "train": {
       "_comment": "=== CORE TRAINING PARAMETERS ===",
-      "epochs": 300,
+      "epochs": 500,
       "batch_size": 32,
       "learning_rate": 0.0001,
       "save_epochs_interval": 50,
@@ -196,9 +195,9 @@
     "partition": "standard",
     "qos": "long",
     "account": "eocis_chuk",
-    "time": "12:00:00",
+    "time": "120:00:00",
     "mem": "128G",
-    "max_concurrent": 60,
+    "max_concurrent": 120,
     "per_index_chain": true
   },
 
