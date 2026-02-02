@@ -118,14 +118,57 @@ class IceMaskReplacementStep(ProcessingStep):
 
             # align time: ds.time is numeric days -> convert to datetime64[ns]
             t_dt = self._days_to_datetime64(time_days)
-            # select LIC to ds times (nearest within 1 day)
-            lic = lic.sel(
-                time=xr.DataArray(t_dt, dims=("time",)),
-                method="nearest",
-                tolerance=np.timedelta64(1, "D"),
+            
+            # Normalize LSWT times to date only (strip hours/minutes)
+            lswt_dates = t_dt.astype('datetime64[D]')
+            
+            # Normalize LIC times to date only
+            lic_times = lic['time'].values
+            lic_dates = lic_times.astype('datetime64[D]')
+            
+            # Find EXACT date matches only
+            # Create a set of LIC dates for fast lookup
+            lic_date_set = set(lic_dates.astype(str))
+            
+            # Find which LSWT dates have exact matches in LIC
+            has_lic_match = np.array([str(d) in lic_date_set for d in lswt_dates])
+            n_matched = has_lic_match.sum()
+            n_unmatched = (~has_lic_match).sum()
+            
+            print(f"[IceMaskReplacement] LSWT dates with exact LIC match: {n_matched}")
+            print(f"[IceMaskReplacement] LSWT dates without LIC match (no ice filter): {n_unmatched}")
+            
+            if n_matched == 0:
+                print("[IceMaskReplacement] No exact date matches -> skip ice replacement")
+                lic_ds.close()
+                zr2d = np.zeros_like(da.isel(time=0).values, dtype=np.uint8)
+                ds["ice_replaced"] = xr.DataArray(
+                    np.tile(zr2d, (da.sizes["time"], 1, 1)),
+                    dims=("time", "lat", "lon"),
+                    coords=da.coords,
+                    attrs={"long_name": "Ice replacement flag", "units": "1"},
+                )
+                get_recorder().record_pixel_replacement_daily(self.name, time_days, np.zeros_like(time_days, dtype="int64"))
+                return ds
+            
+            # Build mapping: for matched dates, find the corresponding LIC index
+            lic_date_to_idx = {str(d): i for i, d in enumerate(lic_dates)}
+            
+            # Create full-size LIC array aligned to LSWT times
+            # Initialize with NaN (will become False for ice check)
+            lic_aligned = np.full((len(time_days), lic.shape[1], lic.shape[2]), np.nan, dtype=np.float32)
+            
+            for i, (lswt_date, matched) in enumerate(zip(lswt_dates, has_lic_match)):
+                if matched:
+                    lic_idx = lic_date_to_idx[str(lswt_date)]
+                    lic_aligned[i] = lic.values[lic_idx]
+            
+            # Convert to xarray with proper coordinates
+            lic = xr.DataArray(
+                lic_aligned,
+                dims=("time", "lat", "lon"),
+                coords={"time": ds["time"].values, "lat": lic['lat'].values, "lon": lic['lon'].values}
             )
-            # make LIC 'time' EXACTLY match ds.time (int days)
-            lic = lic.assign_coords(time=ds["time"].values)
 
             # align space: reindex LIC lat/lon onto the full LSWT grid
             lic = lic.reindex_like(da.isel(time=0), method=None)

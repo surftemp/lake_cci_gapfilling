@@ -2,14 +2,14 @@
   "experiment_name": "exp0_baseline",
   "description": "exp0_baseline: Full rerun with raw LIC mask for ice replacement prior",
   "mode": "anomaly",
-  "note": "exp0_baseline_both",
+  "note": "exp0_baseline_both_patchice",
   "_note_engine_mode": "dineof | dincae | both ",
   "engine_mode": "both",
 
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 20, 21, 25, 26, 35, 44, 51, 52, 81, 84, 88, 91, 133, 146, 165, 170, 171, 174, 177, 198, 223, 227, 236, 257, 295, 298, 310, 311, 314, 318, 319, 321, 327, 335, 375, 380, 395, 423, 443, 463, 488, 492, 505, 513, 523, 546, 571, 586, 604, 648, 674, 679, 688, 829, 893, 905, 917, 920, 1046, 1115, 1146, 1196, 1204, 1241, 1307, 1437, 1555, 1771, 1774, 1801, 1902, 1951, 1955, 1975, 2099, 2965, 3007, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300000853, 300000918, 300001118, 300001141, 300001612, 300001625, 300001645, 300002883, 300004634, 300004816, 300004882, 300004974, 300009807, 300010187, 300010196, 300010537, 300010539, 300010540, 300010866, 300012284, 300012336, 300012341, 300015376, 300016649],
+    "custom_lake_ids": [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17, 25, 26, 44, 51, 88, 91, 146, 165, 170, 174, 177, 198, 223, 227, 236, 298, 310, 311, 318, 319, 327, 335, 375, 380, 395, 423, 488, 523, 546, 571, 679, 688, 893, 905, 920, 1115, 4503, 6785, 12471, 13377, 300000138, 300000140, 300000311, 300000579, 300001118, 300001141, 300002883, 300004634, 300004816, 300004882, 300004974, 300010866, 300012284, 300012336, 300012341],
     "versions_to_process": ["v2"],
     "alpha_values": [0.1]
   },
@@ -19,14 +19,14 @@
     "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
-    "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",
+    "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",                        
     "post_dir_template": "{run_root}/post/{lake_id9}/{alpha_slug}",
     "html_dir_template": "{run_root}/html/{lake_id9}/{alpha_slug}",
     "logs_dir_template": "{run_root}/logs",
     "prepared_filename": "prepared.nc",
     "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
     "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc",
-    "ice_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/LIC_MASK_L3/ESACCI-LIC-GAPFILLED-LAKEID-{lake_id}-fv3.0.nc"
+    "ice_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/LIC_MASK_L3/ESACCI-LIC-RAW-LAKEID-{lake_id}-fv3.0.nc"
   },
 
   "variables": {
@@ -79,8 +79,8 @@
     "cv_max_cloud_frac": 0.70,
     "remove_avhrr_ql3": false,
     "replace_ice_zero": true,
-    "_comment": "=== ice lic variable options are: smoothed_gap_filled_lic_class, gap_filled_lic_class, raw_lic_class, raw_quality_level ===",      
-    "ice_lic_var": "raw_lic_class",   
+    "_comment": "=== ice lic variable options are: smoothed_gap_filled_lic_class, gap_filled_lic_class, raw_lic_class, lake_cover_class, raw_quality_level ===",      
+    "ice_lic_var": "lake_cover_class",  
     "remove_threshold": 0.05,
     "apply_zscore_filter": true,
     "outlier_mode": "zscore",
