@@ -1,28 +1,15 @@
 {
-  "experiment_name": "exp1_no_ice",
-  "description": "exp1_no_ice: comparison to exp0 but no ice replacement step",
+  "experiment_name": "test_eofs_earlier_interp",
+  "description": "test_eofs_earlier_interp",
   "mode": "anomaly",
-  "note": "exp1_no_ice_both_patch_failed",
+  "note": "test_eofs_earlier_interp",
   "_note_engine_mode": "dineof | dincae | both ",
-  "engine_mode": "both",
+  "engine_mode": "dineof",
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [
-      2,
-      8,
-      12,
-      505,
-      513,
-      523,
-      546,
-      571,
-      586,
-      604,
-      648,
-      674,
-      679,
-      688
+    "custom_lake_ids": [ 
+        88
     ],
     "versions_to_process": [
       "v2"

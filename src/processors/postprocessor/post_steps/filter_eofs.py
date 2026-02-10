@@ -11,10 +11,16 @@ from .base import PostProcessingStep, PostContext
 
 class FilterTemporalEOFsStep(PostProcessingStep):
     """
-    Filter time steps in eofs.nc based on temporal EOF outlier rules.
-    - If ANY selected temporal EOF flags a time step -> that time step is dropped for ALL t-dim vars.
-    - Supports three selection methods:
-      1. "all": Apply filtering to all temporal EOFs (original behavior)
+    Filter outlier timesteps in eofs.nc based on temporal EOF outlier rules,
+    replacing their values with linear interpolation on physical time (days since epoch).
+    
+    - If ANY selected temporal EOF flags a time step as outlier, ALL temporal EOF values
+      at that timestep are replaced with linearly interpolated values from neighboring
+      good timesteps (using physical time, not array index, to respect irregular gaps).
+    - The output eofs_filtered.nc has the SAME number of timesteps as eofs.nc.
+    - At edge timesteps (first/last), np.interp clamps to the nearest good value.
+    - Supports three EOF selection methods for outlier detection:
+      1. "all": Apply filtering to all temporal EOFs
       2. "variance_threshold": Only filter EOFs that cumulatively explain Y% of variance
       3. "top_n": Only filter the first N EOFs
     - Writes a new filtered file by default (suffix), or overwrites if configured.
@@ -89,30 +95,52 @@ class FilterTemporalEOFsStep(PostProcessingStep):
 
         # Build flag mask across SELECTED temporal EOFs
         flagged_any, per_eof_flagged = self._build_flag_mask_with_stats(eofs, temporal_vars, selected_vars)
-        keep_mask = ~flagged_any
-        drop_idx = np.flatnonzero(flagged_any)
+        replaced_idx = np.flatnonzero(flagged_any)
 
         # Calculate statistics
         total_timesteps = len(flagged_any)
-        total_removed = int(flagged_any.sum())
-        fraction_removed = total_removed / total_timesteps if total_timesteps > 0 else 0.0
+        total_replaced = int(flagged_any.sum())
+        fraction_replaced = total_replaced / total_timesteps if total_timesteps > 0 else 0.0
 
         # Store per-EOF statistics (now includes whether EOF was used for filtering)
         self.per_eof_stats = []
         for i, var_name in enumerate(temporal_vars):
-            eof_removed = int(per_eof_flagged[i].sum())
-            eof_fraction = eof_removed / total_timesteps if total_timesteps > 0 else 0.0
+            eof_flagged_count = int(per_eof_flagged[i].sum())
+            eof_fraction = eof_flagged_count / total_timesteps if total_timesteps > 0 else 0.0
             was_selected = var_name in selected_vars
             self.per_eof_stats.append({
                 'eof_name': var_name,
-                'timesteps_flagged': eof_removed,
+                'timesteps_flagged': eof_flagged_count,
                 'fraction_flagged': eof_fraction,
                 'used_for_filtering': was_selected,
                 'variance_explained': self.variance_explained.get(var_name, np.nan)
             })
 
-        # Apply mask to every variable with a 't' dimension
-        eofs_filt = eofs.isel(t=keep_mask)
+        # Replace outlier temporal EOF values with linear interpolation on physical time.
+        # This preserves the same number of timesteps (unlike the old approach which dropped them).
+        eofs_filt = eofs.copy(deep=True)
+        if flagged_any.any():
+            phys_days = self._get_physical_days(ctx, eofs)
+            good_mask = ~flagged_any
+            n_good = int(good_mask.sum())
+            if n_good >= 2:
+                for v in temporal_vars:
+                    vals = eofs_filt[v].values.copy()
+                    original_outlier_vals = vals[flagged_any].copy()
+                    # np.interp: at edges, clamps to nearest good value (flat extrapolation)
+                    vals[flagged_any] = np.interp(
+                        phys_days[flagged_any],
+                        phys_days[good_mask],
+                        vals[good_mask]
+                    )
+                    eofs_filt[v] = (eofs_filt[v].dims, vals)
+                    # Log per-EOF replacement summary
+                    max_change = np.max(np.abs(vals[flagged_any] - original_outlier_vals)) if flagged_any.any() else 0.0
+                    print(f"[{self.name}] {v}: replaced {total_replaced} outlier values "
+                          f"(max abs change: {max_change:.6f})")
+            else:
+                print(f"[{self.name}] WARNING: only {n_good} good timesteps, cannot interpolate. "
+                      f"Outlier values left unchanged.")
 
         # Decide where to write
         if self.overwrite:
@@ -121,18 +149,20 @@ class FilterTemporalEOFsStep(PostProcessingStep):
             root, ext = os.path.splitext(eofs_path)
             out_path = f"{root}{self.output_suffix}{ext}"
 
-        # Write without adding attrs
+        # Write — same timestep count as original eofs.nc, with outliers replaced
         enc = {v: {"zlib": True, "complevel": 4} for v in eofs_filt.data_vars}
         try:
             eofs_filt.to_netcdf(out_path, encoding=enc)
-            print(f"[{self.name}] Wrote filtered EOFs -> {out_path} (kept {keep_mask.sum()}/{keep_mask.size} steps)")
+            print(f"[{self.name}] Wrote filtered EOFs -> {out_path} "
+                  f"({total_replaced}/{total_timesteps} outlier timesteps replaced, "
+                  f"{total_timesteps} total timesteps preserved)")
         except Exception as e:
             print(f"[{self.name}] Failed to write {out_path}: {e}")
 
         # Write statistics CSV
         output_dir = os.path.dirname(ctx.output_path)
         stats_file = os.path.join(output_dir, "eof_filtering_stats.csv")
-        self._write_filtering_stats(stats_file, total_timesteps, total_removed, fraction_removed)
+        self._write_filtering_stats(stats_file, total_timesteps, total_replaced, fraction_replaced)
 
         # Summarize for later steps/QA
         self.info = {
@@ -142,10 +172,10 @@ class FilterTemporalEOFsStep(PostProcessingStep):
             "k": self.k,
             "quantiles": (self.q_lo, self.q_hi),
             "temporal_prefix": self.temporal_var_prefix,
-            "n_time": int(keep_mask.size),
-            "n_dropped": int(flagged_any.sum()),
-            "dropped_indices": drop_idx.tolist(),
-            "fraction_removed": fraction_removed,
+            "n_time": int(total_timesteps),
+            "n_replaced": int(total_replaced),
+            "replaced_indices": replaced_idx.tolist(),
+            "fraction_replaced": fraction_replaced,
             "eof_selection": self.eof_selection,
             "n_eofs_selected": len(selected_vars),
             "n_eofs_total": len(temporal_vars),
@@ -189,6 +219,65 @@ class FilterTemporalEOFsStep(PostProcessingStep):
             globs.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
             return globs[0]
         return None
+
+    def _get_physical_days(self, ctx: PostContext, eofs: xr.Dataset) -> np.ndarray:
+        """
+        Get physical time axis (days since 1981-01-01) for the EOF timesteps.
+        
+        Needed for proper linear interpolation that respects actual time gaps
+        between observations (not array index which assumes equal spacing).
+        
+        Tries in order:
+          1. ctx.prepared_time_days (set by MergeOutputsStep, most reliable)
+          2. 'time' coordinate in eofs.nc itself
+          3. Read from prepared.nc directly
+          4. Raise error (cannot proceed without physical time)
+        """
+        n_t = eofs.dims["t"]
+        
+        # 1. Try ctx.prepared_time_days (set by MergeOutputsStep which runs before us)
+        if hasattr(ctx, "prepared_time_days") and ctx.prepared_time_days is not None:
+            days = ctx.prepared_time_days
+            if len(days) == n_t:
+                print(f"[{self.name}] Using physical time from ctx.prepared_time_days ({n_t} timesteps)")
+                return days.astype("float64")
+            else:
+                print(f"[{self.name}] WARNING: ctx.prepared_time_days length {len(days)} != eofs t dim {n_t}")
+        
+        # 2. Try 'time' coord in eofs.nc
+        if "time" in eofs.coords:
+            vals = eofs["time"].values
+            if np.issubdtype(vals.dtype, np.datetime64):
+                base = np.datetime64("1981-01-01T12:00:00", "ns")
+                days = ((vals.astype("datetime64[ns]") - base) / np.timedelta64(1, "D")).astype("float64")
+                if len(days) == n_t:
+                    print(f"[{self.name}] Using physical time from eofs.nc 'time' coord ({n_t} timesteps)")
+                    return days
+            elif np.issubdtype(vals.dtype, np.integer) or np.issubdtype(vals.dtype, np.floating):
+                days = vals.astype("float64")
+                if len(days) == n_t:
+                    print(f"[{self.name}] Using physical time from eofs.nc numeric 'time' coord ({n_t} timesteps)")
+                    return days
+        
+        # 3. Read from prepared.nc directly
+        try:
+            with xr.open_dataset(ctx.dineof_input_path) as ds_in:
+                time_vals = ds_in[ctx.time_name].values.astype("datetime64[ns]")
+                base = np.datetime64("1981-01-01T12:00:00", "ns")
+                days = ((time_vals - base) / np.timedelta64(1, "D")).astype("float64")
+                if len(days) == n_t:
+                    print(f"[{self.name}] Using physical time from prepared.nc ({n_t} timesteps)")
+                    return days
+                else:
+                    print(f"[{self.name}] WARNING: prepared.nc time length {len(days)} != eofs t dim {n_t}")
+        except Exception as e:
+            print(f"[{self.name}] WARNING: Failed to read prepared.nc for time: {e}")
+        
+        # 4. Cannot proceed without physical time — do NOT fall back to array index
+        raise ValueError(
+            f"[{self.name}] Cannot determine physical time axis for EOF interpolation. "
+            f"eofs t dim = {n_t}, none of the time sources matched."
+        )
 
     def _get_temporal_vars(self, ds: xr.Dataset) -> List[str]:
         """Get all temporal EOF variables sorted by mode number."""
@@ -302,7 +391,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
 
         return flagged_any, per_eof_flagged
 
-    def _write_filtering_stats(self, stats_file: str, total_timesteps: int, total_removed: int, fraction_removed: float):
+    def _write_filtering_stats(self, stats_file: str, total_timesteps: int, total_replaced: int, fraction_replaced: float):
         """Write filtering statistics to CSV file."""
         try:
             import csv
@@ -329,8 +418,8 @@ class FilterTemporalEOFsStep(PostProcessingStep):
                     'TOTAL_COMBINED',
                     '',
                     '',
-                    total_removed,
-                    f"{fraction_removed:.6f}"
+                    total_replaced,
+                    f"{fraction_replaced:.6f}"
                 ])
                 
                 # Metadata rows
@@ -338,6 +427,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
                 writer.writerow(['# Filtering Parameters'])
                 writer.writerow(['method', self.method])
                 writer.writerow(['eof_selection', self.eof_selection])
+                writer.writerow(['replacement_method', 'linear_interpolation_on_physical_time'])
                 
                 if self.eof_selection == "variance_threshold":
                     writer.writerow(['variance_threshold', f"{self.variance_threshold:.2%}"])
@@ -350,8 +440,8 @@ class FilterTemporalEOFsStep(PostProcessingStep):
                     writer.writerow(['quantile_low', f"{self.q_lo:.3f}"])
                     writer.writerow(['quantile_high', f"{self.q_hi:.3f}"])
                     
-                writer.writerow(['total_timesteps_before', total_timesteps])
-                writer.writerow(['total_timesteps_after', total_timesteps - total_removed])
+                writer.writerow(['total_timesteps', total_timesteps])
+                writer.writerow(['total_replaced', total_replaced])
             
             print(f"[{self.name}] Wrote filtering stats: {stats_file}")
             
