@@ -179,14 +179,19 @@ def compute_shore_distance(lakeid: np.ndarray) -> np.ndarray:
 def load_obs_fraction_and_shore(
     merged_path: str,
     n_t_expected: int,
+    dineof_lake_mask: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Load per-frame observation fraction and shore distance stats from merged file.
 
     Reads data_source (0=gap, 1=observed, 2=cv, 255=not_recon) and lakeid.
 
+    Uses dineof_lake_mask (from eofs.nc spatial_eof0) as the reference mask if provided,
+    since the merged file's lakeid may include pixels that were removed during preprocessing
+    (temporal coverage filter). obs_fraction = n_observed / n_dineof_lake_pixels.
+
     Returns:
-        obs_fraction:          1D array (n_time_merged,) — fraction of lake pixels observed per frame
+        obs_fraction:          1D array (n_time_merged,) — fraction of DINEOF lake pixels observed per frame
         obs_shore_dist_median: 1D array (n_time_merged,) — median shore distance of observed pixels per frame
         shore_dist_map:        2D array (lat, lon) — pixel distance to shore (for reference)
         merged_days:           1D array (n_time_merged,) — days since epoch for each frame in merged file
@@ -200,11 +205,21 @@ def load_obs_fraction_and_shore(
                 return None, None, None, None
 
             lakeid = ds["lakeid"].values  # (lat, lon), 1=lake 0=land
-            lake_mask = lakeid == 1
-            n_lake = int(lake_mask.sum())
+
+            # Use DINEOF lake mask if provided (filtered subset of lakeid==1),
+            # otherwise fall back to merged file's lakeid
+            if dineof_lake_mask is not None:
+                lake_mask = dineof_lake_mask
+                n_lake = int(lake_mask.sum())
+                n_lakeid = int((lakeid == 1).sum())
+                if n_lake != n_lakeid:
+                    print(f"    INFO: using DINEOF mask ({n_lake} px) vs merged lakeid ({n_lakeid} px)")
+            else:
+                lake_mask = lakeid == 1
+                n_lake = int(lake_mask.sum())
 
             if n_lake == 0:
-                print(f"    WARNING: no lake pixels in lakeid mask")
+                print(f"    WARNING: no lake pixels in mask")
                 return None, None, None, None
 
             # Load time axis from merged file
@@ -221,13 +236,11 @@ def load_obs_fraction_and_shore(
             elif np.issubdtype(merged_time_raw.dtype, np.integer) or np.issubdtype(merged_time_raw.dtype, np.floating):
                 merged_days = merged_time_raw.astype("int64")
             else:
-                # Try interpreting as days since a different epoch
-                # The merged file uses "days since 1995-06-01 12:00:00"
-                # Convert to days since 1981-01-01 12:00:00
                 print(f"    WARNING: unexpected time dtype {merged_time_raw.dtype} in merged file")
                 return None, None, None, None
 
-            # Compute shore distance map once
+            # Compute shore distance from the full lakeid (not the DINEOF subset)
+            # so that shore distance reflects actual lake geometry
             shore_dist = compute_shore_distance(lakeid)
 
             n_t = len(merged_days)
@@ -244,7 +257,7 @@ def load_obs_fraction_and_shore(
             for t in range(n_t):
                 ds_frame = data_source_var.isel(time=t).values  # (lat, lon)
 
-                # Observed = data_source == 1 AND on lake
+                # Observed = data_source == 1 AND on DINEOF lake mask
                 obs_mask = (ds_frame == 1) & lake_mask
                 n_obs = int(obs_mask.sum())
                 obs_frac[t] = n_obs / n_lake
@@ -643,7 +656,7 @@ def process_lake(
     if merged_path is not None:
         print(f"  Loading spatial obs metrics from merged file ...")
         obs_frac_raw, obs_shore_raw, shore_dist_map, merged_days = load_obs_fraction_and_shore(
-            merged_path, n_t_expected=n_t_recon)
+            merged_path, n_t_expected=n_t_recon, dineof_lake_mask=lake_mask)
         if obs_frac_raw is not None and merged_days is not None:
             # Align by date: DINEOF days is a subset of merged_days
             # Build lookup from merged day → index

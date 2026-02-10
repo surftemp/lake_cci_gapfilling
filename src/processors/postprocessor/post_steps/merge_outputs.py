@@ -113,11 +113,15 @@ class MergeOutputsStep(PostProcessingStep):
             # including buffer pixels outside the lake mask
             # Use lakeid from prepared.nc (same mask DINEOF uses) for consistency
             lake_mask_applied = False
+            lakeid_prep_binary = None  # Will store prepared.nc lakeid for writing to output
             with xr.open_dataset(ctx.dineof_input_path) as ds_prep:
                 if "lakeid" in ds_prep:
                     lakeid_raw = ds_prep["lakeid"].values
                     lake_mask_2d = np.isfinite(lakeid_raw) & (lakeid_raw != 0)  # True for lake pixels
                     non_lake_2d = ~lake_mask_2d
+                    
+                    # Save prepared lakeid as binary for writing to merged output
+                    lakeid_prep_binary = lake_mask_2d.astype(np.int32)
                     
                     # Count how many non-lake pixels had values (for logging)
                     n_non_lake_with_value = 0
@@ -166,13 +170,56 @@ class MergeOutputsStep(PostProcessingStep):
                 lat_name: ds_orig[lat_name].values,
                 lon_name: ds_orig[lon_name].values
             })
+            # Write lakeid from prepared.nc (the mask actually used for gap-filling,
+            # where pixels with insufficient temporal observation coverage are excluded).
+            # Also write lakeid_original from the source file for reference.
+            lakeid_dims = None
+            lakeid_coords = None
             if "lakeid" in ds_orig:
+                lakeid_dims = ds_orig["lakeid"].dims
+                lakeid_coords = ds_orig["lakeid"].coords
+                # lakeid_original: full lake boundary from CCI LSWT source product
                 lakeid_raw = ds_orig["lakeid"].values
-                lakeid_binary = np.where(np.isfinite(lakeid_raw) & (lakeid_raw != 0), 1, 0).astype(np.int32)
+                lakeid_orig_binary = np.where(np.isfinite(lakeid_raw) & (lakeid_raw != 0), 1, 0).astype(np.int32)
+                ds_merged["lakeid_original"] = xr.DataArray(
+                    lakeid_orig_binary,
+                    dims=lakeid_dims,
+                    coords=lakeid_coords,
+                    attrs={
+                        "long_name": "original lake mask from CCI LSWT source product",
+                        "flag_values": "0=land, 1=lake",
+                        "comment": (
+                            "Full lake boundary as defined in the CCI LSWT L3S source data, "
+                            "before any temporal observation availability filtering. "
+                            "Use lakeid for the mask that matches the gap-filled reconstruction."
+                        ),
+                    }
+                )
+
+            if lakeid_prep_binary is not None:
+                # lakeid: the mask used for gap-filling (filtered)
                 ds_merged["lakeid"] = xr.DataArray(
-                    lakeid_binary,
-                    dims=ds_orig["lakeid"].dims,
-                    coords=ds_orig["lakeid"].coords,
+                    lakeid_prep_binary,
+                    dims=lakeid_dims if lakeid_dims is not None else ("lat", "lon"),
+                    coords=lakeid_coords if lakeid_coords is not None else {},
+                    attrs={
+                        "long_name": "lake mask used for gap-filling",
+                        "flag_values": "0=land, 1=lake",
+                        "comment": (
+                            "Lake mask after temporal observation availability filtering: "
+                            "pixels with less than 5% valid observations across the time series "
+                            "are reclassified as land. This mask matches the spatial extent of "
+                            "the gap-filled reconstruction (temp_filled). "
+                            "See lakeid_original for the unfiltered CCI source lake boundary."
+                        ),
+                    }
+                )
+            elif "lakeid" in ds_orig:
+                # Fallback: if prepared.nc lakeid was not available, use original
+                ds_merged["lakeid"] = xr.DataArray(
+                    lakeid_orig_binary,
+                    dims=lakeid_dims,
+                    coords=lakeid_coords,
                     attrs={"long_name": "lake mask", "flag_values": "0=land, 1=lake"}
                 )
     

@@ -293,7 +293,11 @@ def apply_dineof_cv_points(
     # --- 1) Compute mask & count_nomissing (same as add_cv_clouds) ---
     count_nomissing = np.sum(~np.isnan(data), axis=0)  # (lat, lon)
     frac_valid = count_nomissing / max(1, n_time)
-    mask = (frac_valid > minseafrac).astype(np.int8)  # sea=1, land=0
+    
+    if "lakeid" in ds:
+        mask = (ds["lakeid"].values == 1).astype(np.int8)  # 1 for water, 0 for land
+    else:
+        mask = (frac_valid > minseafrac).astype(np.int8)  # fallback to recompute mask: defined as any pixels with less than "minseafrac" temporal data is land
     
     dims_lat, dims_lon = ds[variable_name].dims[1:3]
     
