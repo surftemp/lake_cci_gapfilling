@@ -837,12 +837,15 @@ class InsituValidationStep(PostProcessingStep):
         outputs = {
             'dineof': None, 'dincae': None, 'eof_filtered': None,
             'interp_full': None, 'eof_filtered_interp_full': None,
+            'dincae_interp_full': None,
         }
         
         nc_files = glob(os.path.join(post_dir, "*.nc"))
         for nc_file in nc_files:
             basename = os.path.basename(nc_file)
-            if '_dincae.nc' in basename:
+            if '_dincae_interp_full.nc' in basename:
+                outputs['dincae_interp_full'] = nc_file
+            elif '_dincae.nc' in basename:
                 outputs['dincae'] = nc_file
             elif '_dineof_eof_filtered_interp_full.nc' in basename:
                 outputs['eof_filtered_interp_full'] = nc_file

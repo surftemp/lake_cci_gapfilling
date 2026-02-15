@@ -56,13 +56,40 @@ except ImportError:
 
 @dataclass
 class MethodResult:
-    """Results for a single method."""
+    """Results for a single method (comprehensive metrics)."""
     rmse: Optional[float] = None
     mae: Optional[float] = None
     bias: Optional[float] = None
+    median: Optional[float] = None
+    std: Optional[float] = None
+    rstd: Optional[float] = None
+    iqr: Optional[float] = None
     n_points: Optional[int] = None
     verified: Optional[bool] = None
     reported_rmse: Optional[float] = None
+
+# Ordered metric names for CSV/display
+METRIC_NAMES = ['rmse', 'mae', 'bias', 'median', 'std', 'rstd', 'iqr', 'n_points']
+
+
+def _compute_full_metrics(diff: np.ndarray) -> dict:
+    """Compute all CV metrics from a signed diff vector.
+    Consistent with insitu_validation.py:compute_stats definitions."""
+    n = len(diff)
+    if n == 0:
+        return {m: None for m in METRIC_NAMES}
+    q75, q25 = np.percentile(diff, [75, 25])
+    iqr_val = float(q75 - q25)
+    return {
+        'rmse':     float(np.sqrt(np.mean(diff**2))),
+        'mae':      float(np.mean(np.abs(diff))),
+        'bias':     float(np.mean(diff)),
+        'median':   float(np.median(diff)),
+        'std':      float(np.std(diff, ddof=1)) if n > 1 else None,
+        'rstd':     float(iqr_val / 1.349) if n > 1 else None,
+        'iqr':      iqr_val,
+        'n_points': n,
+    }
 
 
 @dataclass
@@ -130,7 +157,28 @@ def read_gher_file(filepath: str, verbose: bool = False) -> Optional[np.ndarray]
 
 
 def compute_dineof_cv_from_gher(dineof_dir: Path, verbose: bool = True) -> Optional[MethodResult]:
-    """Compute DINEOF CV error from CVpoints_*.dat files."""
+    """Compute DINEOF CV error from CVpoints_*.dat files or cv_pairs_dineof.npz."""
+    
+    # Check for merged .npz first (from temporal chunking)
+    npz_path = dineof_dir / "cv_pairs_dineof.npz"
+    if npz_path.exists():
+        if verbose:
+            print(f"      Reading merged CV pairs from cv_pairs_dineof.npz")
+        data = np.load(str(npz_path), allow_pickle=True)
+        diff = data["diff"]
+        valid = ~np.isnan(diff)
+        diff = diff[valid]
+        if len(diff) == 0:
+            if verbose:
+                print(f"      No valid CV points in .npz")
+            return None
+        metrics = _compute_full_metrics(diff)
+        if verbose:
+            print(f"      RMSE={metrics['rmse']:.6f}, MAE={metrics['mae']:.6f}, "
+                  f"Bias={metrics['bias']:.6f}, Median={metrics['median']:.6f}, N={metrics['n_points']}")
+        return MethodResult(**metrics)
+
+    # Standard: GHER .dat files
     cv_best_path = dineof_dir / "CVpoints_best_estimate.dat"
     cv_init_path = dineof_dir / "CVpoints_initial.dat"
     
@@ -157,14 +205,13 @@ def compute_dineof_cv_from_gher(dineof_dir: Path, verbose: bool = True) -> Optio
         return None
     
     diff = best_valid - init_valid
-    rmse = float(np.sqrt(np.mean(diff**2)))
-    mae = float(np.mean(np.abs(diff)))
-    bias = float(np.mean(diff))
+    metrics = _compute_full_metrics(diff)
     
     if verbose:
-        print(f"      RMSE={rmse:.6f}, MAE={mae:.6f}, Bias={bias:.6f}, N={len(best_valid)}")
+        print(f"      RMSE={metrics['rmse']:.6f}, MAE={metrics['mae']:.6f}, "
+              f"Bias={metrics['bias']:.6f}, Median={metrics['median']:.6f}, N={metrics['n_points']}")
     
-    return MethodResult(rmse=rmse, mae=mae, bias=bias, n_points=len(best_valid))
+    return MethodResult(**metrics)
 
 
 def load_cv_points(clouds_index_nc: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -226,14 +273,13 @@ def compute_dincae_cv(prepared_nc: Path, dincae_results_nc: Path,
     recon_vals = np.array(recon_vals)
     diff = recon_vals - orig_vals
     
-    rmse = float(np.sqrt(np.mean(diff**2)))
-    mae = float(np.mean(np.abs(diff)))
-    bias = float(np.mean(diff))
+    metrics = _compute_full_metrics(diff)
     
     if verbose:
-        print(f"      RMSE={rmse:.6f}, MAE={mae:.6f}, Bias={bias:.6f}, N={len(orig_vals)}")
+        print(f"      RMSE={metrics['rmse']:.6f}, MAE={metrics['mae']:.6f}, "
+              f"Bias={metrics['bias']:.6f}, Median={metrics['median']:.6f}, N={metrics['n_points']}")
     
-    return MethodResult(rmse=rmse, mae=mae, bias=bias, n_points=len(orig_vals))
+    return MethodResult(**metrics)
 
 
 def find_dineof_log(run_root: str, lake_id: int) -> Optional[Path]:
@@ -298,27 +344,30 @@ def find_alpha_folders(run_root: str, lake_id: int, method_dir: str = "dineof") 
 
 
 def run_cv_validation_for_lake(run_root: str, lake_id: int, verbose: bool = True) -> List[LakeCVResult]:
-    """Run CV validation for a single lake."""
+    """Run CV validation for a single lake.
+    
+    Checks for pre-computed .npz files first (from temporal chunking merge),
+    then falls back to standard computation from NetCDF files.
+    """
     lake_id9 = f"{lake_id:09d}"
     results = []
     
+    # Locate prepared files (may not exist for temporally chunked merge roots)
+    prepared_nc = None
+    clouds_index_nc = None
     for lake_str in [lake_id9, str(lake_id)]:
         prepared_dir = Path(run_root) / "prepared" / lake_str
         if prepared_dir.exists():
+            p = prepared_dir / "prepared.nc"
+            c = prepared_dir / "clouds_index.nc"
+            if p.exists() and c.exists():
+                prepared_nc = p
+                clouds_index_nc = c
             break
-    else:
-        if verbose:
-            print(f"  Prepared directory not found")
-        return results
     
-    prepared_nc = prepared_dir / "prepared.nc"
-    clouds_index_nc = prepared_dir / "clouds_index.nc"
+    has_netcdf_prereqs = (prepared_nc is not None and clouds_index_nc is not None)
     
-    if not prepared_nc.exists() or not clouds_index_nc.exists():
-        if verbose:
-            print(f"  Required files not found")
-        return results
-    
+    # Discover alpha folders from any available method directory
     alphas = find_alpha_folders(run_root, lake_id, "dineof")
     if not alphas:
         alphas = find_alpha_folders(run_root, lake_id, "dincae")
@@ -331,7 +380,7 @@ def run_cv_validation_for_lake(run_root: str, lake_id: int, verbose: bool = True
         
         lake_result = LakeCVResult(lake_id=lake_id, alpha=alpha)
         
-        # DINEOF
+        # ---- DINEOF ----
         for lake_str in [lake_id9, str(lake_id)]:
             dineof_dir = Path(run_root) / "dineof" / lake_str / alpha
             if dineof_dir.exists():
@@ -341,7 +390,7 @@ def run_cv_validation_for_lake(run_root: str, lake_id: int, verbose: bool = True
         
         if dineof_dir and dineof_dir.exists():
             if verbose:
-                print(f"    DINEOF (from CVpoints_*.dat):")
+                print(f"    DINEOF:")
             dineof_result = compute_dineof_cv_from_gher(dineof_dir, verbose)
             if dineof_result:
                 lake_result.dineof = dineof_result
@@ -357,7 +406,7 @@ def run_cv_validation_for_lake(run_root: str, lake_id: int, verbose: bool = True
                             status = "✓ VERIFIED" if lake_result.dineof.verified else "✗ MISMATCH"
                             print(f"      Reported: {reported:.6f}, Computed: {dineof_result.rmse:.6f} - {status}")
         
-        # DINCAE
+        # ---- DINCAE ----
         for lake_str in [lake_id9, str(lake_id)]:
             dincae_dir = Path(run_root) / "dincae" / lake_str / alpha
             if dincae_dir.exists():
@@ -366,42 +415,70 @@ def run_cv_validation_for_lake(run_root: str, lake_id: int, verbose: bool = True
             dincae_dir = None
         
         if dincae_dir and dincae_dir.exists():
-            dincae_results_nc = dincae_dir / "dincae_results.nc"
-            if dincae_results_nc.exists():
+            # Check for pre-computed .npz first (from temporal chunking merge)
+            dincae_npz = dincae_dir / "cv_pairs_dincae.npz"
+            if dincae_npz.exists():
                 if verbose:
-                    print(f"    DINCAE (from NetCDF):")
-                dincae_result = compute_dincae_cv(prepared_nc, dincae_results_nc, clouds_index_nc, verbose)
-                if dincae_result:
-                    lake_result.dincae = dincae_result
+                    print(f"    DINCAE (from cv_pairs_dincae.npz):")
+                data = np.load(str(dincae_npz), allow_pickle=True)
+                diff = data["diff"]
+                valid = ~np.isnan(diff)
+                diff = diff[valid]
+                if len(diff) > 0:
+                    metrics = _compute_full_metrics(diff)
+                    lake_result.dincae = MethodResult(**metrics)
+                    if verbose:
+                        print(f"      RMSE={metrics['rmse']:.6f}, MAE={metrics['mae']:.6f}, "
+                              f"Bias={metrics['bias']:.6f}, Median={metrics['median']:.6f}, N={metrics['n_points']}")
+            else:
+                # Standard: compute from NetCDF files
+                dincae_results_nc = dincae_dir / "dincae_results.nc"
+                if dincae_results_nc.exists() and has_netcdf_prereqs:
+                    if verbose:
+                        print(f"    DINCAE (from NetCDF):")
+                    dincae_result = compute_dincae_cv(prepared_nc, dincae_results_nc, clouds_index_nc, verbose)
+                    if dincae_result:
+                        lake_result.dincae = dincae_result
+                elif verbose:
+                    if not has_netcdf_prereqs:
+                        print(f"    DINCAE: no .npz and no prepared.nc/clouds_index.nc, skipping")
+                    else:
+                        print(f"    DINCAE: dincae_results.nc not found")
         
         if lake_result.dineof.rmse is not None or lake_result.dincae.rmse is not None:
             results.append(lake_result)
+    
+    if not results and verbose:
+        print(f"  No CV results found for lake {lake_id}")
     
     return results
 
 
 def write_csv(results: List[LakeCVResult], output_path: str):
-    """Write results to CSV file with wide format."""
+    """Write results to CSV file with wide format (comprehensive metrics)."""
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow([
-            'lake_id', 'alpha',
-            'rmse(dineof)', 'mae(dineof)', 'bias(dineof)', 'n_points(dineof)', 'verified(dineof)',
-            'rmse(dincae)', 'mae(dincae)', 'bias(dincae)', 'n_points(dincae)'
-        ])
+        header = ['lake_id', 'alpha']
+        for method in ['dineof', 'dincae']:
+            for m in METRIC_NAMES:
+                header.append(f"{m}({method})")
+            header.append(f"verified({method})" if method == "dineof" else None)
+        header = [h for h in header if h is not None]
+        writer.writerow(header)
+        
         for r in results:
-            row = [
-                r.lake_id, r.alpha,
-                f"{r.dineof.rmse:.6f}" if r.dineof.rmse is not None else "",
-                f"{r.dineof.mae:.6f}" if r.dineof.mae is not None else "",
-                f"{r.dineof.bias:.6f}" if r.dineof.bias is not None else "",
-                r.dineof.n_points if r.dineof.n_points is not None else "",
-                r.dineof.verified if r.dineof.verified is not None else "",
-                f"{r.dincae.rmse:.6f}" if r.dincae.rmse is not None else "",
-                f"{r.dincae.mae:.6f}" if r.dincae.mae is not None else "",
-                f"{r.dincae.bias:.6f}" if r.dincae.bias is not None else "",
-                r.dincae.n_points if r.dincae.n_points is not None else "",
-            ]
+            row = [r.lake_id, r.alpha]
+            for method_obj, is_dineof in [(r.dineof, True), (r.dincae, False)]:
+                for m in METRIC_NAMES:
+                    val = getattr(method_obj, m, None)
+                    if val is None:
+                        row.append("")
+                    elif isinstance(val, float):
+                        row.append(f"{val:.6f}")
+                    else:
+                        row.append(val)
+                if is_dineof:
+                    row.append(method_obj.verified if method_obj.verified is not None else "")
             writer.writerow(row)
 
 
@@ -516,22 +593,27 @@ Examples:
                                           filename="cv_excluded_lakes_log.csv")
             print(f"Exclusion log saved: {log_path}")
     
-    if all_results:
-        write_csv(all_results, args.output)
-        print(f"\nResults written to: {args.output}")
-    
     # Summary
-    print("\n" + "=" * 100)
-    print(f"{'Lake':<12} {'Alpha':<8} {'DINEOF RMSE':<14} {'DINEOF MAE':<14} {'Verified':<10} {'DINCAE RMSE':<14} {'DINCAE MAE':<14}")
-    print("-" * 100)
+    print("\n" + "=" * 140)
+    hdr = f"{'Lake':<12} {'Alpha':<8}"
+    for method in ['DINEOF', 'DINCAE']:
+        for m in ['RMSE', 'MAE', 'Bias', 'Median', 'N']:
+            hdr += f" {method+' '+m:<14}"
+    print(hdr)
+    print("-" * 140)
+    
+    def _fv(v):
+        if v is None: return "-"
+        if isinstance(v, float): return f"{v:.6f}"
+        return str(v)
+    
     for r in all_results:
-        print(f"{r.lake_id:<12} {r.alpha:<8} "
-              f"{r.dineof.rmse:.6f if r.dineof.rmse else '-':<14} "
-              f"{r.dineof.mae:.6f if r.dineof.mae else '-':<14} "
-              f"{'✓' if r.dineof.verified else '✗' if r.dineof.verified is False else '-':<10} "
-              f"{r.dincae.rmse:.6f if r.dincae.rmse else '-':<14} "
-              f"{r.dincae.mae:.6f if r.dincae.mae else '-':<14}")
-    print("=" * 100)
+        line = f"{r.lake_id:<12} {r.alpha:<8}"
+        for m_obj in [r.dineof, r.dincae]:
+            for attr in ['rmse', 'mae', 'bias', 'median', 'n_points']:
+                line += f" {_fv(getattr(m_obj, attr, None)):<14}"
+        print(line)
+    print("=" * 140)
     
     return 0
 

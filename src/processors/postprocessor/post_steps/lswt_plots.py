@@ -707,6 +707,7 @@ class LSWTPlotsStep(PostProcessingStep):
         dineof_interp = None       # raw, full daily
         dineof_filtered_interp = None  # filtered, full daily
         dincae = None
+        dincae_interp = None       # DINCAE, full daily
         
         # Build paths explicitly from post_dir and lake_id to avoid issues when
         # ctx.output_path doesn't end with "_dineof.nc" (e.g., when running DINCAE postprocessor)
@@ -778,6 +779,16 @@ class LSWTPlotsStep(PostProcessingStep):
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINCAE: {e}")
         
+        # Load DINCAE interpolated (full daily)
+        dincae_interp_path = find_output_file("_dincae_interp_full.nc")
+        if dincae_interp_path and os.path.exists(dincae_interp_path):
+            try:
+                with xr.open_dataset(dincae_interp_path) as ds_file:
+                    dincae_interp = extract_lake_series(ds_file, "temp_filled")
+                print(f"[LSWTPlots] Loaded DINCAE interp from: {os.path.basename(dincae_interp_path)}")
+            except Exception as e:
+                print(f"[LSWTPlots] Could not load DINCAE interp: {e}")
+        
         # Load observation time series (with quality filter)
         observation = None
         if self.original_ts_path and os.path.exists(self.original_ts_path):
@@ -807,6 +818,7 @@ class LSWTPlotsStep(PostProcessingStep):
             (dineof_interp, "DINEOF_interp"),
             (dineof_filtered_interp, "DINEOF_filtered_interp"),
             (dincae, "DINCAE"),
+            (dincae_interp, "DINCAE_interp"),
         ]
         
         for series, label in individual_series:
@@ -843,6 +855,13 @@ class LSWTPlotsStep(PostProcessingStep):
         if dincae is not None:
             comparisons.append((dineof, dincae, "DINEOF", "DINCAE"))
             comparisons.append((dineof_filtered, dincae, "DINEOF_filtered", "DINCAE"))
+        
+        # DINCAE sparse vs DINCAE interp
+        if dincae_interp is not None:
+            comparisons.append((dincae, dincae_interp, "DINCAE", "DINCAE_interp"))
+            # DINEOF interp vs DINCAE interp (daily-scale method comparison)
+            comparisons.append((dineof_interp, dincae_interp, "DINEOF_interp", "DINCAE_interp"))
+            comparisons.append((dineof_filtered_interp, dincae_interp, "DINEOF_filtered_interp", "DINCAE_interp"))
         
         for s1, s2, l1, l2 in comparisons:
             path = plot_comparison(s1, s2, lake_id, l1, l2, plot_dir)

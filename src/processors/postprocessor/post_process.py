@@ -56,6 +56,7 @@ from .post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
 from .post_steps.lswt_plots import LSWTPlotsStep
 from .post_steps.insitu_validation import InsituValidationStep
 from .post_steps.add_data_source_flag import AddDataSourceFlagStep
+from .post_steps.clamp_subzero import ClampSubZeroStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -125,6 +126,8 @@ class PostOptions:
     eof_filter_top_n: int = 3                       # number of top EOFs to filter
     
     add_data_source_flag: bool = True  # Add data_source flag (CV/observed/gap)
+    clamp_subzero: bool = True         # Clamp sub-zero LSWT to freezing point
+    dincae_temporal_interp: bool = True  # Linear temporal interpolation for DINCAE output
 
 class PostProcessor:
     """
@@ -196,6 +199,10 @@ class PostProcessor:
         # Add back climatology
         if self.options.add_back_climatology:
             steps.append(AddBackClimatologyStep())
+
+        # Clamp sub-zero LSWT to freezing point (after units are final)
+        if self.options.clamp_subzero:
+            steps.append(ClampSubZeroStep())
 
         # Add DINEOF init metadata (alpha, nev, etc.) + provenance
         if self.options.write_init_metadata:
@@ -591,8 +598,142 @@ class PostProcessor:
             self.ctx.output_path        = orig_output
             self.ctx.output_html_folder = orig_html
         
+        # ==================== PASS 5: DINCAE temporal interpolation (full daily) ====================
+        # Detect DINCAE output by checking for _dincae.nc in the post directory
+        if self.options.dincae_temporal_interp:
+            post_dir = os.path.dirname(self.output_path)
+            dincae_sparse = self._find_dincae_sparse(post_dir)
+            if dincae_sparse is not None:
+                dincae_interp_path = dincae_sparse.replace("_dincae.nc", "_dincae_interp_full.nc")
+                if not os.path.isfile(dincae_interp_path):
+                    print(f"[Post] Creating DINCAE daily interpolation from: {os.path.basename(dincae_sparse)}")
+                    self._create_dincae_interp(dincae_sparse, dincae_interp_path)
+                else:
+                    print(f"[Post] DINCAE interp already exists: {os.path.basename(dincae_interp_path)}")
+
         LSWTPlotsStep(original_ts_path=self.lake_path).apply(self.ctx, None)
         InsituValidationStep().apply(self.ctx, None)
+
+    # ==================== DINCAE interpolation helpers ====================
+
+    @staticmethod
+    def _find_dincae_sparse(post_dir: str) -> Optional[str]:
+        """Find the sparse DINCAE output file in post_dir."""
+        import glob
+        matches = glob.glob(os.path.join(post_dir, "*_dincae.nc"))
+        if matches:
+            return matches[0]
+        return None
+
+    def _create_dincae_interp(self, sparse_path: str, out_path: str) -> None:
+        """
+        Create full-daily DINCAE output via per-pixel linear interpolation.
+
+        The sparse DINCAE file already has final LSWT in °C (trend + climatology
+        restored, sub-zero clamped). We interpolate temp_filled onto the full
+        daily timeline from ctx.full_days, filling only interior gaps.
+        """
+        try:
+            ds_sparse = xr.open_dataset(sparse_path)
+            sparse_time = ds_sparse["time"].values.astype("datetime64[ns]")
+            base = np.datetime64("1981-01-01T12:00:00", "ns")
+            sparse_days = ((sparse_time.astype("int64") - base.astype("int64"))
+                           // 86_400_000_000_000).astype("int64")
+
+            full_days = self.ctx.full_days
+            if full_days is None:
+                print("[Post] DINCAE interp: full_days not available, skipping")
+                ds_sparse.close()
+                return
+
+            full_time = base + full_days.astype("timedelta64[D]")
+            sparse_x = sparse_days.astype("float64")
+            full_x = full_days.astype("float64")
+
+            temp_sparse = ds_sparse["temp_filled"].values  # (T_sparse, lat, lon)
+            T_full = len(full_days)
+            ny, nx = temp_sparse.shape[1], temp_sparse.shape[2]
+            temp_full = np.full((T_full, ny, nx), np.nan, dtype="float32")
+
+            # Per-pixel linear interpolation (interior only)
+            n_interp = 0
+            for iy in range(ny):
+                for ix in range(nx):
+                    col = temp_sparse[:, iy, ix]
+                    valid = np.isfinite(col)
+                    if valid.sum() < 2:
+                        # Not enough points — place available values but don't interpolate
+                        for i_s, d in enumerate(sparse_days):
+                            j = np.searchsorted(full_days, d)
+                            if j < T_full and full_days[j] == d and valid[i_s]:
+                                temp_full[j, iy, ix] = col[i_s]
+                        continue
+
+                    x_valid = sparse_x[valid]
+                    y_valid = col[valid].astype("float64")
+
+                    # Interior range: first valid to last valid in full timeline
+                    i0 = np.searchsorted(full_x, x_valid[0])
+                    i1 = np.searchsorted(full_x, x_valid[-1])
+                    if i1 < T_full and full_x[i1] == x_valid[-1]:
+                        i1_end = i1 + 1
+                    else:
+                        i1_end = i1
+
+                    if i0 < i1_end:
+                        temp_full[i0:i1_end, iy, ix] = np.interp(
+                            full_x[i0:i1_end], x_valid, y_valid
+                        ).astype("float32")
+                        n_interp += 1
+
+            print(f"[Post] DINCAE interp: interpolated {n_interp} pixels onto {T_full} daily timesteps")
+
+            # Determine coord names
+            lat_name = "lat" if "lat" in ds_sparse.coords else "latitude"
+            lon_name = "lon" if "lon" in ds_sparse.coords else "longitude"
+
+            ds_out = xr.Dataset()
+            ds_out = ds_out.assign_coords({
+                "time": full_time,
+                lat_name: ds_sparse[lat_name].values,
+                lon_name: ds_sparse[lon_name].values,
+            })
+            ds_out["temp_filled"] = xr.DataArray(
+                temp_full,
+                dims=("time", lat_name, lon_name),
+                coords={"time": full_time,
+                         lat_name: ds_sparse[lat_name].values,
+                         lon_name: ds_sparse[lon_name].values},
+                attrs={"units": "degree_Celsius",
+                        "long_name": "lake surface water temperature (DINCAE, daily interpolated)",
+                        "comment": "Per-pixel linear interpolation of sparse DINCAE output to full daily timeline"},
+            )
+
+            # Copy lakeid if present
+            if "lakeid" in ds_sparse:
+                ds_out["lakeid"] = ds_sparse["lakeid"]
+            if "lakeid_original" in ds_sparse:
+                ds_out["lakeid_original"] = ds_sparse["lakeid_original"]
+
+            # Copy attrs
+            ds_out.attrs.update(ds_sparse.attrs)
+            ds_out.attrs["source_model"] = "DINCAE"
+            ds_out.attrs["interpolation_method"] = "per_pixel_linear"
+            ds_out.attrs["interpolation_edge_policy"] = "leave_nan"
+            ds_out.attrs["interpolation_source"] = os.path.basename(sparse_path)
+
+            enc = {v: {"zlib": True, "complevel": 4} for v in ds_out.data_vars}
+            if "temp_filled" in ds_out:
+                enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+            ds_out.to_netcdf(out_path, encoding=enc)
+            print(f"[Post] Wrote DINCAE interp: {out_path}")
+
+            ds_sparse.close()
+
+        except Exception as e:
+            print(f"[Post] DINCAE interp failed: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # ===== CLI =====
@@ -643,6 +784,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-eof-interp", action="store_true", help="Disable temporal EOF interpolation step")
     p.add_argument("--eof-interp-edge", choices=("leave_nan","nearest"), default="leave_nan")
     
+    p.add_argument("--no-clamp-subzero", action="store_true",
+                   help="Disable clamping of sub-zero LSWT values")
+    p.add_argument("--no-dincae-interp", action="store_true",
+                   help="Disable DINCAE temporal interpolation to full daily")
+    
     
     return p
 
@@ -674,7 +820,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         eof_filter_output_suffix=args.eof_filter_suffix,
         recon_after_eof_filter = not args.no_recon_after_filter, 
         eof_interp_enable=not args.no_eof_interp,        
-        eof_interp_edge=args.eof_interp_edge,            
+        eof_interp_edge=args.eof_interp_edge,
+        clamp_subzero=not args.no_clamp_subzero,
+        dincae_temporal_interp=not args.no_dincae_interp,
     )
 
     proc = PostProcessor(
