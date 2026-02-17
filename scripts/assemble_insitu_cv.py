@@ -796,6 +796,33 @@ def find_lakes_with_insitu(lake_ids: List[int],
 # Main
 # =============================================================================
 
+def _print_summary(assembly: pd.DataFrame):
+    """Print breakdown summary of assembly DataFrame."""
+    n_lakes = assembly['lake_id_cci'].nunique()
+    print(f"Total: {len(assembly):,} rows from {n_lakes} lakes")
+    print("\nBreakdown by method × data_type:")
+    summary = assembly.groupby(['method', 'data_type']).size().reset_index(name='count')
+    for _, row in summary.iterrows():
+        print(f"  {row['method']:30s} {row['data_type']:25s} {row['count']:>8,}")
+
+
+def _print_output_summary(output_dir: str):
+    """Print summary of all output files."""
+    print(f"\n{'='*70}")
+    print("ALL DONE")
+    print(f"{'='*70}")
+    print(f"Output directory: {output_dir}")
+    for f in sorted(os.listdir(output_dir)):
+        fp = os.path.join(output_dir, f)
+        if os.path.isfile(fp):
+            size = os.path.getsize(fp) / 1e6
+            print(f"  {f} ({size:.1f} MB)")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Assemble in-situ (buoy) CV pairs and compute statistics",
@@ -833,6 +860,9 @@ Examples:
         """
     )
     parser.add_argument("--run-root", required=True, help="Experiment root directory")
+    parser.add_argument("--phase", choices=["sequential", "extract", "merge", "list-lakes"],
+                        default="sequential",
+                        help="Execution phase (default: sequential)")
     parser.add_argument("--alpha", default="a1000", help="Alpha slug (default: a1000)")
     parser.add_argument("--output-dir", default=None,
                         help="Output directory (default: {run_root}/insitu_cv_assembly/)")
@@ -869,46 +899,137 @@ Examples:
         args.output_dir = os.path.join(args.run_root, "insitu_cv_assembly")
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Selection CSVs
-    csv_paths = args.selection_csvs or DEFAULT_SELECTION_CSVS
-    print("Loading selection CSVs...")
-    selection_dfs = load_selection_csvs(csv_paths)
-    if not selection_dfs:
-        print("Error: No selection CSVs could be loaded")
-        sys.exit(1)
-    print(f"  Loaded {len(selection_dfs)} selection CSV(s)")
+    # Selection CSVs (needed for all phases except merge)
+    selection_dfs = []
+    if args.phase != 'merge':
+        csv_paths = args.selection_csvs or DEFAULT_SELECTION_CSVS
+        print("Loading selection CSVs...")
+        selection_dfs = load_selection_csvs(csv_paths)
+        if not selection_dfs:
+            print("Error: No selection CSVs could be loaded")
+            sys.exit(1)
+        print(f"  Loaded {len(selection_dfs)} selection CSV(s)")
 
-    # Determine lake IDs
-    if args.lake_id:
-        lake_ids = [args.lake_id]
-    elif args.lake_ids:
-        lake_ids = args.lake_ids
-    elif args.all:
-        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
-            print("=" * 70)
-            print("FAIR COMPARISON MODE")
-            print("=" * 70)
-            lake_ids, _ = get_fair_comparison_lakes(args.run_root, args.alpha, verbose=True)
-            if not lake_ids:
-                print("No lakes with both methods complete.")
-                sys.exit(1)
+    # Resolve lake IDs (not needed for merge)
+    lake_ids_with_insitu = []
+    if args.phase != 'merge':
+        if args.lake_id:
+            lake_ids = [args.lake_id]
+        elif args.lake_ids:
+            lake_ids = args.lake_ids
+        elif args.all:
+            if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+                lake_ids, _ = get_fair_comparison_lakes(args.run_root, args.alpha, verbose=True)
+                if not lake_ids:
+                    print("No lakes with both methods complete.")
+                    sys.exit(1)
+            else:
+                lake_ids = find_lakes_with_post(args.run_root, args.alpha)
         else:
             lake_ids = find_lakes_with_post(args.run_root, args.alpha)
-    else:
-        lake_ids = find_lakes_with_post(args.run_root, args.alpha)
 
-    # Filter to only lakes with buoy data
-    lake_ids_with_insitu = find_lakes_with_insitu(lake_ids, selection_dfs)
+        lake_ids_with_insitu = find_lakes_with_insitu(lake_ids, selection_dfs)
+        if not lake_ids_with_insitu:
+            print("No lakes with buoy data found")
+            sys.exit(1)
 
-    if not lake_ids_with_insitu:
-        print("No lakes with buoy data found")
-        sys.exit(1)
+    # =====================================================================
+    # PHASE: list-lakes
+    # =====================================================================
+    if args.phase == 'list-lakes':
+        for lid in lake_ids_with_insitu:
+            print(lid)
+        sys.exit(0)
 
+    # =====================================================================
+    # PHASE: extract — write per-lake CSVs
+    # =====================================================================
+    if args.phase == 'extract':
+        per_lake_dir = os.path.join(args.output_dir, "per_lake")
+        os.makedirs(per_lake_dir, exist_ok=True)
+
+        for lake_id in lake_ids_with_insitu:
+            df = extract_lake(
+                args.run_root, lake_id, args.alpha,
+                selection_dfs, args.buoy_dir, verbose
+            )
+            if df is not None and len(df) > 0:
+                out_path = os.path.join(per_lake_dir, f"insitu_cv_lake_{lake_id}.csv")
+                df.to_csv(out_path, index=False)
+                print(f"  Saved: {out_path} ({len(df):,} rows)")
+                del df
+            else:
+                if verbose:
+                    print(f"  [Lake {lake_id}] No in-situ data")
+
+        sys.exit(0)
+
+    # =====================================================================
+    # PHASE: merge — concatenate per-lake CSVs + compute stats
+    # =====================================================================
+    if args.phase == 'merge':
+        per_lake_dir = os.path.join(args.output_dir, "per_lake")
+        print(f"\n{'='*70}")
+        print("MERGE")
+        print(f"{'='*70}")
+        t_start = time.time()
+
+        csv_files = sorted(Path(per_lake_dir).glob("insitu_cv_lake_*.csv"))
+        if not csv_files:
+            print(f"  No per-lake CSVs found in {per_lake_dir}")
+            sys.exit(1)
+
+        print(f"  Found {len(csv_files)} per-lake CSVs")
+
+        assembly_csv = os.path.join(args.output_dir, "insitu_cv_assembly.csv")
+        header_written = False
+        if args.append and os.path.exists(assembly_csv):
+            header_written = True
+
+        n_rows = 0
+        for csv_file in csv_files:
+            chunk = pd.read_csv(csv_file)
+            chunk.to_csv(assembly_csv, index=False,
+                         mode='a', header=(not header_written))
+            header_written = True
+            n_rows += len(chunk)
+            del chunk
+
+        size_mb = os.path.getsize(assembly_csv) / 1e6
+        print(f"  Assembly: {n_rows:,} rows ({size_mb:.1f} MB)")
+
+        print(f"  Reading assembly for statistics...")
+        assembly = pd.read_csv(assembly_csv, low_memory=False)
+        assembly['date'] = pd.to_datetime(assembly['date'])
+
+        _print_summary(assembly)
+
+        if not args.no_parquet:
+            try:
+                pq_path = os.path.join(args.output_dir, "insitu_cv_assembly.parquet")
+                assembly.to_parquet(pq_path, index=False, engine='pyarrow')
+                print(f"  Parquet: {pq_path}")
+            except Exception as e:
+                print(f"  Parquet failed ({e})")
+
+        if args.no_csv:
+            os.remove(assembly_csv)
+
+        print(f"  Computing statistics...")
+        generate_all_stats(assembly, args.output_dir)
+
+        del assembly
+        _print_output_summary(args.output_dir)
+        print(f"  Done ({time.time() - t_start:.1f}s)")
+        sys.exit(0)
+
+    # =====================================================================
+    # PHASE: sequential (default) — extract + merge in one process
+    # =====================================================================
     print("=" * 70)
-    print("IN-SITU CV ASSEMBLY")
+    print("IN-SITU CV ASSEMBLY (sequential)")
     print("=" * 70)
     print(f"Run root:      {args.run_root}")
-    print(f"Lakes (total):  {len(lake_ids)}")
     print(f"Lakes (insitu): {len(lake_ids_with_insitu)}")
     print(f"Alpha:          {args.alpha}")
     print(f"Buoy dir:       {args.buoy_dir}")
@@ -917,16 +1038,13 @@ Examples:
     print("=" * 70)
 
     t_start = time.time()
-
-    # Incremental write to CSV (same pattern as satellite CV)
     assembly_csv = os.path.join(args.output_dir, "insitu_cv_assembly.csv")
     n_lakes_done = 0
     n_rows_total = 0
 
     if args.append and os.path.exists(assembly_csv):
         header_written = True
-        existing_size = os.path.getsize(assembly_csv) / 1e6
-        print(f"  Appending to existing assembly ({existing_size:.1f} MB)")
+        print(f"  Appending to existing assembly")
     else:
         header_written = False
         if os.path.exists(assembly_csv):
@@ -951,23 +1069,14 @@ Examples:
 
     t_extract = time.time() - t_start
     size_mb = os.path.getsize(assembly_csv) / 1e6
-    print(f"\nExtraction complete: {n_rows_total:,} new rows from {n_lakes_done} lakes "
-          f"({t_extract:.1f}s)")
+    print(f"\nExtraction: {n_rows_total:,} rows from {n_lakes_done} lakes ({t_extract:.1f}s)")
 
-    # Read back full assembly for stats
     print(f"\nReading full assembly for statistics...")
     assembly = pd.read_csv(assembly_csv, low_memory=False)
     assembly['date'] = pd.to_datetime(assembly['date'])
 
-    n_lakes = assembly['lake_id_cci'].nunique()
-    print(f"Total assembly: {len(assembly):,} rows from {n_lakes} lakes ({size_mb:.1f} MB)")
+    _print_summary(assembly)
 
-    print("\nBreakdown by method × data_type:")
-    summary = assembly.groupby(['method', 'data_type']).size().reset_index(name='count')
-    for _, row in summary.iterrows():
-        print(f"  {row['method']:30s} {row['data_type']:25s} {row['count']:>8,}")
-
-    # Save Parquet copy (always from full assembly)
     if not args.no_parquet:
         try:
             pq_path = os.path.join(args.output_dir, "insitu_cv_assembly.parquet")
@@ -985,13 +1094,7 @@ Examples:
     generate_all_stats(assembly, args.output_dir)
 
     t_total = time.time() - t_start
-    print(f"\n{'='*70}")
-    print("ALL DONE")
-    print(f"{'='*70}")
-    print(f"Output directory: {args.output_dir}")
-    for f in sorted(os.listdir(args.output_dir)):
-        size = os.path.getsize(os.path.join(args.output_dir, f)) / 1e6
-        print(f"  {f} ({size:.1f} MB)")
+    _print_output_summary(args.output_dir)
     print(f"Total time: {t_total:.1f}s")
 
 

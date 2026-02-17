@@ -199,15 +199,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             print(f"  [Lake {lake_id}] {method_key}: {os.path.basename(nc_path)}")
 
         try:
-            # Selectively load only the 4 variables we need, not the entire cube.
-            # A large lake file can have 10+ variables at ~1.2GB each.
-            keep = {'data_source', 'temp_filled', 'lake_surface_water_temperature',
-                    'lswt', 'quality_level'}
-            ds = xr.open_dataset(nc_path)
-            drop_vars = [v for v in ds.data_vars if v not in keep]
-            if drop_vars:
-                ds = ds.drop_vars(drop_vars)
-            ds.load()  # load remaining variables into memory
+            ds = xr.open_dataset(nc_path)  # lazy — nothing loaded yet
         except Exception as e:
             print(f"  [Lake {lake_id}] Error opening {nc_path}: {e}")
             continue
@@ -216,102 +208,116 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             if 'data_source' not in ds:
                 if verbose:
                     print(f"    data_source flag not found, skipping")
+                ds.close()
                 continue
 
             if 'temp_filled' not in ds:
                 if verbose:
                     print(f"    temp_filled not found, skipping")
+                ds.close()
                 continue
 
-            data_source = ds['data_source'].values  # (time, lat, lon)
-            temp_filled = ds['temp_filled'].values
+            # Step 1: Load ONLY data_source (uint8, ~2GB worst case) to find CV indices
+            data_source = ds['data_source'].values  # (time, lat, lon), uint8
             time_vals = pd.to_datetime(ds['time'].values)
             lat_vals = ds['lat'].values
             lon_vals = ds['lon'].values
 
-            # Get original observation variable
-            obs_var = None
-            for vname in ['lake_surface_water_temperature', 'lswt']:
-                if vname in ds:
-                    obs_var = ds[vname].values
-                    break
-
-            # Get quality_level variable (from CCI product, copied by CopyOriginalVarsStep)
-            ql_var = None
-            if 'quality_level' in ds:
-                ql_var = ds['quality_level'].values
-
-            # Find all CV points (data_source == 2)
-            cv_mask = (data_source == FLAG_CV_WITHHELD)
-            cv_indices = np.argwhere(cv_mask)  # (N, 3) → [time_idx, lat_idx, lon_idx]
+            cv_indices = np.argwhere(data_source == FLAG_CV_WITHHELD)  # (N, 3)
+            del data_source  # free immediately — no longer needed
 
             if len(cv_indices) == 0:
                 if verbose:
                     print(f"    No CV points found (data_source==2)")
+                ds.close()
                 continue
 
             if verbose:
                 print(f"    Found {len(cv_indices):,} CV points")
 
+            # Step 2: Extract values at CV indices only (lazy per-point)
+            # For efficiency, batch-extract by loading only the needed
+            # pixel time series rather than the full 3D cube.
+            # Group CV points by unique (lat, lon) to load each pixel once.
+            from collections import defaultdict
+            pixel_groups = defaultdict(list)  # (lat_idx, lon_idx) -> [time_idx, ...]
             for idx in cv_indices:
                 t_idx, lat_idx, lon_idx = int(idx[0]), int(idx[1]), int(idx[2])
+                pixel_groups[(lat_idx, lon_idx)].append(t_idx)
 
-                recon_val = float(temp_filled[t_idx, lat_idx, lon_idx])
-                if np.isnan(recon_val):
-                    continue
+            # Determine obs variable name
+            obs_var_name = None
+            for vname in ['lake_surface_water_temperature', 'lswt']:
+                if vname in ds:
+                    obs_var_name = vname
+                    break
+            has_ql = 'quality_level' in ds
 
-                # Original observation
-                orig_val = float('nan')
-                if obs_var is not None:
-                    raw = obs_var[t_idx, lat_idx, lon_idx]
-                    if np.isfinite(raw):
-                        # Convert Kelvin to Celsius if needed
-                        orig_val = float(raw)
-                        if orig_val > 100:
-                            orig_val -= 273.15
+            for (lat_idx, lon_idx), time_indices in pixel_groups.items():
+                # Load one pixel's time series (tiny: just 1D arrays)
+                recon_ts = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+                obs_ts = None
+                if obs_var_name:
+                    obs_ts = ds[obs_var_name].isel(lat=lat_idx, lon=lon_idx).values
+                ql_ts = None
+                if has_ql:
+                    ql_ts = ds['quality_level'].isel(lat=lat_idx, lon=lon_idx).values
 
-                if np.isnan(orig_val):
-                    continue
+                for t_idx in time_indices:
+                    recon_val = float(recon_ts[t_idx])
+                    if np.isnan(recon_val):
+                        continue
 
-                diff = recon_val - orig_val
-                dt = time_vals[t_idx]
+                    orig_val = float('nan')
+                    if obs_ts is not None:
+                        raw = obs_ts[t_idx]
+                        if np.isfinite(raw):
+                            orig_val = float(raw)
+                            if orig_val > 100:
+                                orig_val -= 273.15
 
-                # Extract quality level (should be 3, 4, or 5 for CV points)
-                ql = float('nan')
-                if ql_var is not None:
-                    raw_ql = ql_var[t_idx, lat_idx, lon_idx]
-                    if np.isfinite(raw_ql):
-                        ql = int(raw_ql)
+                    if np.isnan(orig_val):
+                        continue
 
-                row = {
-                    'lake_id': lake_id,
-                    'method': method_key,
-                    'lat_idx': lat_idx,
-                    'lon_idx': lon_idx,
-                    'time_idx': t_idx,
-                    'date': dt.date(),
-                    'year': dt.year,
-                    'month': dt.month,
-                    'doy': dt.dayofyear,
-                    'season': assign_season(dt.month),
-                    'lat': float(lat_vals[lat_idx]),
-                    'lon': float(lon_vals[lon_idx]),
-                    'original_value': orig_val,
-                    'reconstructed_value': recon_val,
-                    'diff': diff,
-                    'quality_level': ql,
-                }
+                    diff = recon_val - orig_val
+                    dt = time_vals[t_idx]
 
-                all_rows.append(row)
+                    ql = float('nan')
+                    if ql_ts is not None:
+                        raw_ql = ql_ts[t_idx]
+                        if np.isfinite(raw_ql):
+                            ql = int(raw_ql)
 
-                # Cache dineof values for eof_filter delta
-                if method_key == 'dineof':
-                    dineof_cv_lookup[(lat_idx, lon_idx, t_idx)] = recon_val
+                    row = {
+                        'lake_id': lake_id,
+                        'method': method_key,
+                        'lat_idx': lat_idx,
+                        'lon_idx': lon_idx,
+                        'time_idx': t_idx,
+                        'date': dt.date(),
+                        'year': dt.year,
+                        'month': dt.month,
+                        'doy': dt.dayofyear,
+                        'season': assign_season(dt.month),
+                        'lat': float(lat_vals[lat_idx]),
+                        'lon': float(lon_vals[lon_idx]),
+                        'original_value': orig_val,
+                        'reconstructed_value': recon_val,
+                        'diff': diff,
+                        'quality_level': ql,
+                    }
+
+                    all_rows.append(row)
+
+                    if method_key == 'dineof':
+                        dineof_cv_lookup[(lat_idx, lon_idx, t_idx)] = recon_val
 
         except Exception as e:
             print(f"  [Lake {lake_id}] Error processing {method_key}: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            ds.close()
 
     if not all_rows:
         if verbose:
@@ -713,38 +719,43 @@ def main():
         description="Assemble satellite CV pixel pairs and compute statistics",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Phases:
+  sequential (default) — Extract all lakes one by one, then merge & compute stats.
+  extract              — Extract one or more lakes, write per-lake CSVs.
+                         Designed for SLURM array jobs (one task per lake).
+  merge                — Concatenate all per-lake CSVs and compute stats.
+  list-lakes           — Print lake IDs (one per line) for SLURM array setup.
+
 Modes:
   physical  (default) — Extract from post files in °C.
                          All 3 methods: dineof, eof_filtered, dincae.
   anomaly             — Extract from prepared.nc / results files in anomaly space.
                          Only 2 methods: dineof, dincae.
 
+SLURM parallel workflow:
+    # 1. Generate lake list
+    python assemble_satellite_cv.py --run-root /path/ --phase list-lakes > lakes.txt
+
+    # 2. Array job (each task extracts one lake)
+    #    SLURM_ARRAY_TASK_ID indexes into lakes.txt
+    LAKE_ID=$(sed -n "${SLURM_ARRAY_TASK_ID}p" lakes.txt)
+    python assemble_satellite_cv.py --run-root /path/ --phase extract --lake-id $LAKE_ID
+
+    # 3. Merge job (after array completes)
+    python assemble_satellite_cv.py --run-root /path/ --phase merge
+
 Output files (in --output-dir):
-  satellite_cv_assembly_{mode}.parquet   — Full assembly (one row per CV pixel)
-  satellite_cv_assembly_{mode}.csv       — Same as above, CSV format
-  satellite_cv_per_lake_{mode}.csv       — Stats per lake × method
-  satellite_cv_global_{mode}.csv         — Stats pooled by method
-  satellite_cv_per_year_{mode}.csv       — Stats by method × year
-  satellite_cv_per_month_{mode}.csv      — Stats by method × month
-  satellite_cv_per_season_{mode}.csv     — Stats by method × season
-  satellite_cv_per_hemisphere_{mode}.csv — Stats by method × hemisphere
-  satellite_cv_per_quality_level_{mode}.csv      — Stats by method × QL (3,4,5)
-  satellite_cv_per_lake_quality_level_{mode}.csv — Stats by method × lake × QL
-  satellite_cv_eof_filter_impact_{mode}.csv      — EOF filter replaced vs unchanged
-
-Examples:
-    # Physical space, all lakes
-    python assemble_satellite_cv.py --run-root /path/to/experiment
-
-    # Anomaly space, specific lakes
-    python assemble_satellite_cv.py --run-root /path/to/experiment \\
-        --mode anomaly --lake-ids 88 375 4503
-
-    # Physical + anomaly (both)
-    python assemble_satellite_cv.py --run-root /path/to/experiment --mode both
+  per_lake/satellite_cv_lake_{id}_{mode}.csv  — Per-lake extraction (phase=extract)
+  satellite_cv_assembly_{mode}.csv/.parquet   — Full assembly (phase=merge)
+  satellite_cv_global_{mode}.csv              — Stats pooled by method
+  satellite_cv_per_lake_{mode}.csv            — Stats per lake × method
+  (+ per_year, per_month, per_season, per_hemisphere, per_quality_level, eof_filter_impact)
         """
     )
     parser.add_argument("--run-root", required=True, help="Experiment root directory")
+    parser.add_argument("--phase", choices=["sequential", "extract", "merge", "list-lakes"],
+                        default="sequential",
+                        help="Execution phase (default: sequential)")
     parser.add_argument("--mode", choices=["physical", "anomaly", "both"],
                         default="physical",
                         help="Extraction mode (default: physical)")
@@ -780,37 +791,128 @@ Examples:
         args.output_dir = os.path.join(args.run_root, "satellite_cv_assembly")
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Determine lake IDs
-    if args.lake_id:
-        lake_ids = [args.lake_id]
-    elif args.lake_ids:
-        lake_ids = args.lake_ids
-    elif args.all:
-        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
-            print("=" * 70)
-            print("FAIR COMPARISON MODE")
-            print("=" * 70)
-            lake_ids, _ = get_fair_comparison_lakes(args.run_root, args.alpha, verbose=True)
-            if not lake_ids:
-                print("No lakes with both methods complete. Use --no-fair-comparison.")
-                sys.exit(1)
-        else:
-            lake_ids = find_lakes_with_post(args.run_root, args.alpha)
-    else:
-        lake_ids = find_lakes_with_post(args.run_root, args.alpha)
+    # Resolve lake IDs
+    lake_ids = _resolve_lake_ids(args)
 
-    if not lake_ids:
-        print("No lakes to process")
-        sys.exit(1)
+    modes = ['physical', 'anomaly'] if args.mode == 'both' else [args.mode]
 
-    modes = []
-    if args.mode == 'both':
-        modes = ['physical', 'anomaly']
-    else:
-        modes = [args.mode]
+    # =====================================================================
+    # PHASE: list-lakes — just print IDs and exit
+    # =====================================================================
+    if args.phase == 'list-lakes':
+        for lid in lake_ids:
+            print(lid)
+        sys.exit(0)
 
+    # =====================================================================
+    # PHASE: extract — write per-lake CSVs
+    # =====================================================================
+    if args.phase == 'extract':
+        per_lake_dir = os.path.join(args.output_dir, "per_lake")
+        os.makedirs(per_lake_dir, exist_ok=True)
+
+        for mode in modes:
+            for lake_id in lake_ids:
+                if mode == 'physical':
+                    post_dir = get_post_dir(args.run_root, lake_id, args.alpha)
+                    if post_dir is None:
+                        if verbose:
+                            print(f"  [Lake {lake_id}] No post directory found")
+                        continue
+                    df = extract_physical_lake(post_dir, lake_id, verbose)
+                else:
+                    df = extract_anomaly_lake(args.run_root, lake_id, args.alpha, verbose)
+
+                if df is not None and len(df) > 0:
+                    out_path = os.path.join(per_lake_dir,
+                                            f"satellite_cv_lake_{lake_id}_{mode}.csv")
+                    df.to_csv(out_path, index=False)
+                    print(f"  Saved: {out_path} ({len(df):,} rows)")
+                    del df
+                else:
+                    if verbose:
+                        print(f"  [Lake {lake_id}] No CV data for {mode}")
+
+        sys.exit(0)
+
+    # =====================================================================
+    # PHASE: merge — concatenate per-lake CSVs + compute stats
+    # =====================================================================
+    if args.phase == 'merge':
+        per_lake_dir = os.path.join(args.output_dir, "per_lake")
+
+        for mode in modes:
+            print(f"\n{'='*70}")
+            print(f"MERGE: {mode.upper()}")
+            print(f"{'='*70}")
+            t_start = time.time()
+
+            # Find all per-lake CSVs for this mode
+            pattern = f"satellite_cv_lake_*_{mode}.csv"
+            csv_files = sorted(Path(per_lake_dir).glob(pattern))
+            if not csv_files:
+                print(f"  No per-lake CSVs found matching {pattern}")
+                continue
+
+            print(f"  Found {len(csv_files)} per-lake CSVs")
+
+            # Concatenate into assembly CSV
+            assembly_csv = os.path.join(args.output_dir,
+                                        f"satellite_cv_assembly_{mode}.csv")
+            header_written = False
+            if args.append and os.path.exists(assembly_csv):
+                header_written = True
+                print(f"  Appending to existing assembly")
+
+            n_rows = 0
+            for csv_file in csv_files:
+                chunk = pd.read_csv(csv_file)
+                chunk.to_csv(assembly_csv, index=False,
+                             mode='a', header=(not header_written))
+                header_written = True
+                n_rows += len(chunk)
+                del chunk
+
+            size_mb = os.path.getsize(assembly_csv) / 1e6
+            print(f"  Assembly: {n_rows:,} rows ({size_mb:.1f} MB)")
+
+            # Read back for stats
+            print(f"  Reading assembly for statistics...")
+            assembly = pd.read_csv(assembly_csv, low_memory=False)
+            assembly['date'] = pd.to_datetime(assembly['date'])
+
+            for method in sorted(assembly['method'].unique()):
+                n = len(assembly[assembly['method'] == method])
+                print(f"    {method}: {n:,} CV pairs")
+
+            # Parquet
+            if not args.no_parquet:
+                try:
+                    pq_path = os.path.join(args.output_dir,
+                                           f"satellite_cv_assembly_{mode}.parquet")
+                    assembly.to_parquet(pq_path, index=False, engine='pyarrow')
+                    print(f"  Parquet: {pq_path}")
+                except Exception as e:
+                    print(f"  Parquet failed ({e})")
+
+            if args.no_csv:
+                os.remove(assembly_csv)
+
+            # Stats
+            print(f"  Computing statistics...")
+            generate_all_stats(assembly, args.output_dir, mode_suffix=mode)
+
+            del assembly
+            print(f"  Done ({time.time() - t_start:.1f}s)")
+
+        _print_output_summary(args.output_dir)
+        sys.exit(0)
+
+    # =====================================================================
+    # PHASE: sequential (default) — extract + merge in one process
+    # =====================================================================
     print("=" * 70)
-    print("SATELLITE CV ASSEMBLY")
+    print("SATELLITE CV ASSEMBLY (sequential)")
     print("=" * 70)
     print(f"Run root:   {args.run_root}")
     print(f"Mode(s):    {', '.join(modes)}")
@@ -825,22 +927,17 @@ Examples:
         print(f"{'='*70}")
 
         t_start = time.time()
-
-        # Incremental write: append each lake to CSV on disk to avoid
-        # accumulating all DataFrames in memory (can be 30+ GB for 120 lakes)
         assembly_csv = os.path.join(args.output_dir,
                                     f"satellite_cv_assembly_{mode}.csv")
         n_lakes_done = 0
         n_rows_total = 0
 
-        # If appending, keep existing file and skip header
         if args.append and os.path.exists(assembly_csv):
             header_written = True
             existing_size = os.path.getsize(assembly_csv) / 1e6
             print(f"  Appending to existing assembly ({existing_size:.1f} MB)")
         else:
             header_written = False
-            # Truncate if exists
             if os.path.exists(assembly_csv):
                 os.remove(assembly_csv)
 
@@ -852,17 +949,16 @@ Examples:
                         print(f"  [Lake {lake_id}] No post directory found")
                     continue
                 df = extract_physical_lake(post_dir, lake_id, verbose)
-            else:  # anomaly
+            else:
                 df = extract_anomaly_lake(args.run_root, lake_id, args.alpha, verbose)
 
             if df is not None and len(df) > 0:
-                # Append to CSV on disk
                 df.to_csv(assembly_csv, index=False,
                           mode='a', header=(not header_written))
                 header_written = True
                 n_rows_total += len(df)
                 n_lakes_done += 1
-                del df  # free memory immediately
+                del df
 
         if n_rows_total == 0:
             print(f"\nNo CV data extracted in {mode} mode")
@@ -873,7 +969,6 @@ Examples:
         print(f"\nExtraction complete: {n_rows_total:,} rows from {n_lakes_done} lakes "
               f"({t_extract:.1f}s, CSV={size_mb:.1f} MB)")
 
-        # Read back for stats (chunked to limit memory)
         print(f"\nReading assembly back for statistics...")
         assembly = pd.read_csv(assembly_csv, low_memory=False)
         assembly['date'] = pd.to_datetime(assembly['date'])
@@ -882,7 +977,6 @@ Examples:
             n = len(assembly[assembly['method'] == method])
             print(f"  {method}: {n:,} CV pairs")
 
-        # Optionally save Parquet copy
         if not args.no_parquet:
             try:
                 pq_path = os.path.join(args.output_dir,
@@ -894,24 +988,48 @@ Examples:
                 print(f"  Parquet failed ({e}), skipping")
 
         if args.no_csv:
-            # User doesn't want CSV, remove it
             os.remove(assembly_csv)
 
-        # Compute stats
         print(f"\nComputing statistics...")
         generate_all_stats(assembly, args.output_dir, mode_suffix=mode)
 
-        del assembly  # free before next mode
+        del assembly
         t_total = time.time() - t_start
         print(f"\n{mode.upper()} mode complete ({t_total:.1f}s)")
 
+    _print_output_summary(args.output_dir)
+
+
+def _resolve_lake_ids(args) -> List[int]:
+    """Resolve lake IDs from CLI arguments."""
+    if args.lake_id:
+        return [args.lake_id]
+    elif args.lake_ids:
+        return args.lake_ids
+    elif args.all:
+        if HAS_COMPLETION_CHECK and not args.no_fair_comparison:
+            lake_ids, _ = get_fair_comparison_lakes(args.run_root, args.alpha, verbose=True)
+            if not lake_ids:
+                print("No lakes with both methods complete. Use --no-fair-comparison.")
+                sys.exit(1)
+            return lake_ids
+        else:
+            return find_lakes_with_post(args.run_root, args.alpha)
+    else:
+        return find_lakes_with_post(args.run_root, args.alpha)
+
+
+def _print_output_summary(output_dir: str):
+    """Print summary of all output files."""
     print(f"\n{'='*70}")
     print("ALL DONE")
     print(f"{'='*70}")
-    print(f"Output directory: {args.output_dir}")
-    for f in sorted(os.listdir(args.output_dir)):
-        size = os.path.getsize(os.path.join(args.output_dir, f)) / 1e6
-        print(f"  {f} ({size:.1f} MB)")
+    print(f"Output directory: {output_dir}")
+    for f in sorted(os.listdir(output_dir)):
+        fp = os.path.join(output_dir, f)
+        if os.path.isfile(fp):
+            size = os.path.getsize(fp) / 1e6
+            print(f"  {f} ({size:.1f} MB)")
 
 
 if __name__ == "__main__":
