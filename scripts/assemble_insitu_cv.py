@@ -364,6 +364,21 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
             print(f"  [Lake {lake_id_cci}] No method files found")
         return None
 
+    # Fair comparison gate: require both base methods (dineof + dincae)
+    # so that global stats are computed from the same set of lakes
+    has_dineof = 'dineof' in method_files
+    has_dincae = 'dincae' in method_files
+    if not (has_dineof and has_dincae):
+        missing = []
+        if not has_dineof:
+            missing.append('dineof')
+        if not has_dincae:
+            missing.append('dincae')
+        if verbose:
+            print(f"  [Lake {lake_id_cci}] Skipping: missing {', '.join(missing)} "
+                  f"(fair comparison requires both)")
+        return None
+
     # Find prepared.nc for was_observed flag
     prepared_path = os.path.join(run_root, "prepared", lake_id9, "prepared.nc")
     if not os.path.exists(prepared_path):
@@ -459,7 +474,7 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                 lat_idx, lon_idx = grid_idx
 
                 # Cache sparse file time dates and pixel values for later flag computation
-                if not is_interpolated and method_key not in sparse_time_dates:
+                if not is_interpolated:
                     sparse_time_dates[method_key] = set(date_to_idx.keys())
                     if 'temp_filled' in ds:
                         px_ts = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
@@ -568,7 +583,7 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                             parent_key = INTERP_PARENTS.get(method_key)
                             if parent_key and parent_key in sparse_time_dates:
                                 # Date NOT in parent sparse file = temporally interpolated
-                                is_temp_interp = (d not in sparse_time_dates[parent_key])
+                                is_temp_interp = (d not in sparse_pixel_vals.get(parent_key, {}))
 
                         # Determine is_eof_filtered_replaced and delta
                         is_eof_replaced = False

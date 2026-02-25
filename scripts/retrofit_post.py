@@ -9,7 +9,7 @@ Updates:
   4. Re-run in-situ validation (discovers all files including new ones)
 
 Usage:
-  # Specific lakes
+  # Specific lakes in a single run
   python retrofit_post.py \\
     --run-root /gws/.../anomaly-20260131-exp0_baseline_both/ \\
     --lake-ids 380 88 2
@@ -18,6 +18,19 @@ Usage:
   python retrofit_post.py \\
     --run-root /gws/.../anomaly-20260131-exp0_baseline_both/ \\
     --all-lakes
+
+  # Segment manifest mode: iterate over all segment run roots
+  python retrofit_post.py \\
+    --manifest /gws/.../exp0_baseline_large_merged_4splits/segment_manifest.json \\
+    --lake-ids 5 6 9 11 \\
+    --config configs/exp0_baseline.json
+
+  # Segment manifest + SLURM with higher memory for large lakes
+  python retrofit_post.py \\
+    --manifest /gws/.../exp0_baseline_large_merged_4splits/segment_manifest.json \\
+    --lake-ids 5 6 9 11 \\
+    --config configs/exp0_baseline.json \\
+    --submit-slurm --mem 192G
 
   # Dry-run: show what would be changed
   python retrofit_post.py \\
@@ -30,7 +43,11 @@ Usage:
 
   # Generate SLURM array job for batch processing
   python retrofit_post.py \\
-    --run-root /gws/.../ --all-lakes --submit-slurm
+    --run-root /gws/.../ --all-lakes --submit-slurm --mem 192G
+
+  # Fix EOF filtering (re-filter + full post reprocessing)
+  python retrofit_post.py \\
+    --run-root /gws/.../ --all-lakes --refilter-eofs --config exp1.json
 
 Author: Shaerdan / NCEO / University of Reading
 """
@@ -46,6 +63,222 @@ import subprocess
 import numpy as np
 import xarray as xr
 from typing import Optional, List, Dict
+
+
+# =============================================================================
+# Step 0: Re-filter EOFs + reconstruct (fix dropped-timestep bug)
+# =============================================================================
+
+def refilter_and_reconstruct_eofs(
+    dineof_dir: str,
+    prepared_path: str,
+    lake_id: int,
+    config: dict,
+    dry_run: bool = False,
+    force: bool = False,
+) -> bool:
+    """
+    Re-run EOF filtering with the current code (interpolation-replacement
+    instead of dropping outlier timesteps), then re-reconstruct the filtered
+    and filtered-interpolated results.
+
+    Operates entirely in the dineof/{lake}/{alpha}/ directory:
+      eofs.nc → eofs_filtered.nc (corrected)
+      eofs_filtered.nc → eofs_filtered_interpolated.nc
+      eofs_filtered.nc → dineof_results_eof_filtered.nc
+      eofs_filtered_interpolated.nc → dineof_results_eof_filtered_interp_full.nc
+
+    Returns True if any files were modified.
+    """
+    eofs_path = os.path.join(dineof_dir, "eofs.nc")
+    if not os.path.isfile(eofs_path):
+        print(f"  No eofs.nc in {dineof_dir}, skipping EOF refilter")
+        return False
+
+    # Check if already fixed: eofs.nc and eofs_filtered.nc should have same t dim
+    filtered_path = os.path.join(dineof_dir, "eofs_filtered.nc")
+    if os.path.isfile(filtered_path) and not force:
+        try:
+            with xr.open_dataset(eofs_path) as ds_orig, \
+                 xr.open_dataset(filtered_path) as ds_filt:
+                t_orig = ds_orig.sizes.get('t', ds_orig.dims.get('t', -1))
+                t_filt = ds_filt.sizes.get('t', ds_filt.dims.get('t', -2))
+                if t_orig == t_filt:
+                    print(f"  eofs_filtered.nc already has correct timestep count "
+                          f"({t_orig}), skipping (use --force to redo)")
+                    return False
+                else:
+                    print(f"  eofs_filtered.nc has {t_filt} timesteps vs {t_orig} in eofs.nc — needs fix")
+        except Exception:
+            pass
+
+    if dry_run:
+        print(f"  [DRY-RUN] Would re-filter EOFs and reconstruct in {dineof_dir}")
+        return False
+
+    # Import pipeline steps
+    try:
+        from processors.postprocessor.post_steps.base import PostContext
+        from processors.postprocessor.post_steps.filter_eofs import FilterTemporalEOFsStep
+        from processors.postprocessor.post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
+        from processors.postprocessor.post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
+    except ImportError:
+        src_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+        if os.path.isdir(src_dir) and src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from processors.postprocessor.post_steps.base import PostContext
+        from processors.postprocessor.post_steps.filter_eofs import FilterTemporalEOFsStep
+        from processors.postprocessor.post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
+        from processors.postprocessor.post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
+
+    # Construct minimal PostContext
+    dineof_results_path = os.path.join(dineof_dir, "dineof_results.nc")
+    if not os.path.isfile(dineof_results_path):
+        print(f"  dineof_results.nc not found in {dineof_dir}, skipping")
+        return False
+
+    ctx = PostContext(
+        lake_path="<unused>",
+        dineof_input_path=prepared_path,
+        dineof_output_path=dineof_results_path,
+        output_path="<unused>",
+        output_html_folder=None,
+        climatology_path=None,
+        lake_id=lake_id,
+    )
+
+    # Load full_days from prepared.nc attrs (needed by InterpolateTemporalEOFsStep)
+    try:
+        with xr.open_dataset(prepared_path) as ds_prep:
+            t0 = int(ds_prep.attrs.get("time_start_days"))
+            t1 = int(ds_prep.attrs.get("time_end_days"))
+        ctx.full_days = np.arange(t0, t1 + 1, dtype="int64")
+        ctx.time_start_days = t0
+        ctx.time_end_days = t1
+    except Exception as e:
+        print(f"  Failed to read prepared.nc attrs: {e}")
+        return False
+
+    # Read filter params from config (use same settings as original pipeline)
+    post_cfg = config.get("post_processing", {})
+    eof_selection = post_cfg.get("eof_filter_selection", "variance_threshold")
+    variance_threshold = post_cfg.get("eof_filter_variance_threshold", 0.5)
+    top_n = post_cfg.get("eof_filter_top_n", 3)
+    filter_method = post_cfg.get("eof_filter_method", "robust_sd")
+    filter_k = post_cfg.get("eof_filter_k", 4.0)
+
+    modified = False
+
+    # Step 0a: Re-filter EOFs
+    print(f"  [0a] Re-filtering EOFs (selection={eof_selection}, method={filter_method}, k={filter_k})...")
+    filter_step = FilterTemporalEOFsStep(
+        method=filter_method,
+        k=filter_k,
+        eof_selection=eof_selection,
+        variance_threshold=variance_threshold,
+        top_n_eofs=top_n,
+        overwrite=False,  # writes eofs_filtered.nc (not overwriting eofs.nc)
+    )
+    if filter_step.should_apply(ctx, None):
+        filter_step.apply(ctx, None)
+        modified = True
+    else:
+        print(f"  FilterTemporalEOFsStep: should_apply=False, skipping")
+        return False
+
+    # Step 0b: Re-interpolate filtered EOFs onto full daily timeline
+    print(f"  [0b] Interpolating filtered EOFs to daily...")
+    interp_step = InterpolateTemporalEOFsStep(
+        target="full",
+        edge_policy="leave_nan",
+        source_mode="filtered",
+    )
+    if interp_step.should_apply(ctx, None):
+        interp_step.apply(ctx, None)
+        modified = True
+
+    # Step 0c: Reconstruct from filtered EOFs
+    print(f"  [0c] Reconstructing from filtered EOFs...")
+    recon_filtered = ReconstructFromEOFsStep(source_mode="filtered")
+    if recon_filtered.should_apply(ctx, None):
+        recon_filtered.apply(ctx, None)
+        modified = True
+
+    # Step 0d: Reconstruct from filtered+interpolated EOFs
+    print(f"  [0d] Reconstructing from filtered+interpolated EOFs...")
+    recon_filtered_interp = ReconstructFromEOFsStep(source_mode="filtered_interp")
+    if recon_filtered_interp.should_apply(ctx, None):
+        recon_filtered_interp.apply(ctx, None)
+        modified = True
+
+    return modified
+
+
+def rerun_post_processing(
+    post_dir: str,
+    dineof_dir: str,
+    prepared_path: str,
+    lake_path: str,
+    climatology_path: str,
+    config_path: Optional[str] = None,
+    config: Optional[dict] = None,
+    dry_run: bool = False,
+) -> bool:
+    """
+    Re-run the full post-processing pipeline for a lake.
+    This regenerates ALL post files (_dineof.nc, _eof_filtered.nc, etc.)
+    from the (corrected) dineof results.
+    """
+    if dry_run:
+        print(f"  [DRY-RUN] Would re-run post-processing pipeline")
+        return False
+
+    try:
+        from processors.postprocessor.post_process import PostProcessor, PostOptions
+    except ImportError:
+        src_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+        if os.path.isdir(src_dir) and src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from processors.postprocessor.post_process import PostProcessor, PostOptions
+
+    # Find the base _dineof.nc in post_dir to get the output naming pattern
+    dineof_nc_files = glob.glob(os.path.join(post_dir, "*_dineof.nc"))
+    if not dineof_nc_files:
+        print(f"  No *_dineof.nc found in {post_dir}")
+        return False
+    output_path = dineof_nc_files[0]
+
+    dineof_results_path = os.path.join(dineof_dir, "dineof_results.nc")
+    if not os.path.isfile(dineof_results_path):
+        print(f"  dineof_results.nc not found in {dineof_dir}")
+        return False
+
+    # Build PostOptions from config
+    post_cfg = (config or {}).get("post_processing", {})
+    options = PostOptions(
+        eof_filter_selection=post_cfg.get("eof_filter_selection", "variance_threshold"),
+        eof_filter_variance_threshold=post_cfg.get("eof_filter_variance_threshold", 0.5),
+        eof_filter_top_n=post_cfg.get("eof_filter_top_n", 3),
+        eof_filter_method=post_cfg.get("eof_filter_method", "robust_sd"),
+        eof_filter_k=post_cfg.get("eof_filter_k", 4.0),
+        output_units=post_cfg.get("output_units", "celsius"),
+        clamp_subzero=True,
+        dincae_temporal_interp=True,
+    )
+
+    print(f"  Running PostProcessor...")
+    pp = PostProcessor(
+        lake_path=lake_path,
+        dineof_input_path=prepared_path,
+        dineof_output_path=dineof_results_path,
+        output_path=output_path,
+        output_html_folder=None,
+        climatology_file=climatology_path,
+        experiment_config_file=config_path,
+        options=options,
+    )
+    pp.run()
+    return True
 
 
 # =============================================================================
@@ -340,6 +573,7 @@ def resolve_paths(
     lake_id9 = f"{lake_id:09d}"
     post_dir = os.path.join(run_root, "post", lake_id9, alpha_slug)
     prepared_path = os.path.join(run_root, "prepared", lake_id9, "prepared.nc")
+    dineof_dir = os.path.join(run_root, "dineof", lake_id9, alpha_slug)
 
     # Resolve lake_ts and climatology from config templates
     P = config.get("paths", {})
@@ -352,6 +586,7 @@ def resolve_paths(
     return {
         "post_dir": post_dir,
         "prepared_path": prepared_path,
+        "dineof_dir": dineof_dir,
         "lake_ts": lake_ts,
         "climatology": clim,
     }
@@ -371,6 +606,7 @@ def process_lake(
     force: bool = False,
     do_plots: bool = True,
     do_insitu: bool = True,
+    do_refilter_eofs: bool = False,
 ):
     """Apply all retrofit steps to a single lake."""
     paths = resolve_paths(run_root, lake_id, alpha_slug, config)
@@ -383,6 +619,46 @@ def process_lake(
     print(f"\n{'='*60}")
     print(f"Lake {lake_id}")
     print(f"{'='*60}")
+
+    # Step 0: Re-filter EOFs (if requested)
+    eofs_modified = False
+    if do_refilter_eofs:
+        print("\n[Step 0] Re-filtering EOFs...")
+        dineof_dir = paths["dineof_dir"]
+        if os.path.isdir(dineof_dir):
+            eofs_modified = refilter_and_reconstruct_eofs(
+                dineof_dir=dineof_dir,
+                prepared_path=paths["prepared_path"],
+                lake_id=lake_id,
+                config=config,
+                dry_run=dry_run,
+                force=force,
+            )
+            if eofs_modified and not dry_run:
+                print("\n[Step 0+] Re-running full post-processing pipeline...")
+                rerun_post_processing(
+                    post_dir=post_dir,
+                    dineof_dir=dineof_dir,
+                    prepared_path=paths["prepared_path"],
+                    lake_path=paths["lake_ts"],
+                    climatology_path=paths["climatology"],
+                    config_path=config_path,
+                    config=config,
+                    dry_run=dry_run,
+                )
+                # Post-processing already writes all files including clamped values,
+                # so skip the separate clamp step
+                print("\n[Step 1] Skipping clamp (already done by post-processing pipeline)")
+                # DINCAE interp is also handled by the pipeline
+                print("\n[Step 2] Skipping DINCAE interp (already done by post-processing pipeline)")
+                # Plots and insitu are also handled
+                if do_plots:
+                    print("[Step 3] Plots already regenerated by post-processing pipeline")
+                if do_insitu:
+                    print("[Step 4] In-situ validation already regenerated by post-processing pipeline")
+                return
+        else:
+            print(f"  DINEOF dir not found: {dineof_dir}")
 
     # Step 1: Clamp sub-zero
     print("\n[Step 1] Clamping sub-zero LSWT...")
@@ -431,6 +707,8 @@ def generate_slurm_script(
     alpha_slug: str,
     config_path: str,
     script_dir: str,
+    extra_flags: str = "",
+    mem: str = "128G",
 ) -> str:
     """Generate SLURM array job script for batch processing."""
     os.makedirs(script_dir, exist_ok=True)
@@ -447,10 +725,10 @@ def generate_slurm_script(
     script = f"""#!/bin/bash
 #SBATCH --job-name=retrofit_post
 #SBATCH --array=1-{len(lake_ids)}
-#SBATCH --time=120:00:00
-#SBATCH --mem=128G
+#SBATCH --time=48:00:00
+#SBATCH --mem={mem}
 #SBATCH --partition=standard
-#SBATCH --qos=long
+#SBATCH --qos=high
 #SBATCH --account=eocis_chuk
 #SBATCH --cpus-per-task=1
 #SBATCH --chdir={os.path.dirname(this_script)}
@@ -471,7 +749,7 @@ python {this_script} \\
   --run-root {run_root} \\
   --lake-ids $LAKE_ID \\
   --alpha {alpha_slug} \\
-  --config {os.path.abspath(config_path)}
+  --config {os.path.abspath(config_path)} {extra_flags}
 
 echo "[$(date)] Done: lake $LAKE_ID"
 """
@@ -489,30 +767,100 @@ echo "[$(date)] Done: lake $LAKE_ID"
 # Main
 # =============================================================================
 
+def generate_manifest_slurm_script(
+    jobs: List[tuple],
+    alpha_slug: str,
+    config_path: str,
+    script_dir: str,
+    extra_flags: str = "",
+    mem: str = "128G",
+) -> str:
+    """Generate SLURM array job for manifest-based retrofit (one task per segment×lake)."""
+    os.makedirs(script_dir, exist_ok=True)
+    os.makedirs(os.path.join(script_dir, "logs"), exist_ok=True)
+
+    # Write job list: each line is "run_root lake_id"
+    job_list_path = os.path.join(script_dir, "retrofit_jobs.txt")
+    with open(job_list_path, "w") as f:
+        for run_root, lake_id in jobs:
+            f.write(f"{run_root} {lake_id}\n")
+
+    script_path = os.path.join(script_dir, "retrofit_manifest.slurm")
+    this_script = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                "scripts", "retrofit_post.py"))
+    # If running from scripts dir already, use __file__ directly
+    if not os.path.isfile(this_script):
+        this_script = os.path.abspath(__file__)
+
+    script = f"""#!/bin/bash
+#SBATCH --job-name=retrofit_manifest
+#SBATCH --array=1-{len(jobs)}
+#SBATCH --time=48:00:00
+#SBATCH --mem={mem}
+#SBATCH --partition=standard
+#SBATCH --qos=high
+#SBATCH --account=eocis_chuk
+#SBATCH --cpus-per-task=1
+#SBATCH --chdir={os.path.dirname(this_script)}
+#SBATCH -o {script_dir}/logs/retrofit_%a_%j.out
+#SBATCH -e {script_dir}/logs/retrofit_%a_%j.err
+
+set -euo pipefail
+
+# Activate conda environment
+source ~/miniforge3/bin/activate && conda activate lake_cci_gapfilling
+
+JOB_LINE=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {job_list_path})
+RUN_ROOT=$(echo $JOB_LINE | awk '{{print $1}}')
+LAKE_ID=$(echo $JOB_LINE | awk '{{print $2}}')
+
+echo "[$(date)] Starting retrofit for lake $LAKE_ID in $RUN_ROOT (task $SLURM_ARRAY_TASK_ID, job $SLURM_ARRAY_JOB_ID)"
+
+python {this_script} \\
+  --run-root $RUN_ROOT \\
+  --lake-ids $LAKE_ID \\
+  --alpha {alpha_slug} \\
+  --config {os.path.abspath(config_path)} {extra_flags}
+
+echo "[$(date)] Done: lake $LAKE_ID in $RUN_ROOT"
+"""
+
+    with open(script_path, "w") as f:
+        f.write(script)
+
+    print(f"SLURM script: {script_path}")
+    print(f"Job list: {job_list_path} ({len(jobs)} jobs)")
+    print(f"Memory: {mem}")
+    print(f"\nSubmit with: sbatch {script_path}")
+    return script_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Retrofit post-processing updates to existing pipeline outputs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Specific lakes
+  # Specific lakes in a single run
   python retrofit_post.py --run-root /gws/.../run/ --lake-ids 380 88 2
 
   # All lakes
   python retrofit_post.py --run-root /gws/.../run/ --all-lakes --config exp0.json
 
+  # Segment manifest mode (iterates over all segments)
+  python retrofit_post.py --manifest /gws/.../segment_manifest.json --lake-ids 5 6 9 11 --config exp0.json
+
+  # Manifest + SLURM with more memory for large lakes
+  python retrofit_post.py --manifest /gws/.../segment_manifest.json --lake-ids 5 6 9 11 --config exp0.json --submit-slurm --mem 192G
+
   # Dry-run
   python retrofit_post.py --run-root /gws/.../run/ --all-lakes --dry-run
-
-  # Clamp + interp only (skip plot/insitu regeneration)
-  python retrofit_post.py --run-root /gws/.../run/ --all-lakes --no-plots --no-insitu
-
-  # Generate SLURM batch job
-  python retrofit_post.py --run-root /gws/.../run/ --all-lakes --submit-slurm --config exp0.json
         """
     )
 
-    parser.add_argument("--run-root", required=True, help="Root of the experiment run")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--run-root", help="Root of a single experiment run")
+    group.add_argument("--manifest", help="Path to segment_manifest.json (iterates over all segment run roots)")
     parser.add_argument("--lake-ids", type=int, nargs="+", help="Specific lake IDs to process")
     parser.add_argument("--all-lakes", action="store_true", help="Process all lakes in the run")
     parser.add_argument("--config", help="Path to experiment JSON config (for path templates)")
@@ -521,10 +869,110 @@ Examples:
     parser.add_argument("--force", action="store_true", help="Overwrite existing DINCAE interp files")
     parser.add_argument("--no-plots", action="store_true", help="Skip LSWT plot regeneration")
     parser.add_argument("--no-insitu", action="store_true", help="Skip in-situ validation regeneration")
+    parser.add_argument("--refilter-eofs", action="store_true",
+                        help="Re-filter EOFs with interpolation-replacement (fixes dropped-timestep bug). "
+                             "Also re-runs full post-processing pipeline for affected passes.")
     parser.add_argument("--submit-slurm", action="store_true", help="Generate + submit SLURM array job")
+    parser.add_argument("--mem", default="128G", help="SLURM memory allocation (default: 128G, use 192G for large lakes)")
 
     args = parser.parse_args()
 
+    # -------------------------------------------------------------------------
+    # Manifest mode: expand manifest into list of (run_root, lake_ids) pairs
+    # -------------------------------------------------------------------------
+    if args.manifest:
+        if not os.path.isfile(args.manifest):
+            print(f"ERROR: manifest not found: {args.manifest}")
+            sys.exit(1)
+        with open(args.manifest) as f:
+            manifest = json.load(f)
+
+        segment_roots = [seg["run_root"] for seg in manifest["segments"]]
+        manifest_lake_ids = manifest.get("lake_ids", [])
+
+        # Determine which lakes to process
+        if args.lake_ids:
+            target_lakes = args.lake_ids
+        elif args.all_lakes:
+            target_lakes = manifest_lake_ids
+        else:
+            target_lakes = manifest_lake_ids
+            if target_lakes:
+                print(f"Using all {len(target_lakes)} lakes from manifest: {target_lakes}")
+            else:
+                parser.error("Manifest has no lake_ids; provide --lake-ids or --all-lakes")
+
+        # Validate segment directories exist
+        for root in segment_roots:
+            if not os.path.isdir(root):
+                print(f"WARNING: segment run root not found: {root}")
+
+        # Build list of (run_root, lake_id) jobs
+        jobs: List[tuple] = []
+        for root in segment_roots:
+            for lid in target_lakes:
+                jobs.append((root, lid))
+
+        print(f"Manifest: {args.manifest}")
+        print(f"  Segments: {len(segment_roots)}")
+        print(f"  Lakes: {target_lakes}")
+        print(f"  Total jobs: {len(jobs)}")
+
+        # Load config
+        config = {}
+        if args.config:
+            with open(args.config) as f:
+                config = json.load(f)
+
+        # SLURM mode for manifest
+        if args.submit_slurm:
+            if not args.config:
+                parser.error("--submit-slurm requires --config")
+            manifest_dir = os.path.dirname(os.path.abspath(args.manifest))
+            script_dir = os.path.join(manifest_dir, "retrofit")
+            script_path = generate_manifest_slurm_script(
+                jobs=jobs,
+                alpha_slug=args.alpha,
+                config_path=args.config,
+                script_dir=script_dir,
+                extra_flags=" --refilter-eofs" if args.refilter_eofs else "",
+                mem=args.mem,
+            )
+            result = subprocess.run(["sbatch", script_path], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"Submitted: {result.stdout.strip()}")
+            else:
+                print(f"sbatch failed: {result.stderr}")
+            return
+
+        # Interactive mode for manifest
+        for i, (run_root, lake_id) in enumerate(jobs, 1):
+            seg_name = os.path.basename(run_root)
+            print(f"\n{'='*60}")
+            print(f"[{i}/{len(jobs)}] {seg_name} / lake {lake_id}")
+            print(f"{'='*60}")
+            process_lake(
+                run_root=run_root,
+                lake_id=lake_id,
+                alpha_slug=args.alpha,
+                config=config,
+                config_path=args.config,
+                dry_run=args.dry_run,
+                force=args.force,
+                do_plots=not args.no_plots,
+                do_insitu=not args.no_insitu,
+                do_refilter_eofs=args.refilter_eofs,
+            )
+
+        print(f"\n{'='*60}")
+        print(f"Manifest retrofit complete: {len(jobs)} jobs across "
+              f"{len(segment_roots)} segments × {len(target_lakes)} lakes")
+        print(f"{'='*60}")
+        return
+
+    # -------------------------------------------------------------------------
+    # Single run-root mode (original behavior)
+    # -------------------------------------------------------------------------
     if not os.path.isdir(args.run_root):
         print(f"ERROR: run-root not found: {args.run_root}")
         sys.exit(1)
@@ -560,8 +1008,13 @@ Examples:
         if not args.config:
             parser.error("--submit-slurm requires --config")
         script_dir = os.path.join(args.run_root, "retrofit")
+        extra_flags = ""
+        if args.refilter_eofs:
+            extra_flags += " --refilter-eofs"
         script_path = generate_slurm_script(
             args.run_root, lake_ids, args.alpha, args.config, script_dir,
+            extra_flags=extra_flags,
+            mem=args.mem,
         )
         # Auto-submit
         result = subprocess.run(["sbatch", script_path], capture_output=True, text=True)
@@ -589,6 +1042,7 @@ Examples:
             force=args.force,
             do_plots=not args.no_plots,
             do_insitu=not args.no_insitu,
+            do_refilter_eofs=args.refilter_eofs,
         )
 
     print(f"\n{'='*60}")

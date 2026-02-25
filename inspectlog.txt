@@ -1,0 +1,2294 @@
+WARNING: config not found: /home/users/shaerdan/lake_cci_gapfilling/configs/configs/exp0_baseline.json
+Manifest: //gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits/segment_manifest.json
+Lakes: [2, 5, 6, 8, 9, 11, 12, 13, 15, 16, 17]
+Segments: 4
+Stage: inspect
+Last stage run: diagnose at 2026-02-24T21:43:42.119330+00:00
+  TIP: Use --lake-ids to inspect specific lakes (inspecting all is verbose)
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 2  (000000002)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    4863.1 MB  (2026-02-15 19:44)
+  │    clouds_index:   35.8 MB  (2026-02-15 19:45)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000002/a1000
+  │    results.nc:     4301.5 MB  (2026-02-17 11:19)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000002/a1000
+  │    results.nc:     4301.5 MB  (2026-02-18 08:56)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 08:54)
+  │    batch_size:     32
+  │    log (stdout):   19,300 bytes  (2026-02-18 08:54)
+  │      │ 40342.048274 seconds (1.59 G allocations: 566.046 GiB, 35.91% gc time, 8 lock conflicts, 0.30% compilation time: <1% of 
+  │      │ ntest = 1185
+  │      │ size(batch_m_true) = (930, 313, 1185)
+  │      │ Submitted batch job 1319728
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000002/a1000
+  │    log (stderr):   3,222 bytes  (2026-02-18 08:54)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000002/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   1190.3 MB  (2026-02-18 09:18)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake2_row0_655872.err  (10,112 bytes  (2026-02-18 09:20))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake2_row0_655872.out  (23,719 bytes  (2026-02-18 08:57))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 1044562
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    5517.6 MB  (2026-02-15 19:44)
+  │    clouds_index:   49.0 MB  (2026-02-15 19:46)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000002/a1000
+  │    results.nc:     4875.0 MB  (2026-02-18 14:47)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000002/a1000
+  │    results.nc:     4875.0 MB  (2026-02-19 03:58)
+  │    cv_rms.txt:     16 bytes  (2026-02-19 03:54)
+  │    batch_size:     32
+  │    log (stdout):   19,266 bytes  (2026-02-19 03:54)
+  │      │ 43904.697644 seconds (1.73 G allocations: 1.017 TiB, 36.25% gc time, 15 lock conflicts, 0.28% compilation time: <1% of w
+  │      │ ntest = 1343
+  │      │ size(batch_m_true) = (930, 315, 1343)
+  │      │ Submitted batch job 1662708
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000002/a1000
+  │    log (stderr):   3,223 bytes  (2026-02-19 03:54)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000002/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   1239.6 MB  (2026-02-19 04:11)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake2_row0_655873.err  (10,112 bytes  (2026-02-19 04:12))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake2_row0_655873.out  (24,429 bytes  (2026-02-19 03:59))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 1409935
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    5507.1 MB  (2026-02-15 19:42)
+  │    clouds_index:   55.5 MB  (2026-02-15 19:44)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000002/a1000
+  │    results.nc:     4856.8 MB  (2026-02-20 06:27)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000002/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-20 20:05)
+  │    batch_size:     32
+  │    log (stdout):   19,291 bytes  (2026-02-20 20:05)
+  │      │ 44400.744857 seconds (1.73 G allocations: 973.011 GiB, 34.53% gc time, 9 lock conflicts, 0.27% compilation time: <1% of 
+  │      │ ntest = 1338
+  │      │ size(batch_m_true) = (931, 315, 1338)
+  │      │ Submitted batch job 2355876
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000002/a1000
+  │    log (stderr):   3,218 bytes  (2026-02-20 20:05)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000002/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake2_row0_655874.err  (3,504 bytes  (2026-02-15 19:44))
+  │      │   rec.set_total_time_after(int(ds.dims.get("time", 0)))
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/orchestration/lswtctl.py:479: FutureWarning: The return type of `Dataset.dims` 
+  │      │   T = ds_prep.dims["time"]
+  │    chain_lake2_row0_655874.out  (23,905 bytes  (2026-02-20 06:30))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 2138539
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    5772.0 MB  (2026-02-15 19:43)
+  │    clouds_index:   60.7 MB  (2026-02-15 19:46)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000002/a1000
+  │    results.nc:     5089.2 MB  (2026-02-17 19:15)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000002/a1000
+  │    results.nc:     5089.2 MB  (2026-02-18 15:08)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 14:50)
+  │    batch_size:     32
+  │    log (stdout):   19,274 bytes  (2026-02-18 14:50)
+  │      │ 49373.518180 seconds (1.80 G allocations: 1002.104 GiB, 37.66% gc time, 21 lock conflicts, 0.25% compilation time: <1% o
+  │      │ ntest = 1402
+  │      │ size(batch_m_true) = (931, 315, 1402)
+  │      │ Submitted batch job 1408902
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000002/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-18 14:50)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000002/a1000
+  │    (no .nc files)
+  │
+  │  Chain/Post logs:
+  │    chain_lake2_row0_655875.err  (7,400 bytes  (2026-02-18 16:47))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake2_row0_655875.out  (25,426 bytes  (2026-02-18 15:10))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 1261578
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 288.8 MB  (2026-02-21 15:52)
+  │    dincae: 69.6 MB  (2026-02-21 16:01)
+  │  Post files: 1
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │  plots: ✓  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 5  (000000005)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    3773.7 MB  (2026-02-15 19:44)
+  │    clouds_index:   23.1 MB  (2026-02-15 19:45)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000005/a1000
+  │    results.nc:     3339.5 MB  (2026-02-16 18:13)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000005/a1000
+  │    results.nc:     3339.6 MB  (2026-02-17 14:59)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 14:51)
+  │    batch_size:     32
+  │    log (stdout):   19,339 bytes  (2026-02-17 14:51)
+  │      │ 34442.695511 seconds (1.45 G allocations: 512.918 GiB, 39.27% gc time, 51 lock conflicts, 0.37% compilation time: <1% of
+  │      │ ntest = 1061
+  │      │ size(batch_m_true) = (609, 424, 1061)
+  │      │ Submitted batch job 1097481
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000005/a1000
+  │    log (stderr):   3,215 bytes  (2026-02-17 14:51)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000005/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   840.6 MB  (2026-02-17 15:18)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake5_row1_655872.err  (10,641 bytes  (2026-02-17 15:22))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake5_row1_655872.out  (23,517 bytes  (2026-02-17 14:59))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 932625
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    4511.6 MB  (2026-02-15 19:48)
+  │    clouds_index:   32.1 MB  (2026-02-15 19:49)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000005/a1000
+  │    results.nc:     3987.9 MB  (2026-02-18 13:42)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000005/a1000
+  │    results.nc:     3987.9 MB  (2026-02-19 01:37)
+  │    cv_rms.txt:     16 bytes  (2026-02-19 01:35)
+  │    batch_size:     32
+  │    log (stdout):   19,306 bytes  (2026-02-19 01:35)
+  │      │ 37734.887836 seconds (1.66 G allocations: 762.556 GiB, 36.52% gc time, 155 lock conflicts, 0.31% compilation time: <1% o
+  │      │ ntest = 1267
+  │      │ size(batch_m_true) = (609, 424, 1267)
+  │      │ Submitted batch job 1608961
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000005/a1000
+  │    log (stderr):   3,222 bytes  (2026-02-19 01:35)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000005/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   883.5 MB  (2026-02-19 01:53)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake5_row1_655873.err  (10,641 bytes  (2026-02-19 01:57))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake5_row1_655873.out  (24,887 bytes  (2026-02-19 01:38))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 1401966
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    4807.0 MB  (2026-02-15 19:41)
+  │    clouds_index:   39.3 MB  (2026-02-15 19:43)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000005/a1000
+  │    results.nc:     4242.9 MB  (2026-02-19 13:03)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000005/a1000
+  │    results.nc:     4242.9 MB  (2026-02-20 02:14)
+  │    cv_rms.txt:     16 bytes  (2026-02-20 02:07)
+  │    batch_size:     32
+  │    log (stdout):   19,431 bytes  (2026-02-20 02:07)
+  │      │ 39447.059263 seconds (1.77 G allocations: 620.982 GiB, 36.14% gc time, 312 lock conflicts, 0.30% compilation time: <1% o
+  │      │ ntest = 1348
+  │      │ size(batch_m_true) = (610, 424, 1348)
+  │      │ Submitted batch job 2120993
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000005/a1000
+  │    log (stderr):   3,218 bytes  (2026-02-20 02:07)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000005/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   904.7 MB  (2026-02-20 03:12)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake5_row1_655874.err  (10,641 bytes  (2026-02-20 04:06))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake5_row1_655874.out  (25,715 bytes  (2026-02-20 02:14))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 1905041
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    4926.6 MB  (2026-02-15 19:41)
+  │    clouds_index:   43.2 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000005/a1000
+  │    results.nc:     4346.7 MB  (2026-02-16 17:18)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000005/a1000
+  │    results.nc:     4346.8 MB  (2026-02-17 16:12)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 16:08)
+  │    batch_size:     32
+  │    log (stdout):   19,286 bytes  (2026-02-17 16:08)
+  │      │ 40711.331127 seconds (1.80 G allocations: 651.836 GiB, 36.75% gc time, 32 lock conflicts, 0.29% compilation time: <1% of
+  │      │ ntest = 1381
+  │      │ size(batch_m_true) = (610, 428, 1381)
+  │      │ Submitted batch job 1150732
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000005/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-17 16:08)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000005/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   911.7 MB  (2026-02-17 16:23)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake5_row1_655875.err  (10,641 bytes  (2026-02-17 16:29))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake5_row1_655875.out  (26,330 bytes  (2026-02-17 16:13))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 887907
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 198.0 MB  (2026-02-21 16:27)
+  │    dincae: 66.0 MB  (2026-02-21 16:31)
+  │  Post files: 1
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 6  (000000006)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    3587.2 MB  (2026-02-15 19:38)
+  │    clouds_index:   25.0 MB  (2026-02-15 19:39)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000006/a1000
+  │    results.nc:     3173.3 MB  (2026-02-17 10:45)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000006/a1000
+  │    results.nc:     3173.3 MB  (2026-02-18 06:59)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 06:55)
+  │    batch_size:     32
+  │    log (stdout):   19,285 bytes  (2026-02-18 06:55)
+  │      │ 34770.497370 seconds (1.58 G allocations: 447.166 GiB, 43.27% gc time, 7 lock conflicts, 0.36% compilation time: <1% of 
+  │      │ ntest = 1186
+  │      │ size(batch_m_true) = (396, 541, 1186)
+  │      │ Submitted batch job 1314882
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000006/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-18 06:55)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000006/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   853.4 MB  (2026-02-18 07:15)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 853.3 MB  (2026-02-18 07:23)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 505.4 MB  (2026-02-18 07:31)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 505.5 MB  (2026-02-18 07:27)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake6_row2_655872.err  (12,455 bytes  (2026-02-18 07:34))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake6_row2_655872.out  (23,403 bytes  (2026-02-18 07:00))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 1041272
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    4190.8 MB  (2026-02-15 19:47)
+  │    clouds_index:   33.7 MB  (2026-02-15 19:48)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000006/a1000
+  │    results.nc:     3703.1 MB  (2026-02-18 01:00)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000006/a1000
+  │    results.nc:     3703.1 MB  (2026-02-18 18:11)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 18:08)
+  │    batch_size:     32
+  │    log (stdout):   19,340 bytes  (2026-02-18 18:08)
+  │      │ 41773.834411 seconds (1.79 G allocations: 575.557 GiB, 45.00% gc time, 31 lock conflicts, 0.30% compilation time: <1% of
+  │      │ ntest = 1384
+  │      │ size(batch_m_true) = (396, 542, 1384)
+  │      │ Submitted batch job 1431861
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000006/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-18 18:08)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000006/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   892.7 MB  (2026-02-18 18:20)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 892.6 MB  (2026-02-18 18:27)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 551.6 MB  (2026-02-18 18:37)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 550.9 MB  (2026-02-18 18:32)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake6_row2_655873.err  (12,455 bytes  (2026-02-18 18:39))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake6_row2_655873.out  (24,917 bytes  (2026-02-18 18:12))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 1292024
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    4361.1 MB  (2026-02-15 19:40)
+  │    clouds_index:   42.8 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000006/a1000
+  │    results.nc:     3847.6 MB  (2026-02-20 17:09)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000006/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-21 06:50)
+  │    batch_size:     32
+  │    log (stdout):   19,375 bytes  (2026-02-21 06:50)
+  │      │ 44328.838475 seconds (1.83 G allocations: 810.465 GiB, 46.28% gc time, 42 lock conflicts, 0.28% compilation time: <1% of
+  │      │ ntest = 1438
+  │      │ size(batch_m_true) = (397, 542, 1438)
+  │      │ Submitted batch job 2418710
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000006/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-21 06:50)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000006/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake6_row2_655874.err  (3,504 bytes  (2026-02-15 19:42))
+  │      │   rec.set_total_time_after(int(ds.dims.get("time", 0)))
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/orchestration/lswtctl.py:479: FutureWarning: The return type of `Dataset.dims` 
+  │      │   T = ds_prep.dims["time"]
+  │    chain_lake6_row2_655874.out  (24,869 bytes  (2026-02-20 17:12))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 2308938
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    4456.7 MB  (2026-02-15 19:40)
+  │    clouds_index:   49.1 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000006/a1000
+  │    results.nc:     3930.5 MB  (2026-02-16 22:11)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000006/a1000
+  │    results.nc:     3930.5 MB  (2026-02-17 21:24)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 21:22)
+  │    batch_size:     32
+  │    log (stdout):   19,270 bytes  (2026-02-17 21:22)
+  │      │ 44937.876105 seconds (1.86 G allocations: 813.376 GiB, 44.91% gc time, 12 lock conflicts, 0.28% compilation time: <1% of
+  │      │ ntest = 1469
+  │      │ size(batch_m_true) = (398, 542, 1469)
+  │      │ Submitted batch job 1273240
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000006/a1000
+  │    log (stderr):   3,221 bytes  (2026-02-17 21:22)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000006/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   913.4 MB  (2026-02-17 21:35)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 913.2 MB  (2026-02-17 21:44)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 596.6 MB  (2026-02-17 21:54)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 596.8 MB  (2026-02-17 21:49)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake6_row2_655875.err  (12,455 bytes  (2026-02-17 21:56))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake6_row2_655875.out  (26,670 bytes  (2026-02-17 21:25))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 988612
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 217.3 MB  (2026-02-21 17:17)
+  │    dincae: 51.8 MB  (2026-02-21 17:20)
+  │  Post files: 4
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 8  (000000008)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    4641.7 MB  (2026-02-15 19:44)
+  │    clouds_index:   12.2 MB  (2026-02-15 19:45)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000008/a1000
+  │    results.nc:     4115.2 MB  (2026-02-17 03:57)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000008/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-22 04:55)
+  │    batch_size:     16
+  │    log (stdout):   17,866 bytes  (2026-02-22 04:55)
+  │      │ 39699.154036 seconds (2.30 G allocations: 644.545 GiB, 26.37% gc time, 228 lock conflicts, 0.30% compilation time: <1% o
+  │      │ ntest = 928
+  │      │ size(batch_m_true) = (753, 529, 928)
+  │      │ Submitted batch job 2475131
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000008/a1000
+  │    log.prev:       4,871 bytes  (2026-02-17 19:26)
+  │    log (stderr):   2,900 bytes  (2026-02-22 04:55)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │    log.prev:       118,155 bytes  (2026-02-17 19:28)
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000008/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake8_row3_655872.err  (4,802 bytes  (2026-02-17 19:29))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │    chain_lake8_row3_655872.out  (21,806 bytes  (2026-02-17 04:00))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 1006475
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    5095.0 MB  (2026-02-15 19:52)
+  │    clouds_index:   18.5 MB  (2026-02-15 19:53)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000008/a1000
+  │    results.nc:     4514.3 MB  (2026-02-16 14:02)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000008/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-22 06:45)
+  │    batch_size:     16
+  │    log (stdout):   18,254 bytes  (2026-02-22 06:45)
+  │      │ 46258.379909 seconds (2.51 G allocations: 892.098 GiB, 27.92% gc time, 154 lock conflicts, 0.26% compilation time: <1% o
+  │      │ ntest = 1018
+  │      │ size(batch_m_true) = (754, 531, 1018)
+  │      │ Submitted batch job 2478950
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000008/a1000
+  │    log.prev:       4,874 bytes  (2026-02-16 20:47)
+  │    log (stderr):   2,900 bytes  (2026-02-22 06:45)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │    log.prev:       118,158 bytes  (2026-02-16 20:50)
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000008/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake8_row3_655873.err  (4,802 bytes  (2026-02-16 20:50))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │    chain_lake8_row3_655873.out  (21,897 bytes  (2026-02-16 14:06))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 751988
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    6061.1 MB  (2026-02-15 19:43)
+  │    clouds_index:   27.9 MB  (2026-02-15 19:45)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000008/a1000
+  │    results.nc:     5365.7 MB  (2026-02-16 18:35)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000008/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-22 10:09)
+  │    batch_size:     16
+  │    log (stdout):   18,284 bytes  (2026-02-22 10:09)
+  │      │ 56817.278429 seconds (2.93 G allocations: 1023.113 GiB, 29.47% gc time, 192 lock conflicts, 0.22% compilation time: <1% 
+  │      │ ntest = 1210
+  │      │ size(batch_m_true) = (755, 530, 1210)
+  │      │ Submitted batch job 2514502
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000008/a1000
+  │    log.prev:       4,872 bytes  (2026-02-17 08:40)
+  │    log (stderr):   2,902 bytes  (2026-02-22 10:09)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │    log.prev:       118,153 bytes  (2026-02-17 08:43)
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000008/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake8_row3_655874.err  (4,802 bytes  (2026-02-17 08:43))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │    chain_lake8_row3_655874.out  (25,269 bytes  (2026-02-16 18:39))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 950943
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    6016.3 MB  (2026-02-15 19:46)
+  │    clouds_index:   22.8 MB  (2026-02-15 19:47)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000008/a1000
+  │    results.nc:     5325.8 MB  (2026-02-16 15:48)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000008/a1000
+  │    results.nc:     MISSING
+  │    cv_rms.txt:     16 bytes  (2026-02-22 17:25)
+  │    batch_size:     16
+  │    log (stdout):   18,298 bytes  (2026-02-22 17:25)
+  │      │ 71266.118562 seconds (2.94 G allocations: 854.988 GiB, 44.77% gc time, 365 lock conflicts, 0.18% compilation time: <1% o
+  │      │ ntest = 1201
+  │      │ size(batch_m_true) = (755, 531, 1201)
+  │      │ Submitted batch job 2597139
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000008/a1000
+  │    log.prev:       4,870 bytes  (2026-02-17 01:48)
+  │    log (stderr):   2,898 bytes  (2026-02-22 17:25)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │    log.prev:       118,157 bytes  (2026-02-17 01:50)
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000008/a1000
+  │    (directory does not exist)
+  │
+  │  Chain/Post logs:
+  │    chain_lake8_row3_655875.err  (4,802 bytes  (2026-02-17 01:50))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │    chain_lake8_row3_655875.out  (24,262 bytes  (2026-02-16 15:52))
+  │      │ [DINCAE] Saved config: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dinca
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 821128
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 116.6 MB  (2026-02-21 18:13)
+  │    dincae: MISSING
+  │  Post dir: (not yet merged)
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 9  (000000009)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    1846.7 MB  (2026-02-15 19:41)
+  │    clouds_index:   11.2 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000009/a1000
+  │    results.nc:     1634.1 MB  (2026-02-16 22:48)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000009/a1000
+  │    results.nc:     1634.1 MB  (2026-02-17 15:52)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 15:50)
+  │    batch_size:     32
+  │    log (stdout):   19,287 bytes  (2026-02-17 15:50)
+  │      │ 14679.035734 seconds (811.15 M allocations: 552.039 GiB, 34.99% gc time, 8 lock conflicts, 0.80% compilation time: <1% o
+  │      │ ntest = 509
+  │      │ size(batch_m_true) = (922, 273, 509)
+  │      │ Submitted batch job 1136936
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000009/a1000
+  │    log (stderr):   3,215 bytes  (2026-02-17 15:50)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000009/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   404.0 MB  (2026-02-17 16:03)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 404.1 MB  (2026-02-17 16:12)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 256.5 MB  (2026-02-17 16:26)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 254.8 MB  (2026-02-17 16:19)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake9_row4_655872.err  (17,218 bytes  (2026-02-17 19:07))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake9_row4_655872.out  (22,302 bytes  (2026-02-17 15:53))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 990279
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    2237.6 MB  (2026-02-15 19:40)
+  │    clouds_index:   19.2 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000009/a1000
+  │    results.nc:     1977.6 MB  (2026-02-16 10:11)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000009/a1000
+  │    results.nc:     1977.7 MB  (2026-02-16 21:29)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 21:20)
+  │    batch_size:     32
+  │    log (stdout):   19,302 bytes  (2026-02-16 21:20)
+  │      │ 17555.410978 seconds (952.91 M allocations: 356.247 GiB, 35.64% gc time, 13 lock conflicts, 0.66% compilation time: <1% 
+  │      │ ntest = 616
+  │      │ size(batch_m_true) = (924, 273, 616)
+  │      │ Submitted batch job 986199
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000009/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-16 21:20)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000009/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   423.1 MB  (2026-02-16 22:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 423.1 MB  (2026-02-16 22:40)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 294.0 MB  (2026-02-16 22:55)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 304.1 MB  (2026-02-16 22:48)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake9_row4_655873.err  (16,905 bytes  (2026-02-17 04:03))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake9_row4_655873.out  (22,710 bytes  (2026-02-16 21:30))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 727537
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    2684.1 MB  (2026-02-15 19:41)
+  │    clouds_index:   27.7 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000009/a1000
+  │    results.nc:     2369.3 MB  (2026-02-16 22:19)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000009/a1000
+  │    results.nc:     2369.3 MB  (2026-02-17 15:49)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 15:47)
+  │    batch_size:     32
+  │    log (stdout):   19,316 bytes  (2026-02-17 15:47)
+  │      │ 23127.833543 seconds (1.09 G allocations: 338.655 GiB, 37.27% gc time, 18 lock conflicts, 0.53% compilation time: <1% of
+  │      │ ntest = 738
+  │      │ size(batch_m_true) = (925, 274, 738)
+  │      │ Submitted batch job 1134096
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000009/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-17 15:47)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000009/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   454.3 MB  (2026-02-17 15:56)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 454.1 MB  (2026-02-17 16:00)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 418.7 MB  (2026-02-17 16:08)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 401.4 MB  (2026-02-17 16:04)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake9_row4_655874.err  (17,040 bytes  (2026-02-17 17:40))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake9_row4_655874.out  (24,415 bytes  (2026-02-17 15:49))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 989228
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    2691.5 MB  (2026-02-15 19:38)
+  │    clouds_index:   25.9 MB  (2026-02-15 19:39)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000009/a1000
+  │    results.nc:     2375.7 MB  (2026-02-17 08:53)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000009/a1000
+  │    results.nc:     2375.8 MB  (2026-02-18 02:54)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 02:53)
+  │    batch_size:     32
+  │    log (stdout):   19,286 bytes  (2026-02-18 02:53)
+  │      │ 21048.307864 seconds (1.09 G allocations: 362.799 GiB, 35.14% gc time, 14 lock conflicts, 0.55% compilation time: <1% of
+  │      │ ntest = 740
+  │      │ size(batch_m_true) = (926, 274, 740)
+  │      │ Submitted batch job 1300192
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000009/a1000
+  │    log (stderr):   3,212 bytes  (2026-02-18 02:53)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000009/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   450.3 MB  (2026-02-18 03:01)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 450.2 MB  (2026-02-18 03:05)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 349.0 MB  (2026-02-18 03:12)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 344.1 MB  (2026-02-18 03:08)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake9_row4_655875.err  (17,040 bytes  (2026-02-18 04:47))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake9_row4_655875.out  (24,373 bytes  (2026-02-18 02:55))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 1033544
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 118.3 MB  (2026-02-21 18:13)
+  │    dincae: 39.4 MB  (2026-02-21 18:16)
+  │  Post files: 4
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 11  (000000011)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    2850.5 MB  (2026-02-15 19:42)
+  │    clouds_index:   10.6 MB  (2026-02-15 19:43)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000011/a1000
+  │    results.nc:     2525.2 MB  (2026-02-16 23:33)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000011/a1000
+  │    results.nc:     2525.2 MB  (2026-02-17 19:22)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 19:20)
+  │    batch_size:     32
+  │    log (stdout):   19,307 bytes  (2026-02-17 19:20)
+  │      │ 21538.921991 seconds (989.52 M allocations: 429.614 GiB, 32.62% gc time, 14 lock conflicts, 0.56% compilation time: <1% 
+  │      │ ntest = 647
+  │      │ size(batch_m_true) = (1042, 293, 647)
+  │      │ Submitted batch job 1261610
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000011/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-17 19:20)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000011/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   422.3 MB  (2026-02-17 19:33)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 422.2 MB  (2026-02-17 19:41)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 249.7 MB  (2026-02-17 20:34)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 270.0 MB  (2026-02-17 20:08)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake11_row5_655872.err  (12,455 bytes  (2026-02-17 20:39))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake11_row5_655872.out  (22,905 bytes  (2026-02-17 19:22))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_
+  │      │ Submitted batch job 993252
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    3277.1 MB  (2026-02-15 19:47)
+  │    clouds_index:   15.5 MB  (2026-02-15 19:48)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000011/a1000
+  │    results.nc:     2899.8 MB  (2026-02-16 13:51)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000011/a1000
+  │    results.nc:     2899.9 MB  (2026-02-17 01:14)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 01:10)
+  │    batch_size:     32
+  │    log (stdout):   19,304 bytes  (2026-02-17 01:10)
+  │      │ 25283.452832 seconds (1.10 G allocations: 498.681 GiB, 31.79% gc time, 20 lock conflicts, 0.46% compilation time: <1% of
+  │      │ ntest = 743
+  │      │ size(batch_m_true) = (1044, 307, 743)
+  │      │ Submitted batch job 1001047
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000011/a1000
+  │    log (stderr):   3,215 bytes  (2026-02-17 01:10)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000011/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   440.4 MB  (2026-02-17 01:49)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 440.7 MB  (2026-02-17 02:04)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 302.4 MB  (2026-02-17 02:58)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 298.0 MB  (2026-02-17 02:30)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake11_row5_655873.err  (12,455 bytes  (2026-02-17 03:02))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake11_row5_655873.out  (23,401 bytes  (2026-02-17 01:14))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_
+  │      │ Submitted batch job 750353
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    3841.2 MB  (2026-02-15 19:42)
+  │    clouds_index:   22.5 MB  (2026-02-15 19:44)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000011/a1000
+  │    results.nc:     3395.5 MB  (2026-02-17 01:53)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000011/a1000
+  │    results.nc:     3395.5 MB  (2026-02-18 00:18)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 00:15)
+  │    batch_size:     32
+  │    log (stdout):   19,289 bytes  (2026-02-18 00:15)
+  │      │ 29403.286211 seconds (1.24 G allocations: 549.458 GiB, 31.07% gc time, 13 lock conflicts, 0.40% compilation time: <1% of
+  │      │ ntest = 870
+  │      │ size(batch_m_true) = (1044, 307, 870)
+  │      │ Submitted batch job 1289106
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000011/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-18 00:15)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000011/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   463.0 MB  (2026-02-18 00:26)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 463.0 MB  (2026-02-18 00:32)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 331.3 MB  (2026-02-18 01:16)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 332.4 MB  (2026-02-18 00:54)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake11_row5_655874.err  (12,455 bytes  (2026-02-18 01:19))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake11_row5_655874.out  (24,971 bytes  (2026-02-18 00:19))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_
+  │      │ Submitted batch job 1002476
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    3842.1 MB  (2026-02-15 19:39)
+  │    clouds_index:   23.2 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000011/a1000
+  │    results.nc:     3395.5 MB  (2026-02-17 10:53)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000011/a1000
+  │    results.nc:     3395.5 MB  (2026-02-18 05:31)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 05:29)
+  │    batch_size:     32
+  │    log (stdout):   19,286 bytes  (2026-02-18 05:29)
+  │      │ 28922.961731 seconds (1.24 G allocations: 549.809 GiB, 30.98% gc time, 5 lock conflicts, 0.40% compilation time: <1% of 
+  │      │ ntest = 870
+  │      │ size(batch_m_true) = (1045, 307, 870)
+  │      │ Submitted batch job 1308964
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000011/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-18 05:29)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000011/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   462.6 MB  (2026-02-18 05:39)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 462.6 MB  (2026-02-18 05:45)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 308.4 MB  (2026-02-18 06:29)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 332.1 MB  (2026-02-18 06:07)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake11_row5_655875.err  (12,455 bytes  (2026-02-18 06:31))
+  │      ⚠ PYTHON_ERROR: Traceback (most recent call last):
+  │      ⚠ OOM: subprocess.CalledProcessError: Command '['/bin/bash', '-l', '-c', 'source ~/miniforge3/bin/activate 
+  │    chain_lake11_row5_655875.out  (25,406 bytes  (2026-02-18 05:32))
+  │      │ [DINCAE] Using DINEOF CV points from: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_
+  │      │ Submitted batch job 1041695
+  │      │ [POST_DINEOF] Exec: dineof_postprocessor --lake-path /gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_S
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 101.8 MB  (2026-02-21 19:03)
+  │    dincae: 33.9 MB  (2026-02-21 19:06)
+  │  Post files: 4
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 12  (000000012)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    1684.2 MB  (2026-02-15 19:40)
+  │    clouds_index:   8.9 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000012/a1000
+  │    results.nc:     1491.2 MB  (2026-02-16 01:22)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000012/a1000
+  │    results.nc:     1491.2 MB  (2026-02-16 03:35)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 03:32)
+  │    batch_size:     32
+  │    log (stdout):   19,281 bytes  (2026-02-16 03:33)
+  │      │ 7547.884545 seconds (1.20 G allocations: 302.075 GiB, 4.18% gc time, 2 lock conflicts, 1.59% compilation time: <1% of wh
+  │      │ ntest = 853
+  │      │ size(batch_m_true) = (555, 207, 853)
+  │      │ Submitted batch job 690103
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000012/a1000
+  │    log (stderr):   3,215 bytes  (2026-02-16 03:33)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000012/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   341.6 MB  (2026-02-16 06:40)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 187.0 MB  (2026-02-16 07:12)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   341.1 MB  (2026-02-16 03:43)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 341.2 MB  (2026-02-16 03:58)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 205.0 MB  (2026-02-16 04:06)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 203.2 MB  (2026-02-16 04:03)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake12_row6_655872.err  (29,716 bytes  (2026-02-16 10:44))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake12_row6_655872.out  (94,923 bytes  (2026-02-16 10:53))
+  │      │ [InsituValidation] No buoy dates within config time range, skipping site
+  │      │ [InsituValidation] Completed for lake 12
+  │      │ [Mon 16 Feb 10:53:37 GMT 2026] Completed chain stage for lake_id=12, row=6
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    2078.8 MB  (2026-02-15 19:46)
+  │    clouds_index:   14.8 MB  (2026-02-15 19:46)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000012/a1000
+  │    results.nc:     1839.1 MB  (2026-02-15 22:59)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000012/a1000
+  │    results.nc:     1839.1 MB  (2026-02-16 01:44)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 01:43)
+  │    batch_size:     32
+  │    log (stdout):   19,301 bytes  (2026-02-16 01:43)
+  │      │ 9534.459595 seconds (1.41 G allocations: 383.256 GiB, 4.90% gc time, 2 lock conflicts, 1.25% compilation time: <1% of wh
+  │      │ ntest = 1052
+  │      │ size(batch_m_true) = (557, 208, 1052)
+  │      │ Submitted batch job 682607
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000012/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-16 01:43)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000012/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   359.5 MB  (2026-02-16 04:55)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 187.9 MB  (2026-02-16 05:27)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   355.9 MB  (2026-02-16 01:50)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 355.9 MB  (2026-02-16 01:54)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 225.0 MB  (2026-02-16 01:59)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 225.0 MB  (2026-02-16 01:56)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake12_row6_655873.err  (26,529 bytes  (2026-02-16 08:57))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake12_row6_655873.out  (88,004 bytes  (2026-02-16 09:31))
+  │      │ [InsituValidation] No buoy dates within config time range, skipping site
+  │      │ [InsituValidation] Completed for lake 12
+  │      │ [Mon 16 Feb 09:31:35 GMT 2026] Completed chain stage for lake_id=12, row=6
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    2464.7 MB  (2026-02-15 19:41)
+  │    clouds_index:   19.2 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000012/a1000
+  │    results.nc:     2178.3 MB  (2026-02-16 16:03)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000012/a1000
+  │    results.nc:     2178.3 MB  (2026-02-17 05:14)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 05:12)
+  │    batch_size:     32
+  │    log (stdout):   19,285 bytes  (2026-02-17 05:12)
+  │      │ 12187.159630 seconds (1.63 G allocations: 434.950 GiB, 5.09% gc time, 13 lock conflicts, 0.99% compilation time: <1% of 
+  │      │ ntest = 1246
+  │      │ size(batch_m_true) = (557, 208, 1246)
+  │      │ Submitted batch job 1008448
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000012/a1000
+  │    log (stderr):   3,220 bytes  (2026-02-17 05:12)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000012/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   376.9 MB  (2026-02-17 08:05)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 186.0 MB  (2026-02-17 08:38)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   374.8 MB  (2026-02-17 05:19)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 374.8 MB  (2026-02-17 05:26)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 248.6 MB  (2026-02-17 05:32)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 249.3 MB  (2026-02-17 05:29)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake12_row6_655874.err  (27,598 bytes  (2026-02-17 12:35))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake12_row6_655874.out  (156,731 bytes  (2026-02-17 13:07))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000012_distance_map_site10.png
+  │      │ [InsituValidation] Completed for lake 12
+  │      │ [Tue 17 Feb 13:07:23 GMT 2026] Completed chain stage for lake_id=12, row=6
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    2569.8 MB  (2026-02-15 19:38)
+  │    clouds_index:   20.6 MB  (2026-02-15 19:38)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000012/a1000
+  │    results.nc:     2270.9 MB  (2026-02-16 15:10)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000012/a1000
+  │    results.nc:     2270.9 MB  (2026-02-17 00:42)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 00:37)
+  │    batch_size:     32
+  │    log (stdout):   19,265 bytes  (2026-02-17 00:37)
+  │      │ 11606.687892 seconds (1.70 G allocations: 389.149 GiB, 5.23% gc time, 3 lock conflicts, 1.00% compilation time: <1% of w
+  │      │ ntest = 1299
+  │      │ size(batch_m_true) = (558, 208, 1299)
+  │      │ Submitted batch job 998099
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000012/a1000
+  │    log (stderr):   3,215 bytes  (2026-02-17 00:37)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000012/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   382.1 MB  (2026-02-17 05:09)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 186.3 MB  (2026-02-17 05:42)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   380.1 MB  (2026-02-17 01:06)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 380.3 MB  (2026-02-17 01:17)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 259.5 MB  (2026-02-17 01:24)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 258.6 MB  (2026-02-17 01:21)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake12_row6_655875.err  (27,598 bytes  (2026-02-17 10:26))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake12_row6_655875.out  (171,240 bytes  (2026-02-17 11:05))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000012_distance_map_site10.png
+  │      │ [InsituValidation] Completed for lake 12
+  │      │ [Tue 17 Feb 11:05:06 GMT 2026] Completed chain stage for lake_id=12, row=6
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 91.6 MB  (2026-02-21 20:26)
+  │    dincae: 30.5 MB  (2026-02-21 20:29)
+  │  Post files: 6
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 13  (000000013)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    1606.7 MB  (2026-02-15 19:40)
+  │    clouds_index:   10.0 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000013/a1000
+  │    results.nc:     1421.8 MB  (2026-02-15 21:58)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000013/a1000
+  │    results.nc:     1421.9 MB  (2026-02-16 01:13)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 01:08)
+  │    batch_size:     32
+  │    log (stdout):   19,284 bytes  (2026-02-16 01:08)
+  │      │ 11110.617180 seconds (982.29 M allocations: 190.900 GiB, 31.97% gc time, 10 lock conflicts, 1.08% compilation time: <1% 
+  │      │ ntest = 672
+  │      │ size(batch_m_true) = (362, 422, 672)
+  │      │ Submitted batch job 681094
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000013/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-16 01:08)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000013/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   304.9 MB  (2026-02-16 03:57)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 222.5 MB  (2026-02-16 04:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   303.5 MB  (2026-02-16 01:22)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 303.5 MB  (2026-02-16 01:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 168.7 MB  (2026-02-16 01:29)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 168.5 MB  (2026-02-16 01:27)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake13_row7_655872.err  (29,716 bytes  (2026-02-16 08:12))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake13_row7_655872.out  (84,756 bytes  (2026-02-16 08:21))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000013_distance_map_site3.png
+  │      │ [InsituValidation] Completed for lake 13
+  │      │ [Mon 16 Feb 08:21:59 GMT 2026] Completed chain stage for lake_id=13, row=7
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    1881.2 MB  (2026-02-15 19:46)
+  │    clouds_index:   13.9 MB  (2026-02-15 19:46)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000013/a1000
+  │    results.nc:     1663.0 MB  (2026-02-17 03:29)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000013/a1000
+  │    results.nc:     1663.1 MB  (2026-02-17 21:36)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 21:34)
+  │    batch_size:     32
+  │    log (stdout):   19,357 bytes  (2026-02-17 21:34)
+  │      │ 12919.397359 seconds (1.12 G allocations: 354.040 GiB, 30.74% gc time, 39 lock conflicts, 0.90% compilation time: <1% of
+  │      │ ntest = 786
+  │      │ size(batch_m_true) = (363, 430, 786)
+  │      │ Submitted batch job 1274224
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000013/a1000
+  │    log (stderr):   3,214 bytes  (2026-02-17 21:34)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000013/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   317.6 MB  (2026-02-18 00:11)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 238.3 MB  (2026-02-18 00:39)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   315.4 MB  (2026-02-17 21:40)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 315.5 MB  (2026-02-17 21:43)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 198.9 MB  (2026-02-17 21:48)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 197.6 MB  (2026-02-17 21:45)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake13_row7_655873.err  (28,499 bytes  (2026-02-18 04:34))
+  │      │   c /= stddev[:, None]
+  │      │ /home/users/shaerdan/miniforge3/envs/lake_cci_gapfilling/lib/python3.10/site-packages/numpy/lib/_function_base_impl.py:3
+  │      │   c /= stddev[None, :]
+  │    chain_lake13_row7_655873.out  (86,024 bytes  (2026-02-18 04:36))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000013_distance_map_site3.png
+  │      │ [InsituValidation] Completed for lake 13
+  │      │ [Wed 18 Feb 04:36:42 GMT 2026] Completed chain stage for lake_id=13, row=7
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    2060.8 MB  (2026-02-15 19:40)
+  │    clouds_index:   17.9 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000013/a1000
+  │    results.nc:     1819.6 MB  (2026-02-16 09:09)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000013/a1000
+  │    results.nc:     1819.6 MB  (2026-02-16 17:12)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 17:05)
+  │    batch_size:     32
+  │    log (stdout):   19,283 bytes  (2026-02-16 17:05)
+  │      │ 14264.812525 seconds (1.19 G allocations: 445.776 GiB, 31.01% gc time, 5 lock conflicts, 0.82% compilation time: <1% of 
+  │      │ ntest = 860
+  │      │ size(batch_m_true) = (363, 431, 860)
+  │      │ Submitted batch job 874240
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000013/a1000
+  │    log (stderr):   3,205 bytes  (2026-02-16 17:05)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000013/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   326.5 MB  (2026-02-16 22:01)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 225.8 MB  (2026-02-16 22:30)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   324.0 MB  (2026-02-16 17:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 324.1 MB  (2026-02-16 17:37)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 222.9 MB  (2026-02-16 17:47)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 222.2 MB  (2026-02-16 17:41)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake13_row7_655874.err  (27,598 bytes  (2026-02-17 02:52))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake13_row7_655874.out  (87,284 bytes  (2026-02-17 03:21))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000013_distance_map_site3.png
+  │      │ [InsituValidation] Completed for lake 13
+  │      │ [Tue 17 Feb 03:21:13 GMT 2026] Completed chain stage for lake_id=13, row=7
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    2094.6 MB  (2026-02-15 19:37)
+  │    clouds_index:   18.2 MB  (2026-02-15 19:38)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000013/a1000
+  │    results.nc:     1849.2 MB  (2026-02-16 06:26)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000013/a1000
+  │    results.nc:     1849.3 MB  (2026-02-16 11:26)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 11:24)
+  │    batch_size:     32
+  │    log (stdout):   19,283 bytes  (2026-02-16 11:24)
+  │      │ 14533.197401 seconds (1.23 G allocations: 322.000 GiB, 31.05% gc time, 1 lock conflict, 0.81% compilation time: <1% of w
+  │      │ ntest = 874
+  │      │ size(batch_m_true) = (363, 431, 874)
+  │      │ Submitted batch job 732209
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000013/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-16 11:24)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000013/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   326.9 MB  (2026-02-16 15:37)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 232.6 MB  (2026-02-16 16:06)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   322.3 MB  (2026-02-16 11:35)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 322.5 MB  (2026-02-16 11:43)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 192.6 MB  (2026-02-16 11:48)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 191.0 MB  (2026-02-16 11:46)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake13_row7_655875.err  (27,598 bytes  (2026-02-16 20:03))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake13_row7_655875.out  (85,334 bytes  (2026-02-16 20:32))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000013_distance_map_site3.png
+  │      │ [InsituValidation] Completed for lake 13
+  │      │ [Mon 16 Feb 20:32:35 GMT 2026] Completed chain stage for lake_id=13, row=7
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 85.9 MB  (2026-02-21 21:27)
+  │    dincae: 28.6 MB  (2026-02-21 21:29)
+  │  Post files: 6
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 15  (000000015)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    1639.1 MB  (2026-02-15 19:40)
+  │    clouds_index:   7.2 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000015/a1000
+  │    results.nc:     1451.7 MB  (2026-02-15 22:39)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000015/a1000
+  │    results.nc:     1451.7 MB  (2026-02-16 00:31)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 00:30)
+  │    batch_size:     32
+  │    log (stdout):   19,265 bytes  (2026-02-16 00:30)
+  │      │ 6392.481534 seconds (1.37 G allocations: 286.588 GiB, 1.35% gc time, 1.89% compilation time: <1% of which was recompilat
+  │      │ ntest = 1022
+  │      │ size(batch_m_true) = (494, 163, 1022)
+  │      │ Submitted batch job 677637
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000015/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-16 00:30)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000015/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   285.5 MB  (2026-02-16 02:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 138.3 MB  (2026-02-16 02:50)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   284.8 MB  (2026-02-16 00:35)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 284.7 MB  (2026-02-16 00:37)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 165.9 MB  (2026-02-16 00:40)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 166.0 MB  (2026-02-16 00:39)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake15_row8_655872.err  (29,716 bytes  (2026-02-16 05:31))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake15_row8_655872.out  (96,634 bytes  (2026-02-16 05:38))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000015_distance_map_site4.png
+  │      │ [InsituValidation] Completed for lake 15
+  │      │ [Mon 16 Feb 05:38:41 GMT 2026] Completed chain stage for lake_id=15, row=8
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    1998.4 MB  (2026-02-15 19:45)
+  │    clouds_index:   12.7 MB  (2026-02-15 19:46)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000015/a1000
+  │    results.nc:     1768.5 MB  (2026-02-16 04:13)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000015/a1000
+  │    results.nc:     1768.5 MB  (2026-02-16 06:29)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 06:27)
+  │    batch_size:     32
+  │    log (stdout):   19,265 bytes  (2026-02-16 06:27)
+  │      │ 7815.243110 seconds (1.61 G allocations: 321.558 GiB, 1.54% gc time, 5 lock conflicts, 1.51% compilation time: <1% of wh
+  │      │ ntest = 1245
+  │      │ size(batch_m_true) = (496, 164, 1245)
+  │      │ Submitted batch job 705656
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000015/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-16 06:27)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000015/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   301.6 MB  (2026-02-16 08:44)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 140.1 MB  (2026-02-16 09:11)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   301.5 MB  (2026-02-16 06:33)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 301.4 MB  (2026-02-16 06:37)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 188.2 MB  (2026-02-16 06:44)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 188.2 MB  (2026-02-16 06:40)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake15_row8_655873.err  (26,899 bytes  (2026-02-16 14:43))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake15_row8_655873.out  (109,532 bytes  (2026-02-16 15:35))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000015_distance_map_site4.png
+  │      │ [InsituValidation] Completed for lake 15
+  │      │ [Mon 16 Feb 15:35:57 GMT 2026] Completed chain stage for lake_id=15, row=8
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    2164.9 MB  (2026-02-15 19:40)
+  │    clouds_index:   15.1 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000015/a1000
+  │    results.nc:     1913.4 MB  (2026-02-16 14:38)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000015/a1000
+  │    results.nc:     1913.4 MB  (2026-02-16 23:17)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 23:15)
+  │    batch_size:     32
+  │    log (stdout):   19,268 bytes  (2026-02-16 23:15)
+  │      │ 8542.659638 seconds (1.75 G allocations: 245.684 GiB, 1.47% gc time, 6 lock conflicts, 1.37% compilation time: <1% of wh
+  │      │ ntest = 1347
+  │      │ size(batch_m_true) = (498, 166, 1347)
+  │      │ Submitted batch job 992089
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000015/a1000
+  │    log (stderr):   3,219 bytes  (2026-02-16 23:15)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000015/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   310.3 MB  (2026-02-17 02:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 141.9 MB  (2026-02-17 02:52)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   309.7 MB  (2026-02-16 23:25)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 309.7 MB  (2026-02-16 23:35)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 202.5 MB  (2026-02-16 23:47)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 202.6 MB  (2026-02-16 23:40)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake15_row8_655874.err  (27,598 bytes  (2026-02-17 05:44))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake15_row8_655874.out  (110,215 bytes  (2026-02-17 06:09))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000015_distance_map_site4.png
+  │      │ [InsituValidation] Completed for lake 15
+  │      │ [Tue 17 Feb 06:09:14 GMT 2026] Completed chain stage for lake_id=15, row=8
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    2160.4 MB  (2026-02-15 19:37)
+  │    clouds_index:   15.0 MB  (2026-02-15 19:38)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000015/a1000
+  │    results.nc:     1909.1 MB  (2026-02-16 05:14)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000015/a1000
+  │    results.nc:     1909.1 MB  (2026-02-16 09:13)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 09:12)
+  │    batch_size:     32
+  │    log (stdout):   19,334 bytes  (2026-02-16 09:12)
+  │      │ 8635.062016 seconds (1.72 G allocations: 235.190 GiB, 1.49% gc time, 13 lock conflicts, 1.40% compilation time: <1% of w
+  │      │ ntest = 1344
+  │      │ size(batch_m_true) = (500, 168, 1344)
+  │      │ Submitted batch job 720843
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000015/a1000
+  │    log (stderr):   3,216 bytes  (2026-02-16 09:12)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000015/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   310.7 MB  (2026-02-16 13:01)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 143.3 MB  (2026-02-16 13:28)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   308.8 MB  (2026-02-16 09:19)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 308.8 MB  (2026-02-16 09:27)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 204.1 MB  (2026-02-16 09:32)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 204.1 MB  (2026-02-16 09:30)
+  │    subdirs:        plots/, insitu_cv_validation/
+  │
+  │  Chain/Post logs:
+  │    chain_lake15_row8_655875.err  (27,598 bytes  (2026-02-16 17:09))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake15_row8_655875.out  (102,306 bytes  (2026-02-16 17:38))
+  │      │ [InsituValidation] Saved distance map plot: LAKE000000015_distance_map_site4.png
+  │      │ [InsituValidation] Completed for lake 15
+  │      │ [Mon 16 Feb 17:38:35 GMT 2026] Completed chain stage for lake_id=15, row=8
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 72.3 MB  (2026-02-21 22:18)
+  │    dincae: 24.1 MB  (2026-02-21 22:20)
+  │  Post files: 6
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 16  (000000016)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    1425.9 MB  (2026-02-15 19:40)
+  │    clouds_index:   11.7 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000016/a1000
+  │    results.nc:     1261.4 MB  (2026-02-16 05:52)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000016/a1000
+  │    results.nc:     1261.4 MB  (2026-02-16 08:35)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 08:35)
+  │    batch_size:     32
+  │    log (stdout):   19,283 bytes  (2026-02-16 08:35)
+  │      │ 5732.998236 seconds (1.26 G allocations: 231.365 GiB, 1.37% gc time, 7 lock conflicts, 2.08% compilation time: <1% of wh
+  │      │ ntest = 916
+  │      │ size(batch_m_true) = (360, 224, 916)
+  │      │ Submitted batch job 717212
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000016/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-16 08:35)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000016/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   328.4 MB  (2026-02-16 11:09)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 186.7 MB  (2026-02-16 11:31)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   326.3 MB  (2026-02-16 08:41)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 326.3 MB  (2026-02-16 08:46)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 189.9 MB  (2026-02-16 08:50)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 189.4 MB  (2026-02-16 08:48)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake16_row9_655872.err  (29,716 bytes  (2026-02-16 14:56))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake16_row9_655872.out  (58,277 bytes  (2026-02-16 15:03))
+  │      │ [InsituValidation] Lake 16 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 16, skipping
+  │      │ [Mon 16 Feb 15:03:36 GMT 2026] Completed chain stage for lake_id=16, row=9
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    1459.4 MB  (2026-02-15 19:37)
+  │    clouds_index:   16.8 MB  (2026-02-15 19:38)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000016/a1000
+  │    results.nc:     1288.9 MB  (2026-02-18 02:26)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000016/a1000
+  │    results.nc:     1288.9 MB  (2026-02-18 08:40)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 08:39)
+  │    batch_size:     32
+  │    log (stdout):   19,289 bytes  (2026-02-18 08:39)
+  │      │ 5901.881145 seconds (1.30 G allocations: 192.310 GiB, 1.34% gc time, 2 lock conflicts, 1.97% compilation time: <1% of wh
+  │      │ ntest = 936
+  │      │ size(batch_m_true) = (362, 225, 936)
+  │      │ Submitted batch job 1319139
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000016/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-18 08:39)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000016/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   332.7 MB  (2026-02-18 14:47)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 198.3 MB  (2026-02-18 15:09)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   331.2 MB  (2026-02-18 08:47)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 331.2 MB  (2026-02-18 08:55)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 217.9 MB  (2026-02-18 09:01)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 224.9 MB  (2026-02-18 08:58)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake16_row9_655873.err  (26,899 bytes  (2026-02-18 22:10))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake16_row9_655873.out  (57,666 bytes  (2026-02-18 23:06))
+  │      │ [InsituValidation] Lake 16 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 16, skipping
+  │      │ [Wed 18 Feb 23:06:29 GMT 2026] Completed chain stage for lake_id=16, row=9
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    1689.8 MB  (2026-02-15 19:40)
+  │    clouds_index:   20.3 MB  (2026-02-15 19:41)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000016/a1000
+  │    results.nc:     1490.0 MB  (2026-02-17 18:02)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000016/a1000
+  │    results.nc:     1490.0 MB  (2026-02-18 02:51)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 02:50)
+  │    batch_size:     32
+  │    log (stdout):   19,339 bytes  (2026-02-18 02:50)
+  │      │ 6842.821911 seconds (1.44 G allocations: 283.394 GiB, 1.34% gc time, 16 lock conflicts, 1.76% compilation time: <1% of w
+  │      │ ntest = 1082
+  │      │ size(batch_m_true) = (363, 226, 1082)
+  │      │ Submitted batch job 1299994
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000016/a1000
+  │    log (stderr):   3,220 bytes  (2026-02-18 02:50)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000016/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   346.7 MB  (2026-02-18 05:22)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 194.1 MB  (2026-02-18 05:44)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   343.3 MB  (2026-02-18 02:55)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 343.5 MB  (2026-02-18 02:58)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 232.2 MB  (2026-02-18 03:02)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 230.8 MB  (2026-02-18 03:00)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake16_row9_655874.err  (27,598 bytes  (2026-02-18 09:21))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake16_row9_655874.out  (59,018 bytes  (2026-02-18 09:48))
+  │      │ [InsituValidation] Lake 16 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 16, skipping
+  │      │ [Wed 18 Feb 09:48:56 GMT 2026] Completed chain stage for lake_id=16, row=9
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    1866.3 MB  (2026-02-15 19:37)
+  │    clouds_index:   22.1 MB  (2026-02-15 19:38)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000016/a1000
+  │    results.nc:     1645.6 MB  (2026-02-16 18:09)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000016/a1000
+  │    results.nc:     1645.6 MB  (2026-02-17 07:22)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 07:21)
+  │    batch_size:     32
+  │    log (stdout):   19,314 bytes  (2026-02-17 07:21)
+  │      │ 7575.334972 seconds (1.58 G allocations: 246.698 GiB, 1.43% gc time, 4 lock conflicts, 1.56% compilation time: <1% of wh
+  │      │ ntest = 1195
+  │      │ size(batch_m_true) = (364, 226, 1195)
+  │      │ Submitted batch job 1012619
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000016/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-17 07:21)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000016/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   356.3 MB  (2026-02-17 10:43)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 191.0 MB  (2026-02-17 11:06)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   352.8 MB  (2026-02-17 07:27)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 352.9 MB  (2026-02-17 07:31)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 244.0 MB  (2026-02-17 07:36)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 242.4 MB  (2026-02-17 07:33)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake16_row9_655875.err  (27,598 bytes  (2026-02-17 14:41))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake16_row9_655875.out  (61,653 bytes  (2026-02-17 15:06))
+  │      │ [InsituValidation] Lake 16 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 16, skipping
+  │      │ [Tue 17 Feb 15:06:51 GMT 2026] Completed chain stage for lake_id=16, row=9
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 102.7 MB  (2026-02-21 23:06)
+  │    dincae: 34.2 MB  (2026-02-21 23:08)
+  │  Post files: 6
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+══════════════════════════════════════════════════════════════════════════════
+  LAKE 17  (000000017)
+══════════════════════════════════════════════════════════════════════════════
+
+  ┌─ Segment 0  [2000-01-01 → 2005-09-30]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0
+  │
+  │  Prepared:
+  │    prepared.nc:    2518.4 MB  (2026-02-15 19:41)
+  │    clouds_index:   9.3 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dineof/000000017/a1000
+  │    results.nc:     2231.7 MB  (2026-02-16 10:00)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000017/a1000
+  │    results.nc:     2231.7 MB  (2026-02-16 20:43)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 20:42)
+  │    batch_size:     32
+  │    log (stdout):   18,882 bytes  (2026-02-16 20:42)
+  │      │ 16797.184118 seconds (1.38 G allocations: 347.119 GiB, 31.90% gc time, 6 lock conflicts, 0.70% compilation time: <1% of 
+  │      │ ntest = 1000
+  │      │ size(batch_m_true) = (703, 223, 1000)
+  │      │ Submitted batch job 984302
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000017/a1000
+  │    log (stderr):   3,217 bytes  (2026-02-16 20:42)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-3da5c4-exp0_baseline_both_seg0/post/000000017/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   318.0 MB  (2026-02-16 22:42)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 137.4 MB  (2026-02-16 23:20)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   317.8 MB  (2026-02-16 20:51)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 317.8 MB  (2026-02-16 20:59)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 148.2 MB  (2026-02-16 21:05)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 153.2 MB  (2026-02-16 21:02)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake17_row10_655872.err  (33,358 bytes  (2026-02-17 01:41))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake17_row10_655872.out  (57,773 bytes  (2026-02-17 01:47))
+  │      │ [InsituValidation] Lake 17 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 17, skipping
+  │      │ [Tue 17 Feb 01:47:03 GMT 2026] Completed chain stage for lake_id=17, row=10
+  └
+
+  ┌─ Segment 1  [2005-10-01 → 2011-07-01]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1
+  │
+  │  Prepared:
+  │    prepared.nc:    3105.5 MB  (2026-02-15 19:39)
+  │    clouds_index:   16.9 MB  (2026-02-15 19:40)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dineof/000000017/a1000
+  │    results.nc:     2749.4 MB  (2026-02-18 05:42)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000017/a1000
+  │    results.nc:     2749.5 MB  (2026-02-18 15:17)
+  │    cv_rms.txt:     16 bytes  (2026-02-18 15:14)
+  │    batch_size:     32
+  │    log (stdout):   19,284 bytes  (2026-02-18 15:14)
+  │      │ 22283.200771 seconds (1.63 G allocations: 470.497 GiB, 33.60% gc time, 9 lock conflicts, 0.55% compilation time: <1% of 
+  │      │ ntest = 1232
+  │      │ size(batch_m_true) = (704, 224, 1232)
+  │      │ Submitted batch job 1413258
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000017/a1000
+  │    log (stderr):   3,214 bytes  (2026-02-18 15:14)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-a4e774-exp0_baseline_both_seg1/post/000000017/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   336.2 MB  (2026-02-18 19:34)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 147.1 MB  (2026-02-18 20:13)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   334.7 MB  (2026-02-18 15:28)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 334.6 MB  (2026-02-18 15:40)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 178.8 MB  (2026-02-18 15:49)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 185.3 MB  (2026-02-18 15:43)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake17_row10_655873.err  (30,541 bytes  (2026-02-19 00:44))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake17_row10_655873.out  (66,236 bytes  (2026-02-19 01:22))
+  │      │ [InsituValidation] Lake 17 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 17, skipping
+  │      │ [Thu 19 Feb 01:22:07 GMT 2026] Completed chain stage for lake_id=17, row=10
+  └
+
+  ┌─ Segment 2  [2011-07-02 → 2017-03-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2
+  │
+  │  Prepared:
+  │    prepared.nc:    3181.7 MB  (2026-02-15 19:41)
+  │    clouds_index:   22.5 MB  (2026-02-15 19:42)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dineof/000000017/a1000
+  │    results.nc:     2814.2 MB  (2026-02-16 17:11)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000017/a1000
+  │    results.nc:     2814.2 MB  (2026-02-17 08:29)
+  │    cv_rms.txt:     16 bytes  (2026-02-17 08:25)
+  │    batch_size:     32
+  │    log (stdout):   19,304 bytes  (2026-02-17 08:25)
+  │      │ 22487.705579 seconds (1.66 G allocations: 457.663 GiB, 32.85% gc time, 21 lock conflicts, 0.54% compilation time: <1% of
+  │      │ ntest = 1261
+  │      │ size(batch_m_true) = (705, 224, 1261)
+  │      │ Submitted batch job 1021253
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000017/a1000
+  │    log (stderr):   3,221 bytes  (2026-02-17 08:25)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-796711-exp0_baseline_both_seg2/post/000000017/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   339.1 MB  (2026-02-17 10:43)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 149.3 MB  (2026-02-17 11:22)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   335.9 MB  (2026-02-17 08:41)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 335.8 MB  (2026-02-17 08:51)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 179.2 MB  (2026-02-17 08:56)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 181.9 MB  (2026-02-17 08:54)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake17_row10_655874.err  (31,240 bytes  (2026-02-17 13:58))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake17_row10_655874.out  (60,551 bytes  (2026-02-17 14:18))
+  │      │ [InsituValidation] Lake 17 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 17, skipping
+  │      │ [Tue 17 Feb 14:18:01 GMT 2026] Completed chain stage for lake_id=17, row=10
+  └
+
+  ┌─ Segment 3  [2017-04-01 → 2022-12-31]
+  │  Run root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3
+  │
+  │  Prepared:
+  │    prepared.nc:    3419.0 MB  (2026-02-15 19:38)
+  │    clouds_index:   25.2 MB  (2026-02-15 19:40)
+  │
+  │  DINEOF:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dineof/000000017/a1000
+  │    results.nc:     3023.9 MB  (2026-02-16 11:41)
+  │
+  │  DINCAE:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000017/a1000
+  │    results.nc:     3024.0 MB  (2026-02-16 23:47)
+  │    cv_rms.txt:     16 bytes  (2026-02-16 23:45)
+  │    batch_size:     32
+  │    log (stdout):   19,285 bytes  (2026-02-16 23:45)
+  │      │ 23518.461807 seconds (1.77 G allocations: 470.737 GiB, 32.90% gc time, 7 lock conflicts, 0.51% compilation time: <1% of 
+  │      │ ntest = 1355
+  │      │ size(batch_m_true) = (704, 225, 1355)
+  │      │ Submitted batch job 993467
+  │      │ Wrote /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000017/a1000
+  │    log (stderr):   3,220 bytes  (2026-02-16 23:45)
+  │      │ [ Info: Spawning background plotting
+  │      │ [ Info:   Script: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000
+  │      │ [ Info:   Log: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/dincae/000000
+  │      │ [ Info:   To run manually: /home/users/shaerdan/.juliaup/bin/julia /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-2
+  │      │ [ Info:   Submitted plotting as SLURM job
+  │
+  │  Post:
+  │    dir:            /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260215-ae9f13-exp0_baseline_both_seg3/post/000000017/a1000
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc   345.9 MB  (2026-02-17 02:47)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc 143.2 MB  (2026-02-17 03:27)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc   342.3 MB  (2026-02-16 23:56)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc 342.3 MB  (2026-02-17 00:13)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc 188.7 MB  (2026-02-17 00:18)
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc 188.7 MB  (2026-02-17 00:15)
+  │    subdirs:        plots/
+  │
+  │  Chain/Post logs:
+  │    chain_lake17_row10_655875.err  (30,870 bytes  (2026-02-17 06:58))
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │      │ /home/users/shaerdan/lake_cci_gapfilling/src/processors/postprocessor/post_steps/lswt_plots.py:652: UserWarning: No arti
+  │      │   ax.legend(fontsize=7, loc='upper right')
+  │    chain_lake17_row10_655875.out  (61,471 bytes  (2026-02-17 07:25))
+  │      │ [InsituValidation] Lake 17 not found in any selection CSV
+  │      │ [InsituValidation] No buoy sites found for lake 17, skipping
+  │      │ [Tue 17 Feb 07:25:42 GMT 2026] Completed chain stage for lake_id=17, row=10
+  └
+
+  ┌─ Merged outputs
+  │  Merge root: /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits
+  │
+  │  CV pairs:
+  │    dineof: 108.2 MB  (2026-02-21 23:46)
+  │    dincae: 36.1 MB  (2026-02-21 23:50)
+  │  Post files: 6
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dincae_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_filtered_interp_full.nc
+  │    -CCI-L3S-LSWT-CDR-4.5-filled_fine_dineof_eof_interp_full.nc
+  │  plots: ✗  insitu: ✗  metadata: ✗
+  └
+
+State saved: //gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/exp0_baseline_large_merged_4splits/segment_status.json

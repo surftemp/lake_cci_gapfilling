@@ -401,33 +401,54 @@ def merge_lake(
     info = merge_dincae_cv_pairs(seg_run_roots, lake_id9, alpha, out_dincae_npz, verbose)
     summary["steps"]["dincae_cv"] = info
 
-    # --- 3. Post files (dineof + dincae) ---
+    # --- 3. Post files (discover ALL .nc files, not just dineof/dincae) ---
     if verbose:
-        print(f"\n  [3/3] Post files (overlay)")
+        print(f"\n  [3/4] Post files (overlay)")
 
-    for method_suffix in ["dineof", "dincae"]:
-        post_filename = None
+    # Discover all unique .nc filenames across all segment post dirs
+    all_nc_filenames = set()
+    for r in seg_run_roots:
+        post_dir = os.path.join(r, "post", lake_id9, alpha)
+        if os.path.isdir(post_dir):
+            for fname in os.listdir(post_dir):
+                if fname.endswith(".nc"):
+                    all_nc_filenames.add(fname)
+
+    for nc_fname in sorted(all_nc_filenames):
+        seg_post = [os.path.join(r, "post", lake_id9, alpha, nc_fname) for r in seg_run_roots]
+        out_post = os.path.join(merge_root, "post", lake_id9, alpha, nc_fname)
+
+        # Determine a short label for logging
+        label = nc_fname.split("_")[-1].replace(".nc", "") if "_" in nc_fname else nc_fname
+        if verbose:
+            print(f"    {label}: {nc_fname}")
+        info = merge_post_files(seg_post, out_post, verbose)
+        summary["steps"][f"post_{label}"] = info
+
+    # --- 4. Symlink prepared/ from first segment (needed by plot/insitu scripts) ---
+    if verbose:
+        print(f"\n  [4/4] Prepared directory link")
+
+    prepared_link = os.path.join(merge_root, "prepared", lake_id9)
+    if not os.path.exists(prepared_link):
+        # Find prepared from first available segment
         for r in seg_run_roots:
-            post_dir = os.path.join(r, "post", lake_id9, alpha)
-            if os.path.isdir(post_dir):
-                for fname in os.listdir(post_dir):
-                    if fname.endswith(f"_{method_suffix}.nc"):
-                        post_filename = fname
-                        break
-            if post_filename:
+            seg_prepared = os.path.join(r, "prepared", lake_id9)
+            if os.path.isdir(seg_prepared):
+                os.makedirs(os.path.dirname(prepared_link), exist_ok=True)
+                os.symlink(seg_prepared, prepared_link)
+                if verbose:
+                    print(f"    Symlinked: prepared/{lake_id9} → {seg_prepared}")
+                summary["steps"]["prepared_link"] = {"success": True, "source": seg_prepared}
                 break
-
-        if post_filename:
-            seg_post = [os.path.join(r, "post", lake_id9, alpha, post_filename) for r in seg_run_roots]
-            out_post = os.path.join(merge_root, "post", lake_id9, alpha, post_filename)
-            if verbose:
-                print(f"    {method_suffix}: {post_filename}")
-            info = merge_post_files(seg_post, out_post, verbose)
-            summary["steps"][f"post_{method_suffix}"] = info
         else:
             if verbose:
-                print(f"    {method_suffix}: no post file found")
-            summary["steps"][f"post_{method_suffix}"] = {"success": False, "reason": "not found"}
+                print(f"    WARNING: No prepared/ found in any segment")
+            summary["steps"]["prepared_link"] = {"success": False}
+    else:
+        if verbose:
+            print(f"    prepared/{lake_id9} already exists")
+        summary["steps"]["prepared_link"] = {"success": True, "existing": True}
 
     return summary
 
@@ -518,6 +539,12 @@ def main():
     parser.add_argument("--alpha", default="a1000")
     parser.add_argument("--verify", action="store_true",
                         help="Run verification checks after merge")
+    parser.add_argument("--plots", action="store_true",
+                        help="Run LSWT time series plots after merge")
+    parser.add_argument("--insitu", action="store_true",
+                        help="Run in-situ validation after merge")
+    parser.add_argument("--config", default=None,
+                        help="Experiment config JSON (needed for --plots/--insitu to find lake_ts, climatology)")
     parser.add_argument("-q", "--quiet", action="store_true")
     args = parser.parse_args()
     verbose = not args.quiet
@@ -570,6 +597,86 @@ def main():
         for lid, v in results.items():
             if v["status"] != "ok":
                 print(f"  FAILED lake {lid}: {v.get('error', 'unknown')}")
+
+    # Post-merge: run plots and/or insitu validation
+    if (args.plots or args.insitu) and ok > 0:
+        config = {}
+        if args.config:
+            with open(args.config) as f:
+                config = json.load(f)
+
+        # Import what we need
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        pipeline_root = os.path.dirname(script_dir)
+        src_dir = os.path.join(pipeline_root, "src")
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+
+        try:
+            from processors.postprocessor.post_steps.base import PostContext
+            if args.plots:
+                from processors.postprocessor.post_steps.lswt_plots import LSWTPlotsStep
+            if args.insitu:
+                from processors.postprocessor.post_steps.insitu_validation import InsituValidationStep
+        except ImportError as e:
+            print(f"\nWARNING: Could not import pipeline steps: {e}")
+            print("Run plots/insitu manually with the standalone scripts (see below)")
+            args.plots = False
+            args.insitu = False
+
+        if args.plots or args.insitu:
+            P = config.get("paths", {})
+            for lake_id in lakes:
+                if results.get(lake_id, {}).get("status") != "ok":
+                    continue
+                lake_id9 = f"{lake_id:09d}"
+                post_dir = os.path.join(merge_root, "post", lake_id9, args.alpha)
+
+                nc_files = [f for f in os.listdir(post_dir) if f.endswith(".nc")] if os.path.isdir(post_dir) else []
+                if not nc_files:
+                    continue
+
+                # Resolve paths
+                lake_ts = P.get("lake_ts_template", "").replace("{lake_id9}", lake_id9).replace("{lake_id}", str(lake_id))
+                clim = P.get("climatology_template", "").replace("{lake_id9}", lake_id9).replace("{lake_id}", str(lake_id))
+                prepared_path = os.path.join(merge_root, "prepared", lake_id9, "prepared.nc")
+
+                ctx = PostContext(
+                    lake_path=lake_ts,
+                    dineof_input_path=prepared_path,
+                    dineof_output_path="<unused>",
+                    output_path=os.path.join(post_dir, nc_files[0]),
+                    output_html_folder=None,
+                    climatology_path=clim,
+                    lake_id=lake_id,
+                    experiment_config_path=args.config,
+                )
+
+                if args.plots:
+                    try:
+                        print(f"\n  Generating LSWT plots for lake {lake_id}...")
+                        LSWTPlotsStep(original_ts_path=lake_ts).apply(ctx, None)
+                    except Exception as e:
+                        print(f"  ERROR in LSWTPlotsStep for lake {lake_id}: {e}")
+
+                if args.insitu:
+                    try:
+                        print(f"\n  Running in-situ validation for lake {lake_id}...")
+                        InsituValidationStep().apply(ctx, None)
+                    except Exception as e:
+                        print(f"  ERROR in InsituValidationStep for lake {lake_id}: {e}")
+
+    # Print next steps
+    print(f"\n{'='*60}")
+    print(f"Merged output: {merge_root}")
+    print(f"{'='*60}")
+    if not (args.plots or args.insitu):
+        print(f"\nNext steps — generate plots and validation:")
+        print(f"  python scripts/run_lswt_plots.py --run-root {merge_root} --all")
+        print(f"  python scripts/run_insitu_validation.py --run-root {merge_root} --all")
+        print(f"\nOr re-run merge with --plots --insitu --config configs/your_config.json")
+    print(f"\nTo patch into main experiment:")
+    print(f"  cp -r {merge_root}/post/* /path/to/main_experiment/post/")
 
 
 if __name__ == "__main__":

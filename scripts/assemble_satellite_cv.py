@@ -189,6 +189,20 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             print(f"  [Lake {lake_id}] No post files found in {post_dir}")
         return None
 
+    # Fair comparison gate: require both base methods (dineof + dincae)
+    has_dineof = 'dineof' in nc_files
+    has_dincae = 'dincae' in nc_files
+    if not (has_dineof and has_dincae):
+        missing = []
+        if not has_dineof:
+            missing.append('dineof')
+        if not has_dincae:
+            missing.append('dincae')
+        if verbose:
+            print(f"  [Lake {lake_id}] Skipping: missing {', '.join(missing)} "
+                  f"(fair comparison requires both)")
+        return None
+
     all_rows = []
 
     # Pre-load dineof values for eof_filter delta comparison

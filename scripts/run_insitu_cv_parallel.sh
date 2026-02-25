@@ -24,7 +24,7 @@ OUTPUT_DIR=${RUN_ROOT}/insitu_cv_assembly
 SCRIPT=${REPO}/scripts/assemble_insitu_cv.py
 ACCOUNT=eocis_chuk
 PARTITION=standard
-QOS=standard
+QOS=long
 # =====================
 
 # Create output + log directories
@@ -58,8 +58,8 @@ ARRAY_JOB_ID=$(sbatch --parsable <<EOF
 #SBATCH --array=1-${N_LAKES}
 #SBATCH -o ${OUTPUT_DIR}/logs/extract_%a.out
 #SBATCH -e ${OUTPUT_DIR}/logs/extract_%a.err
-#SBATCH --mem=2G
-#SBATCH -t 0:15:00
+#SBATCH --mem=64G
+#SBATCH -t 48:00:00
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
 #SBATCH --qos=${QOS}
@@ -85,8 +85,8 @@ MERGE_JOB_ID=$(sbatch --parsable --dependency=afterok:${ARRAY_JOB_ID} <<EOF
 #SBATCH --job-name=insitu_cv_merge
 #SBATCH -o ${OUTPUT_DIR}/logs/merge.out
 #SBATCH -e ${OUTPUT_DIR}/logs/merge.err
-#SBATCH --mem=4G
-#SBATCH -t 0:15:00
+#SBATCH --mem=64G
+#SBATCH -t 48:00:00
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
 #SBATCH --qos=${QOS}
@@ -110,8 +110,8 @@ echo "=============================="
 echo "  IN-SITU CV PARALLEL PLAN"
 echo "=============================="
 echo "  Lakes:       ${N_LAKES}"
-echo "  Extract job: ${ARRAY_JOB_ID} (array 1-${N_LAKES}, 2G each, 15min)"
-echo "  Merge job:   ${MERGE_JOB_ID} (after extract, 4G, 15min)"
+echo "  Extract job: ${ARRAY_JOB_ID} (array 1-${N_LAKES})"
+echo "  Merge job:   ${MERGE_JOB_ID} (after extract)"
 echo "  Logs:        ${OUTPUT_DIR}/logs/"
 echo "  Output:      ${OUTPUT_DIR}/"
 echo ""
