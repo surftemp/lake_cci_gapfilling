@@ -895,7 +895,7 @@ def _submit_full_post_jobs(jobs: list, manifest: dict, config: dict,
 #SBATCH --job-name=recover_full_post
 #SBATCH --array=1-{len(job_list)}
 #SBATCH --time=48:00:00
-#SBATCH --mem=192G
+#SBATCH --mem=300G
 #SBATCH --partition=standard
 #SBATCH --qos=high
 #SBATCH --account=eocis_chuk
@@ -937,6 +937,7 @@ DINCAE_RESULTS="${{DINCAE_DIR}}/dincae_results.nc"
 FRONT="LAKE${{LAKE_ID9}}-CCI-L3S-LSWT-CDR-4.5-filled_fine"
 POST_DINEOF="${{POST_DIR}}/${{FRONT}}_dineof.nc"
 POST_DINCAE="${{POST_DIR}}/${{FRONT}}_dincae.nc"
+HTML_DIR="${{RUN_ROOT}}/html/${{LAKE_ID9}}/{alpha}"
 
 # Verify key inputs exist
 for f in "$LAKE_TS" "$CLIM_NC" "$PREPARED_NC" "$DINEOF_RESULTS"; do
@@ -947,6 +948,7 @@ for f in "$LAKE_TS" "$CLIM_NC" "$PREPARED_NC" "$DINEOF_RESULTS"; do
 done
 
 mkdir -p "$POST_DIR"
+mkdir -p "$HTML_DIR"
 
 echo "============================================================"
 echo "Step 1: DINEOF post-processing"
@@ -956,6 +958,7 @@ dineof_postprocessor \\
     --dineof-input-path "$PREPARED_NC" \\
     --dineof-output-path "$DINEOF_RESULTS" \\
     --output-path "$POST_DINEOF" \\
+    --output-html-folder "$HTML_DIR" \\
     --config-file {config_path} \\
     --climatology-file "$CLIM_NC" \\
     --units celsius
@@ -1061,7 +1064,7 @@ def _submit_post_recovery_jobs(jobs: list, manifest: dict, config: dict,
 #SBATCH --job-name=recover_post
 #SBATCH --array=1-{len(job_list)}
 #SBATCH --time=48:00:00
-#SBATCH --mem=192G
+#SBATCH --mem=256G
 #SBATCH --partition=standard
 #SBATCH --qos=high
 #SBATCH --account=eocis_chuk
