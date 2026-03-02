@@ -285,72 +285,120 @@ def merge_post_files(
     seg_paths: List[str],
     out_path: str,
     verbose: bool = True,
+    time_chunk: int = 365,
 ) -> Dict:
     """
-    Overlay post-processed files from each segment.
+    Overlay post-processed files from each segment using chunked I/O.
 
     Each segment's post file is on the SAME time axis (the original CCI lake
     file's full timeline), but only its time range has non-NaN temp_filled.
     We overlay: use seg0 values where non-NaN, else seg1, etc.
+
+    Memory-bounded: processes `time_chunk` timesteps at a time instead of
+    loading all segments fully into RAM.
     """
-    datasets = []
+    existing_paths = []
     for p in seg_paths:
         if not os.path.exists(p):
             if verbose:
                 print(f"      WARNING: {p} not found, skipping")
             continue
-        datasets.append(xr.open_dataset(p))
+        existing_paths.append(p)
 
-    if not datasets:
+    if not existing_paths:
         if verbose:
             print("      No post files found")
         return {"success": False}
 
-    # Start with a copy of the first dataset
-    merged = datasets[0].copy(deep=True)
+    # Open first dataset to get structure (coords, dims, dtypes, attrs)
+    ds0 = xr.open_dataset(existing_paths[0])
+    time_name = "time" if "time" in ds0.dims else list(ds0.dims)[0]
+    n_time = ds0.sizes[time_name]
 
-    # Float variables: fill NaN from merged with seg values
+    # Identify overlay variables
     overlay_vars_float = [
-        v for v in merged.data_vars
-        if merged[v].dtype.kind == 'f' and merged[v].ndim >= 2
+        v for v in ds0.data_vars
+        if ds0[v].dtype.kind == 'f' and ds0[v].ndim >= 2
     ]
+    has_data_source = "data_source" in ds0
 
-    for seg_i in range(1, len(datasets)):
-        ds_seg = datasets[seg_i]
+    # Collect segment attrs for provenance
+    seg_attrs = {}
+    for i, p in enumerate(existing_paths):
+        with xr.open_dataset(p) as ds_tmp:
+            for key in ["detrend_slope_per_day", "detrend_intercept", "detrend_t0_days"]:
+                if key in ds_tmp.attrs:
+                    seg_attrs[f"{key}_seg{i}"] = ds_tmp.attrs[key]
 
-        for v in overlay_vars_float:
-            if v in ds_seg:
-                merged_vals = merged[v].values
-                seg_vals = ds_seg[v].values
-                fill_mask = np.isnan(merged_vals) & ~np.isnan(seg_vals)
-                merged_vals[fill_mask] = seg_vals[fill_mask]
-                merged[v].values = merged_vals
-
-        # data_source: fill 255 from merged with seg values
-        if "data_source" in merged and "data_source" in ds_seg:
-            merged_vals = merged["data_source"].values
-            seg_vals = ds_seg["data_source"].values
-            fill_mask = (merged_vals == 255) & (seg_vals != 255)
-            merged_vals[fill_mask] = seg_vals[fill_mask]
-            merged["data_source"].values = merged_vals
-
-    # Update attrs
-    for i, ds in enumerate(datasets):
-        for key in ["detrend_slope_per_day", "detrend_intercept", "detrend_t0_days"]:
-            if key in ds.attrs:
-                merged.attrs[f"{key}_seg{i}"] = ds.attrs[key]
-    merged.attrs["temporal_chunking"] = "merged from segments"
-    merged.attrs["n_segments"] = len(datasets)
-
+    # Prepare output file: write structure first, then fill in chunks
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    merged.to_netcdf(out_path)
 
-    for ds in datasets:
-        ds.close()
+    # Initialize output as copy of first segment (gets coords, attrs, non-overlay vars)
+    # Use chunked write: create output with first segment's data
+    enc = {v: {"zlib": True, "complevel": 4} for v in ds0.data_vars}
+    if "temp_filled" in ds0:
+        enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
 
+    # Write first segment as-is to establish the file
+    ds0_full = xr.open_dataset(existing_paths[0])
+    ds0_full.attrs.update(seg_attrs)
+    ds0_full.attrs["temporal_chunking"] = "merged from segments"
+    ds0_full.attrs["n_segments"] = len(existing_paths)
+    ds0_full.to_netcdf(out_path, encoding=enc)
+    ds0_full.close()
+    ds0.close()
+
+    # Now overlay remaining segments in time chunks
+    if len(existing_paths) > 1:
+        import netCDF4
+        nc_out = netCDF4.Dataset(out_path, "r+")
+
+        for seg_i in range(1, len(existing_paths)):
+            ds_seg = xr.open_dataset(existing_paths[seg_i])
+
+            for t_start in range(0, n_time, time_chunk):
+                t_end = min(t_start + time_chunk, n_time)
+                t_slice = slice(t_start, t_end)
+
+                for v in overlay_vars_float:
+                    if v not in ds_seg:
+                        continue
+                    merged_chunk = nc_out.variables[v][t_slice]
+                    seg_chunk = ds_seg[v].values[t_slice]
+
+                    # Only process if this chunk has any segment data
+                    seg_valid = ~np.isnan(seg_chunk)
+                    if not seg_valid.any():
+                        continue
+
+                    fill_mask = np.isnan(merged_chunk) & seg_valid
+                    if fill_mask.any():
+                        merged_chunk[fill_mask] = seg_chunk[fill_mask]
+                        nc_out.variables[v][t_slice] = merged_chunk
+
+                if has_data_source and "data_source" in ds_seg:
+                    merged_chunk = nc_out.variables["data_source"][t_slice]
+                    seg_chunk = ds_seg["data_source"].values[t_slice]
+                    fill_mask = (merged_chunk == 255) & (seg_chunk != 255)
+                    if fill_mask.any():
+                        merged_chunk[fill_mask] = seg_chunk[fill_mask]
+                        nc_out.variables["data_source"][t_slice] = merged_chunk
+
+            ds_seg.close()
+            if verbose:
+                print(f"      overlaid seg{seg_i}")
+
+        nc_out.close()
+
+    # Count filled pixels for summary
     n_filled = 0
-    if "temp_filled" in merged:
-        n_filled = int(np.count_nonzero(~np.isnan(merged["temp_filled"].values)))
+    with xr.open_dataset(out_path) as ds_check:
+        if "temp_filled" in ds_check:
+            # Count in chunks to avoid loading entire array
+            for t_start in range(0, n_time, time_chunk):
+                t_end = min(t_start + time_chunk, n_time)
+                chunk = ds_check["temp_filled"].isel({time_name: slice(t_start, t_end)}).values
+                n_filled += int(np.count_nonzero(~np.isnan(chunk)))
 
     if verbose:
         print(f"      → merged post file: {n_filled:,} non-NaN temp_filled pixels")

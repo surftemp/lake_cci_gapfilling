@@ -895,7 +895,7 @@ def _submit_full_post_jobs(jobs: list, manifest: dict, config: dict,
 #SBATCH --job-name=recover_full_post
 #SBATCH --array=1-{len(job_list)}
 #SBATCH --time=48:00:00
-#SBATCH --mem=300G
+#SBATCH --mem=256G
 #SBATCH --partition=standard
 #SBATCH --qos=high
 #SBATCH --account=eocis_chuk
@@ -1064,7 +1064,7 @@ def _submit_post_recovery_jobs(jobs: list, manifest: dict, config: dict,
 #SBATCH --job-name=recover_post
 #SBATCH --array=1-{len(job_list)}
 #SBATCH --time=48:00:00
-#SBATCH --mem=256G
+#SBATCH --mem=192G
 #SBATCH --partition=standard
 #SBATCH --qos=high
 #SBATCH --account=eocis_chuk
@@ -1169,10 +1169,12 @@ def stage_post(manifest: dict, status: dict, lake_ids: list,
 
 def stage_merge(manifest: dict, status: dict, lake_ids: list,
                 alpha: str, verbose: bool) -> dict:
-    """Merge segment outputs for lakes where all segments are complete."""
+    """Submit SLURM array to merge segment outputs for complete lakes."""
     all_lakes = lake_ids or manifest["lakes"]
     seg_run_roots = [s["run_root"] for s in manifest["segments"]]
     merge_root = manifest["merge_root"]
+    manifest_path = manifest.get("_manifest_path", "")
+    manifest_dir = os.path.dirname(manifest_path)
 
     print(f"\n{'='*70}")
     print(f"STAGE: MERGE")
@@ -1185,6 +1187,12 @@ def stage_merge(manifest: dict, status: dict, lake_ids: list,
         lid_str = str(lid)
         le = status["lakes"].get(lid_str, {})
         if le.get("overall") == "ALL_COMPLETE":
+            # Skip if already merged
+            merge_info = le.get("merge", {})
+            if merge_info.get("status") == "complete":
+                if verbose:
+                    print(f"  Skipping lake {lid}: already merged")
+                continue
             mergeable.append(lid)
         else:
             if verbose:
@@ -1196,50 +1204,80 @@ def stage_merge(manifest: dict, status: dict, lake_ids: list,
         status["last_stage"] = "merge"
         return status
 
-    print(f"  Merging {len(mergeable)} lakes: {mergeable}")
+    print(f"  Submitting merge for {len(mergeable)} lakes: {mergeable}")
 
-    try:
-        from merge_segments import merge_lake, verify_merge
-    except ImportError:
-        print("  ERROR: Could not import merge_segments.py")
-        print("  Make sure it's in the same directory as this script")
-        status["last_stage"] = "merge"
-        return status
+    # Write job list: one lake_id per line
+    retrofit_dir = os.path.join(manifest_dir, "retrofit")
+    os.makedirs(retrofit_dir, exist_ok=True)
+    job_list_path = os.path.join(retrofit_dir, "merge_job_list.txt")
+    with open(job_list_path, "w") as f:
+        for lid in mergeable:
+            f.write(f"{lid}\n")
 
-    for lid in mergeable:
-        lid_str = str(lid)
-        try:
-            summary = merge_lake(lid, seg_run_roots, merge_root, alpha, verbose)
-            checks = verify_merge(lid, merge_root, alpha, verbose)
+    # Resolve script directory (merge_segments.py lives alongside this script)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    merge_script = os.path.join(script_dir, "merge_segments.py")
 
-            # Collect per-segment metadata
-            seg_metadata = _collect_segment_metadata(
-                lid, seg_run_roots, manifest["segments"], alpha
-            )
+    log_dir = os.path.expanduser("~/lake_cci_gapfilling/logs")
+    os.makedirs(log_dir, exist_ok=True)
 
-            # Write segment_metadata.json alongside merged post files
-            lake_id9 = f"{lid:09d}"
-            meta_dir = os.path.join(merge_root, "post", lake_id9, alpha)
-            os.makedirs(meta_dir, exist_ok=True)
-            meta_path = os.path.join(meta_dir, "segment_metadata.json")
-            with open(meta_path, "w") as f:
-                json.dump(seg_metadata, f, indent=2, default=_json_serializer)
+    slurm_script = f"""#!/bin/bash
+#SBATCH --job-name=merge_segments
+#SBATCH --array=1-{len(mergeable)}
+#SBATCH --time=12:00:00
+#SBATCH --mem=64G
+#SBATCH --partition=standard
+#SBATCH --qos=high
+#SBATCH --account=eocis_chuk
+#SBATCH -o {retrofit_dir}/merge_%a.out
+#SBATCH -e {retrofit_dir}/merge_%a.err
+set -eo pipefail
 
-            # Update status
+LAKE_ID=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {job_list_path})
+echo "Merging lake $LAKE_ID"
+echo "Node: $(hostname), Job: $SLURM_JOB_ID, Start: $(date)"
+
+python {merge_script} \\
+    --manifest {manifest_path} \\
+    --lake-id $LAKE_ID \\
+    --alpha {alpha} \\
+    --verify
+
+echo "Done: $(date)"
+
+# Symlink to central logs (use array task id to avoid overwrites)
+ln -sf {retrofit_dir}/merge_${{SLURM_ARRAY_TASK_ID}}.out \\
+    {log_dir}/merge_${{SLURM_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}.out
+ln -sf {retrofit_dir}/merge_${{SLURM_ARRAY_TASK_ID}}.err \\
+    {log_dir}/merge_${{SLURM_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}.err
+"""
+
+    slurm_path = os.path.join(retrofit_dir, "merge_segments.slurm")
+    with open(slurm_path, "w") as f:
+        f.write(slurm_script)
+
+    result = subprocess.run(
+        ["sbatch", slurm_path],
+        capture_output=True, text=True
+    )
+
+    if result.returncode == 0:
+        job_id = result.stdout.strip().split()[-1]
+        print(f"\n  ✓ Submitted SLURM array: {job_id}")
+        print(f"    Lakes: {mergeable}")
+        print(f"    Logs:  {retrofit_dir}/merge_*.out")
+
+        # Record submission in status
+        for lid in mergeable:
+            lid_str = str(lid)
             le = status["lakes"].setdefault(lid_str, {})
             le["merge"] = {
-                "status": "complete" if summary.get("status") == "ok" else "failed",
+                "status": "submitted",
+                "slurm_job_id": job_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "output_dir": os.path.join(merge_root, "post", lake_id9, alpha),
-                "verification": checks,
             }
-
-        except Exception as e:
-            print(f"  ERROR merging lake {lid}: {e}")
-            if verbose:
-                traceback.print_exc()
-            le = status["lakes"].setdefault(lid_str, {})
-            le["merge"] = {"status": "failed", "error": str(e)}
+    else:
+        print(f"\n  ✗ sbatch failed: {result.stderr.strip()}")
 
     status["last_stage"] = "merge"
     return status
