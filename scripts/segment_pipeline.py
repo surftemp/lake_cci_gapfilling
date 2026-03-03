@@ -1233,6 +1233,9 @@ def stage_merge(manifest: dict, status: dict, lake_ids: list,
 #SBATCH -e {retrofit_dir}/merge_%a.err
 set -eo pipefail
 
+source ~/miniforge3/bin/activate
+conda activate lake_cci_gapfilling
+
 LAKE_ID=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {job_list_path})
 echo "Merging lake $LAKE_ID"
 echo "Node: $(hostname), Job: $SLURM_JOB_ID, Start: $(date)"
