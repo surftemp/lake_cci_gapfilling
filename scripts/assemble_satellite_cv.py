@@ -606,11 +606,13 @@ def compute_stats_table(df: pd.DataFrame, group_cols: List[str],
 
 
 def generate_all_stats(df: pd.DataFrame, output_dir: str,
-                       mode_suffix: str = "physical"):
+                       mode_suffix: str = "physical",
+                       subset_tag: str = ""):
     """Generate per-lake, global, and sliced stats tables."""
 
     os.makedirs(output_dir, exist_ok=True)
-    suffix = f"_{mode_suffix}"
+    tag = f"_{subset_tag}" if subset_tag else ""
+    suffix = f"_{mode_suffix}{tag}"
 
     # --- Per-lake stats (by method × lake) ---
     print("  Computing per-lake stats...")
@@ -687,6 +689,14 @@ def generate_all_stats(df: pd.DataFrame, output_dir: str,
             per_lake_ql_path = os.path.join(output_dir, f"satellite_cv_per_lake_quality_level{suffix}.csv")
             per_lake_ql.to_csv(per_lake_ql_path, index=False)
             print(f"  Saved: {per_lake_ql_path}")
+
+            # By method × year × quality_level
+            print("  Computing per-year per-quality-level stats...")
+            per_year_ql = compute_stats_table(ql_valid, ['method', 'year', 'quality_level'])
+            per_year_ql = per_year_ql.sort_values(['method', 'year', 'quality_level'])
+            per_year_ql_path = os.path.join(output_dir, f"satellite_cv_per_year_quality_level{suffix}.csv")
+            per_year_ql.to_csv(per_year_ql_path, index=False)
+            print(f"  Saved: {per_year_ql_path}")
 
     return per_lake, global_stats
 
@@ -791,6 +801,10 @@ Output files (in --output-dir):
                         help="Skip CSV output for assembly (Parquet only)")
     parser.add_argument("--no-parquet", action="store_true",
                         help="Skip Parquet output for assembly (CSV only)")
+    parser.add_argument("--subset-tag", default="",
+                        help="Tag appended to all output filenames (e.g. 'large_lakes', 'all_lakes')")
+    parser.add_argument("--create-assembly", action="store_true",
+                        help="Write full assembly CSV/parquet (default: stats only from per-lake CSVs)")
     parser.add_argument("-q", "--quiet", action="store_true")
 
     args = parser.parse_args()
@@ -868,53 +882,54 @@ Output files (in --output-dir):
                 print(f"  No per-lake CSVs found matching {pattern}")
                 continue
 
+            # Filter by --lake-ids if specified
+            if args.lake_ids:
+                lake_set = set(args.lake_ids)
+                csv_files = [f for f in csv_files
+                             if int(f.stem.split('_')[3]) in lake_set]
+            elif args.lake_id:
+                csv_files = [f for f in csv_files
+                             if int(f.stem.split('_')[3]) == args.lake_id]
+
             print(f"  Found {len(csv_files)} per-lake CSVs")
 
-            # Concatenate into assembly CSV
-            assembly_csv = os.path.join(args.output_dir,
-                                        f"satellite_cv_assembly_{mode}.csv")
-            header_written = False
-            if args.append and os.path.exists(assembly_csv):
-                header_written = True
-                print(f"  Appending to existing assembly")
-
-            n_rows = 0
+            # Load all per-lake CSVs into memory
+            chunks = []
             for csv_file in csv_files:
-                chunk = pd.read_csv(csv_file)
-                chunk.to_csv(assembly_csv, index=False,
-                             mode='a', header=(not header_written))
-                header_written = True
-                n_rows += len(chunk)
-                del chunk
-
-            size_mb = os.path.getsize(assembly_csv) / 1e6
-            print(f"  Assembly: {n_rows:,} rows ({size_mb:.1f} MB)")
-
-            # Read back for stats
-            print(f"  Reading assembly for statistics...")
-            assembly = pd.read_csv(assembly_csv, low_memory=False)
+                chunks.append(pd.read_csv(csv_file))
+            assembly = pd.concat(chunks, ignore_index=True)
+            del chunks
             assembly['date'] = pd.to_datetime(assembly['date'])
+
+            n_rows = len(assembly)
+            print(f"  Loaded: {n_rows:,} rows")
 
             for method in sorted(assembly['method'].unique()):
                 n = len(assembly[assembly['method'] == method])
                 print(f"    {method}: {n:,} CV pairs")
 
-            # Parquet
-            if not args.no_parquet:
-                try:
-                    pq_path = os.path.join(args.output_dir,
-                                           f"satellite_cv_assembly_{mode}.parquet")
-                    assembly.to_parquet(pq_path, index=False, engine='pyarrow')
-                    print(f"  Parquet: {pq_path}")
-                except Exception as e:
-                    print(f"  Parquet failed ({e})")
+            # Optionally write assembly CSV + parquet
+            stag = f"_{args.subset_tag}" if args.subset_tag else ""
+            if args.create_assembly:
+                assembly_csv = os.path.join(args.output_dir,
+                                            f"satellite_cv_assembly_{mode}{stag}.csv")
+                assembly.to_csv(assembly_csv, index=False)
+                size_mb = os.path.getsize(assembly_csv) / 1e6
+                print(f"  Assembly CSV: {assembly_csv} ({size_mb:.1f} MB)")
 
-            if args.no_csv:
-                os.remove(assembly_csv)
+                if not args.no_parquet:
+                    try:
+                        pq_path = os.path.join(args.output_dir,
+                                               f"satellite_cv_assembly_{mode}{stag}.parquet")
+                        assembly.to_parquet(pq_path, index=False, engine='pyarrow')
+                        print(f"  Assembly Parquet: {pq_path}")
+                    except Exception as e:
+                        print(f"  Parquet failed ({e})")
 
             # Stats
             print(f"  Computing statistics...")
-            generate_all_stats(assembly, args.output_dir, mode_suffix=mode)
+            generate_all_stats(assembly, args.output_dir, mode_suffix=mode,
+                               subset_tag=args.subset_tag)
 
             del assembly
             print(f"  Done ({time.time() - t_start:.1f}s)")
@@ -941,19 +956,9 @@ Output files (in --output-dir):
         print(f"{'='*70}")
 
         t_start = time.time()
-        assembly_csv = os.path.join(args.output_dir,
-                                    f"satellite_cv_assembly_{mode}.csv")
+        stag = f"_{args.subset_tag}" if args.subset_tag else ""
         n_lakes_done = 0
-        n_rows_total = 0
-
-        if args.append and os.path.exists(assembly_csv):
-            header_written = True
-            existing_size = os.path.getsize(assembly_csv) / 1e6
-            print(f"  Appending to existing assembly ({existing_size:.1f} MB)")
-        else:
-            header_written = False
-            if os.path.exists(assembly_csv):
-                os.remove(assembly_csv)
+        all_chunks = []
 
         for lake_id in lake_ids:
             if mode == 'physical':
@@ -967,45 +972,46 @@ Output files (in --output-dir):
                 df = extract_anomaly_lake(args.run_root, lake_id, args.alpha, verbose)
 
             if df is not None and len(df) > 0:
-                df.to_csv(assembly_csv, index=False,
-                          mode='a', header=(not header_written))
-                header_written = True
-                n_rows_total += len(df)
+                all_chunks.append(df)
                 n_lakes_done += 1
-                del df
 
-        if n_rows_total == 0:
+        if not all_chunks:
             print(f"\nNo CV data extracted in {mode} mode")
             continue
 
-        t_extract = time.time() - t_start
-        size_mb = os.path.getsize(assembly_csv) / 1e6
-        print(f"\nExtraction complete: {n_rows_total:,} rows from {n_lakes_done} lakes "
-              f"({t_extract:.1f}s, CSV={size_mb:.1f} MB)")
-
-        print(f"\nReading assembly back for statistics...")
-        assembly = pd.read_csv(assembly_csv, low_memory=False)
+        assembly = pd.concat(all_chunks, ignore_index=True)
+        del all_chunks
         assembly['date'] = pd.to_datetime(assembly['date'])
+
+        t_extract = time.time() - t_start
+        print(f"\nExtraction complete: {len(assembly):,} rows from {n_lakes_done} lakes "
+              f"({t_extract:.1f}s)")
 
         for method in sorted(assembly['method'].unique()):
             n = len(assembly[assembly['method'] == method])
             print(f"  {method}: {n:,} CV pairs")
 
-        if not args.no_parquet:
-            try:
-                pq_path = os.path.join(args.output_dir,
-                                       f"satellite_cv_assembly_{mode}.parquet")
-                assembly.to_parquet(pq_path, index=False, engine='pyarrow')
-                size_mb = os.path.getsize(pq_path) / 1e6
-                print(f"  Parquet: {pq_path} ({size_mb:.1f} MB)")
-            except Exception as e:
-                print(f"  Parquet failed ({e}), skipping")
+        # Optionally write assembly CSV + parquet
+        if args.create_assembly:
+            assembly_csv = os.path.join(args.output_dir,
+                                        f"satellite_cv_assembly_{mode}{stag}.csv")
+            assembly.to_csv(assembly_csv, index=False)
+            size_mb = os.path.getsize(assembly_csv) / 1e6
+            print(f"  Assembly CSV: {assembly_csv} ({size_mb:.1f} MB)")
 
-        if args.no_csv:
-            os.remove(assembly_csv)
+            if not args.no_parquet:
+                try:
+                    pq_path = os.path.join(args.output_dir,
+                                           f"satellite_cv_assembly_{mode}{stag}.parquet")
+                    assembly.to_parquet(pq_path, index=False, engine='pyarrow')
+                    size_mb = os.path.getsize(pq_path) / 1e6
+                    print(f"  Assembly Parquet: {pq_path} ({size_mb:.1f} MB)")
+                except Exception as e:
+                    print(f"  Parquet failed ({e}), skipping")
 
         print(f"\nComputing statistics...")
-        generate_all_stats(assembly, args.output_dir, mode_suffix=mode)
+        generate_all_stats(assembly, args.output_dir, mode_suffix=mode,
+                           subset_tag=args.subset_tag)
 
         del assembly
         t_total = time.time() - t_start

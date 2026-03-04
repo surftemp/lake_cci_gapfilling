@@ -436,7 +436,7 @@ def merge_lake(
 
     # --- 1. DINEOF CV pairs (.dat → .npz) ---
     if verbose:
-        print(f"\n  [1/3] DINEOF CV (per-segment → concatenate)")
+        print(f"\n  [1/4] DINEOF CV (per-segment → concatenate)")
     seg_dineof_dirs = [os.path.join(r, "dineof", lake_id9, alpha) for r in seg_run_roots]
     out_dineof_npz = os.path.join(merge_root, "dineof", lake_id9, alpha, "cv_pairs_dineof.npz")
     info = merge_dineof_cv_pairs(seg_dineof_dirs, out_dineof_npz, verbose)
@@ -444,38 +444,58 @@ def merge_lake(
 
     # --- 2. DINCAE CV pairs (per-segment computation → .npz) ---
     if verbose:
-        print(f"\n  [2/3] DINCAE CV (per-segment → concatenate)")
+        print(f"\n  [2/4] DINCAE CV (per-segment → concatenate)")
     out_dincae_npz = os.path.join(merge_root, "dincae", lake_id9, alpha, "cv_pairs_dincae.npz")
     info = merge_dincae_cv_pairs(seg_run_roots, lake_id9, alpha, out_dincae_npz, verbose)
     summary["steps"]["dincae_cv"] = info
 
-    # --- 3. Post files (dineof + dincae) ---
+    # --- 3. Post files (discover ALL .nc files, not just dineof/dincae) ---
     if verbose:
-        print(f"\n  [3/3] Post files (overlay)")
+        print(f"\n  [3/4] Post files (overlay)")
 
-    for method_suffix in ["dineof", "dincae"]:
-        post_filename = None
+    # Discover all unique .nc filenames across all segment post dirs
+    all_nc_filenames = set()
+    for r in seg_run_roots:
+        post_dir = os.path.join(r, "post", lake_id9, alpha)
+        if os.path.isdir(post_dir):
+            for fname in os.listdir(post_dir):
+                if fname.endswith(".nc"):
+                    all_nc_filenames.add(fname)
+
+    for nc_fname in sorted(all_nc_filenames):
+        seg_post = [os.path.join(r, "post", lake_id9, alpha, nc_fname) for r in seg_run_roots]
+        out_post = os.path.join(merge_root, "post", lake_id9, alpha, nc_fname)
+
+        # Determine a short label for logging
+        label = nc_fname.split("_")[-1].replace(".nc", "") if "_" in nc_fname else nc_fname
+        if verbose:
+            print(f"    {label}: {nc_fname}")
+        info = merge_post_files(seg_post, out_post, verbose)
+        summary["steps"][f"post_{label}"] = info
+
+    # --- 4. Symlink prepared/ from first segment (needed by plot/insitu scripts) ---
+    if verbose:
+        print(f"\n  [4/4] Prepared directory link")
+
+    prepared_link = os.path.join(merge_root, "prepared", lake_id9)
+    if not os.path.exists(prepared_link):
         for r in seg_run_roots:
-            post_dir = os.path.join(r, "post", lake_id9, alpha)
-            if os.path.isdir(post_dir):
-                for fname in os.listdir(post_dir):
-                    if fname.endswith(f"_{method_suffix}.nc"):
-                        post_filename = fname
-                        break
-            if post_filename:
+            seg_prepared = os.path.join(r, "prepared", lake_id9)
+            if os.path.isdir(seg_prepared):
+                os.makedirs(os.path.dirname(prepared_link), exist_ok=True)
+                os.symlink(seg_prepared, prepared_link)
+                if verbose:
+                    print(f"    Symlinked: prepared/{lake_id9} -> {seg_prepared}")
+                summary["steps"]["prepared_link"] = {"success": True, "source": seg_prepared}
                 break
-
-        if post_filename:
-            seg_post = [os.path.join(r, "post", lake_id9, alpha, post_filename) for r in seg_run_roots]
-            out_post = os.path.join(merge_root, "post", lake_id9, alpha, post_filename)
-            if verbose:
-                print(f"    {method_suffix}: {post_filename}")
-            info = merge_post_files(seg_post, out_post, verbose)
-            summary["steps"][f"post_{method_suffix}"] = info
         else:
             if verbose:
-                print(f"    {method_suffix}: no post file found")
-            summary["steps"][f"post_{method_suffix}"] = {"success": False, "reason": "not found"}
+                print(f"    WARNING: No prepared/ found in any segment")
+            summary["steps"]["prepared_link"] = {"success": False}
+    else:
+        if verbose:
+            print(f"    prepared/{lake_id9} already exists")
+        summary["steps"]["prepared_link"] = {"success": True, "existing": True}
 
     return summary
 
@@ -513,26 +533,30 @@ def verify_merge(
         else:
             checks[f"{method}_cv_npz_exists"] = False
 
-    # Check post files
-    for method in ["dineof", "dincae"]:
-        post_dir = os.path.join(merge_root, "post", lake_id9, alpha)
-        found = False
-        if os.path.isdir(post_dir):
-            for fname in os.listdir(post_dir):
-                if fname.endswith(f"_{method}.nc"):
-                    found = True
-                    ds = xr.open_dataset(os.path.join(post_dir, fname))
-                    if "temp_filled" in ds:
-                        tf = ds["temp_filled"].values
-                        n_per_t = np.count_nonzero(~np.isnan(tf), axis=(1, 2))
-                        nonzero = n_per_t > 0
-                        if nonzero.any():
-                            first = np.argmax(nonzero)
-                            last = len(nonzero) - 1 - np.argmax(nonzero[::-1])
-                            interior = nonzero[first:last + 1]
-                            checks[f"post_{method}_interior_gaps"] = int(np.sum(~interior))
-                    ds.close()
-        checks[f"post_{method}_exists"] = found
+    # Check post files — discover all .nc, verify each has data in all quarters
+    post_dir = os.path.join(merge_root, "post", lake_id9, alpha)
+    if os.path.isdir(post_dir):
+        nc_files = sorted([f for f in os.listdir(post_dir) if f.endswith(".nc")])
+        checks["post_file_count"] = len(nc_files)
+
+        for fname in nc_files:
+            label = fname.split("_")[-1].replace(".nc", "") if "_" in fname else fname
+            fpath = os.path.join(post_dir, fname)
+            ds = xr.open_dataset(fpath)
+            if "temp_filled" in ds:
+                n_time = ds.sizes.get("time", 0)
+                q = n_time // 4 if n_time >= 4 else n_time
+                quarter_counts = []
+                for qi in range(4):
+                    chunk = ds["temp_filled"].isel(time=slice(qi * q, (qi + 1) * q))
+                    quarter_counts.append(int(chunk.count().values))
+                all_quarters_ok = all(c > 0 for c in quarter_counts)
+                checks[f"post_{label}_all_quarters"] = all_quarters_ok
+                if not all_quarters_ok:
+                    checks[f"post_{label}_quarter_counts"] = quarter_counts
+            ds.close()
+    else:
+        checks["post_file_count"] = 0
 
     if verbose:
         print(f"\n  Verification for lake {lake_id}:")
@@ -540,11 +564,12 @@ def verify_merge(
             if isinstance(v, float):
                 print(f"    {k}: {v:.6f}")
             elif isinstance(v, bool):
-                status = "✓" if v else "⚠"
+                status = "✓" if v else "✗"
                 print(f"    {status} {k}: {v}")
-            elif isinstance(v, int) and k.endswith("gaps"):
-                status = "✓" if v == 0 else "⚠"
-                print(f"    {status} {k}: {v}")
+            elif isinstance(v, int):
+                print(f"    {k}: {v}")
+            elif isinstance(v, list):
+                print(f"    {k}: {v}")
             else:
                 print(f"    {k}: {v}")
 

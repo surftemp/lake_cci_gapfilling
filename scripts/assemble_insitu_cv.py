@@ -474,7 +474,7 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                 lat_idx, lon_idx = grid_idx
 
                 # Cache sparse file time dates and pixel values for later flag computation
-                if not is_interpolated:
+                if not is_interpolated and method_key not in sparse_time_dates:
                     sparse_time_dates[method_key] = set(date_to_idx.keys())
                     if 'temp_filled' in ds:
                         px_ts = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
@@ -583,7 +583,7 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                             parent_key = INTERP_PARENTS.get(method_key)
                             if parent_key and parent_key in sparse_time_dates:
                                 # Date NOT in parent sparse file = temporally interpolated
-                                is_temp_interp = (d not in sparse_pixel_vals.get(parent_key, {}))
+                                is_temp_interp = (d not in sparse_time_dates[parent_key])
 
                         # Determine is_eof_filtered_replaced and delta
                         is_eof_replaced = False
@@ -692,56 +692,58 @@ def compute_stats_table(df: pd.DataFrame, group_cols: List[str]) -> pd.DataFrame
     return pd.DataFrame(results)
 
 
-def generate_all_stats(df: pd.DataFrame, output_dir: str):
+def generate_all_stats(df: pd.DataFrame, output_dir: str,
+                       subset_tag: str = ""):
     """Generate all stats tables from the assembly DataFrame."""
 
     os.makedirs(output_dir, exist_ok=True)
+    tag = subset_tag
 
     # ----- Per-lake stats (by method × data_type × lake) -----
     print("  Per-lake stats...")
     per_lake = compute_stats_table(df, ['method', 'data_type', 'lake_id_cci'])
     per_lake = per_lake.sort_values(['method', 'data_type', 'lake_id_cci'])
-    save_csv(per_lake, output_dir, "insitu_cv_per_lake.csv")
+    save_csv(per_lake, output_dir, "insitu_cv_per_lake.csv", tag)
 
     # ----- Global (by method × data_type) -----
     print("  Global stats (pooled)...")
     global_stats = compute_stats_table(df, ['method', 'data_type'])
-    save_csv(global_stats, output_dir, "insitu_cv_global.csv")
+    save_csv(global_stats, output_dir, "insitu_cv_global.csv", tag)
 
     # ----- Reconstruction sub-types: observed vs missing -----
     recon = df[df['data_type'] == 'reconstruction']
     if len(recon) > 0:
         print("  Reconstruction: observed vs missing...")
         recon_split = compute_stats_table(recon, ['method', 'was_observed'])
-        save_csv(recon_split, output_dir, "insitu_cv_recon_observed_vs_missing.csv")
+        save_csv(recon_split, output_dir, "insitu_cv_recon_observed_vs_missing.csv", tag)
 
         # Per-lake version
         recon_split_lake = compute_stats_table(recon, ['method', 'was_observed', 'lake_id_cci'])
         recon_split_lake = recon_split_lake.sort_values(['method', 'was_observed', 'lake_id_cci'])
-        save_csv(recon_split_lake, output_dir, "insitu_cv_recon_observed_vs_missing_per_lake.csv")
+        save_csv(recon_split_lake, output_dir, "insitu_cv_recon_observed_vs_missing_per_lake.csv", tag)
 
     # ----- By year -----
     print("  Per-year stats...")
     per_year = compute_stats_table(df, ['method', 'data_type', 'year'])
     per_year = per_year.sort_values(['method', 'data_type', 'year'])
-    save_csv(per_year, output_dir, "insitu_cv_per_year.csv")
+    save_csv(per_year, output_dir, "insitu_cv_per_year.csv", tag)
 
     # ----- By month -----
     print("  Per-month stats...")
     per_month = compute_stats_table(df, ['method', 'data_type', 'month'])
     per_month = per_month.sort_values(['method', 'data_type', 'month'])
-    save_csv(per_month, output_dir, "insitu_cv_per_month.csv")
+    save_csv(per_month, output_dir, "insitu_cv_per_month.csv", tag)
 
     # ----- By season -----
     print("  Per-season stats...")
     per_season = compute_stats_table(df, ['method', 'data_type', 'season'])
-    save_csv(per_season, output_dir, "insitu_cv_per_season.csv")
+    save_csv(per_season, output_dir, "insitu_cv_per_season.csv", tag)
 
     # ----- By hemisphere -----
     if 'hemisphere' in df.columns:
         print("  Per-hemisphere stats...")
         per_hemi = compute_stats_table(df, ['method', 'data_type', 'hemisphere'])
-        save_csv(per_hemi, output_dir, "insitu_cv_per_hemisphere.csv")
+        save_csv(per_hemi, output_dir, "insitu_cv_per_hemisphere.csv", tag)
 
     # ----- By quality_level (observation only) -----
     obs_df = df[(df['data_type'] == 'observation') & df['quality_level'].notna() & (df['quality_level'] >= 3)]
@@ -749,7 +751,13 @@ def generate_all_stats(df: pd.DataFrame, output_dir: str):
         print("  Per-quality-level stats (observation)...")
         per_ql = compute_stats_table(obs_df, ['method', 'quality_level'])
         per_ql = per_ql.sort_values(['method', 'quality_level'])
-        save_csv(per_ql, output_dir, "insitu_cv_obs_per_quality_level.csv")
+        save_csv(per_ql, output_dir, "insitu_cv_obs_per_quality_level.csv", tag)
+
+        # By method × year × quality_level (observation only)
+        print("  Per-year per-quality-level stats (observation)...")
+        per_year_ql = compute_stats_table(obs_df, ['method', 'year', 'quality_level'])
+        per_year_ql = per_year_ql.sort_values(['method', 'year', 'quality_level'])
+        save_csv(per_year_ql, output_dir, "insitu_cv_obs_per_year_quality_level.csv", tag)
 
     # ----- Temporally interpolated vs not (reconstruction from daily methods) -----
     daily_methods = [k for k, (_, is_int, _) in METHOD_VARIANTS.items() if is_int]
@@ -757,7 +765,7 @@ def generate_all_stats(df: pd.DataFrame, output_dir: str):
     if len(daily_recon) > 0:
         print("  Temporal interpolation impact...")
         interp_stats = compute_stats_table(daily_recon, ['method', 'is_temporally_interpolated'])
-        save_csv(interp_stats, output_dir, "insitu_cv_temporal_interp_impact.csv")
+        save_csv(interp_stats, output_dir, "insitu_cv_temporal_interp_impact.csv", tag)
 
     # ----- EOF filter impact (eof_filtered methods) -----
     eof_methods = [k for k, (_, _, is_eof) in METHOD_VARIANTS.items() if is_eof]
@@ -765,11 +773,14 @@ def generate_all_stats(df: pd.DataFrame, output_dir: str):
     if len(eof_recon) > 0:
         print("  EOF filter impact...")
         eof_stats = compute_stats_table(eof_recon, ['method', 'is_eof_filtered_replaced'])
-        save_csv(eof_stats, output_dir, "insitu_cv_eof_filter_impact.csv")
+        save_csv(eof_stats, output_dir, "insitu_cv_eof_filter_impact.csv", tag)
 
 
-def save_csv(df: pd.DataFrame, output_dir: str, filename: str):
-    """Save DataFrame to CSV."""
+def save_csv(df: pd.DataFrame, output_dir: str, filename: str, tag: str = ""):
+    """Save DataFrame to CSV with optional subset tag in filename."""
+    if tag:
+        base, ext = os.path.splitext(filename)
+        filename = f"{base}_{tag}{ext}"
     path = os.path.join(output_dir, filename)
     df.to_csv(path, index=False)
     print(f"    Saved: {filename}")
@@ -900,6 +911,8 @@ Examples:
                         help="Skip CSV assembly output (Parquet only)")
     parser.add_argument("--no-parquet", action="store_true",
                         help="Skip Parquet assembly output (CSV only)")
+    parser.add_argument("--subset-tag", default="",
+                        help="Tag appended to all output filenames (e.g. 'large_lakes', 'all_lakes')")
     parser.add_argument("-q", "--quiet", action="store_true")
 
     args = parser.parse_args()
@@ -994,9 +1007,19 @@ Examples:
             print(f"  No per-lake CSVs found in {per_lake_dir}")
             sys.exit(1)
 
+        # Filter by --lake-ids if specified
+        if args.lake_ids:
+            lake_set = set(args.lake_ids)
+            csv_files = [f for f in csv_files
+                         if int(f.stem.split('_')[3]) in lake_set]
+        elif args.lake_id:
+            csv_files = [f for f in csv_files
+                         if int(f.stem.split('_')[3]) == args.lake_id]
+
         print(f"  Found {len(csv_files)} per-lake CSVs")
 
-        assembly_csv = os.path.join(args.output_dir, "insitu_cv_assembly.csv")
+        stag = f"_{args.subset_tag}" if args.subset_tag else ""
+        assembly_csv = os.path.join(args.output_dir, f"insitu_cv_assembly{stag}.csv")
         header_written = False
         if args.append and os.path.exists(assembly_csv):
             header_written = True
@@ -1017,11 +1040,22 @@ Examples:
         assembly = pd.read_csv(assembly_csv, low_memory=False)
         assembly['date'] = pd.to_datetime(assembly['date'])
 
+        # Deduplicate: if same lake was re-extracted, keep the newer entry
+        n_before = len(assembly)
+        assembly = assembly.drop_duplicates(
+            subset=['lake_id_cci', 'site_id', 'method', 'data_type', 'date', 'lat_idx', 'lon_idx'],
+            keep='last'
+        )
+        n_dropped = n_before - len(assembly)
+        if n_dropped > 0:
+            print(f"  Deduplicated: dropped {n_dropped:,} duplicate rows")
+            assembly.to_csv(assembly_csv, index=False)
+
         _print_summary(assembly)
 
         if not args.no_parquet:
             try:
-                pq_path = os.path.join(args.output_dir, "insitu_cv_assembly.parquet")
+                pq_path = os.path.join(args.output_dir, f"insitu_cv_assembly{stag}.parquet")
                 assembly.to_parquet(pq_path, index=False, engine='pyarrow')
                 print(f"  Parquet: {pq_path}")
             except Exception as e:
@@ -1031,7 +1065,7 @@ Examples:
             os.remove(assembly_csv)
 
         print(f"  Computing statistics...")
-        generate_all_stats(assembly, args.output_dir)
+        generate_all_stats(assembly, args.output_dir, subset_tag=args.subset_tag)
 
         del assembly
         _print_output_summary(args.output_dir)
@@ -1053,7 +1087,8 @@ Examples:
     print("=" * 70)
 
     t_start = time.time()
-    assembly_csv = os.path.join(args.output_dir, "insitu_cv_assembly.csv")
+    stag = f"_{args.subset_tag}" if args.subset_tag else ""
+    assembly_csv = os.path.join(args.output_dir, f"insitu_cv_assembly{stag}.csv")
     n_lakes_done = 0
     n_rows_total = 0
 
@@ -1090,11 +1125,22 @@ Examples:
     assembly = pd.read_csv(assembly_csv, low_memory=False)
     assembly['date'] = pd.to_datetime(assembly['date'])
 
+    # Deduplicate: if same lake was re-extracted, keep the newer entry
+    n_before = len(assembly)
+    assembly = assembly.drop_duplicates(
+        subset=['lake_id_cci', 'site_id', 'method', 'data_type', 'date', 'lat_idx', 'lon_idx'],
+        keep='last'
+    )
+    n_dropped = n_before - len(assembly)
+    if n_dropped > 0:
+        print(f"  Deduplicated: dropped {n_dropped:,} duplicate rows")
+        assembly.to_csv(assembly_csv, index=False)
+
     _print_summary(assembly)
 
     if not args.no_parquet:
         try:
-            pq_path = os.path.join(args.output_dir, "insitu_cv_assembly.parquet")
+            pq_path = os.path.join(args.output_dir, f"insitu_cv_assembly{stag}.parquet")
             assembly.to_parquet(pq_path, index=False, engine='pyarrow')
             size_mb_pq = os.path.getsize(pq_path) / 1e6
             print(f"  Parquet: {pq_path} ({size_mb_pq:.1f} MB)")
@@ -1106,7 +1152,7 @@ Examples:
 
     # Compute stats (always from full assembly)
     print(f"\nComputing statistics...")
-    generate_all_stats(assembly, args.output_dir)
+    generate_all_stats(assembly, args.output_dir, subset_tag=args.subset_tag)
 
     t_total = time.time() - t_start
     _print_output_summary(args.output_dir)
