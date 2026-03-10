@@ -38,6 +38,7 @@ import xarray as xr
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, List
+import glob
 
 # ==== step imports (factorized) ====
 # Ensure these modules exist under lake_dashboard/dineof_postprocessor/post_steps/
@@ -55,6 +56,8 @@ from .post_steps.reconstruct_from_eofs import ReconstructFromEOFsStep
 from .post_steps.interpolate_temporal_eofs import InterpolateTemporalEOFsStep
 from .post_steps.lswt_plots import LSWTPlotsStep
 from .post_steps.insitu_validation import InsituValidationStep
+from .post_steps.add_data_source_flag import AddDataSourceFlagStep
+from .post_steps.clamp_subzero import ClampSubZeroStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -123,7 +126,9 @@ class PostOptions:
     eof_filter_variance_threshold: float = 0.5     # cumulative variance explained threshold
     eof_filter_top_n: int = 3                       # number of top EOFs to filter
     
-    recon_after_eof_filter: bool = True
+    add_data_source_flag: bool = True  # Add data_source flag (CV/observed/gap)
+    clamp_subzero: bool = True         # Clamp sub-zero LSWT to freezing point
+    dincae_temporal_interp: bool = True  # Linear temporal interpolation for DINCAE output
 
 class PostProcessor:
     """
@@ -180,6 +185,10 @@ class PostProcessor:
         if self.options.copy_aux_flags:
             steps.append(CopyAuxFlagsStep())
 
+        # Add data_source flag (CV/observed/gap)
+        if self.options.add_data_source_flag:
+            steps.append(AddDataSourceFlagStep())
+
         # Optional QA plots
         if self.options.run_qa_plots and self.output_html_folder:
             steps.append(QAPlotsStep())        
@@ -191,6 +200,10 @@ class PostProcessor:
         # Add back climatology
         if self.options.add_back_climatology:
             steps.append(AddBackClimatologyStep())
+
+        # Clamp sub-zero LSWT to freezing point (after units are final)
+        if self.options.clamp_subzero:
+            steps.append(ClampSubZeroStep())
 
         # Add DINEOF init metadata (alpha, nev, etc.) + provenance
         if self.options.write_init_metadata:
@@ -586,8 +599,240 @@ class PostProcessor:
             self.ctx.output_path        = orig_output
             self.ctx.output_html_folder = orig_html
         
-        LSWTPlotsStep(original_ts_path=self.lake_path).apply(self.ctx, None)
-        InsituValidationStep().apply(self.ctx, None)
+        # ==================== PASS 5: DINCAE temporal interpolation ====================
+        # Interpolate anomalies then create dincae full interpo netcdf 
+        #   1) Reads dincae_results.nc (anomalies)
+        #   2) Interpolates anomalies to full daily timeline
+        #   3) Runs AddBackTrend → AddBackClimatology → ClampSubZero
+        # This matches how DINEOF interp files (Pass 3) are produced.
+        if self.options.dincae_temporal_interp:
+            dincae_results_path = self._find_dincae_results()
+            if dincae_results_path is not None:
+                post_dir = os.path.dirname(self.output_path)
+                # Determine output filename from existing _dincae.nc
+                dincae_sparse_files = glob.glob(os.path.join(post_dir, "*_dincae.nc"))
+                if dincae_sparse_files:
+                    dincae_interp_path = dincae_sparse_files[0].replace(
+                        "_dincae.nc", "_dincae_interp_full.nc")
+                else:
+                    dincae_interp_path = os.path.join(
+                        post_dir, _with_suffix(
+                            os.path.basename(self.output_path), "_dincae_interp_full"
+                        ).replace("_dineof", ""))
+
+                if not os.path.isfile(dincae_interp_path):
+                    print(f"[Post] Creating DINCAE daily interpolation from anomalies: "
+                          f"{os.path.basename(dincae_results_path)}")
+
+                    ds5 = self._interpolate_dincae_anomalies(dincae_results_path)
+                    if ds5 is not None:
+                        # Stash/restore context
+                        orig_output = self.ctx.output_path
+                        orig_html = self.ctx.output_html_folder
+                        self.ctx.output_path = dincae_interp_path
+                        if orig_html:
+                            self.ctx.output_html_folder = _with_suffix(
+                                orig_html, "_dincae_interp_full")
+
+                        # Ensure ctx.input_attrs has prepared.nc attrs
+                        if not hasattr(self.ctx, 'input_attrs') or not self.ctx.input_attrs:
+                            with xr.open_dataset(self.dineof_input_path) as ds_in:
+                                self.ctx.input_attrs = dict(ds_in.attrs)
+
+                        # Run pipeline steps that apply after interpolation
+                        # (same set skipped as Pass 3)
+                        skip_steps = {
+                            "FilterTemporalEOFs",
+                            "InterpolateTemporalEOFs_raw",
+                            "InterpolateTemporalEOFs_filtered",
+                            "MergeOutputsStep",
+                            "ReconstructFromEOFs_filtered",
+                            "ReconstructFromEOFs_interp",
+                            "ReconstructFromEOFs_filtered_interp",
+                            "CopyOriginalVarsStep",
+                            "CopyAuxFlagsStep",
+                            "AddDataSourceFlagStep",
+                            "QAPlotsStep",
+                            "AddInitMetadataStep",
+                            "AddEOFsMetadataStep",
+                            "AddDineofLogMetadataStep",
+                        }
+
+                        for step in self.pipeline:
+                            if step.name in skip_steps:
+                                continue
+                            if not step.should_apply(self.ctx, ds5):
+                                continue
+                            print(f"[Post] DINCAE interp — Applying: {step.name}")
+                            ds5 = step.apply(self.ctx, ds5)
+
+                        if ds5 is not None:
+                            # Provenance
+                            try:
+                                with xr.open_dataset(self.dineof_input_path) as ds_in:
+                                    pcfg = ds_in.attrs.get("preprocess_config_path")
+                                    if pcfg:
+                                        ds5.attrs["preprocess_config_path"] = str(pcfg)
+                            except Exception:
+                                pass
+                            if self.experiment_config_file:
+                                ds5.attrs["experiment_config_file"] = str(
+                                    self.experiment_config_file)
+                            ds5.attrs["dincae_interp_anomaly_space"] = 1
+
+                            enc5 = {v: {"zlib": True, "complevel": 4} for v in ds5.data_vars}
+                            if "temp_filled" in ds5:
+                                enc5["temp_filled"] = {
+                                    "dtype": "float32", "zlib": True, "complevel": 5}
+                            os.makedirs(os.path.dirname(dincae_interp_path), exist_ok=True)
+                            ds5.to_netcdf(dincae_interp_path, encoding=enc5)
+                            print(f"[Post] Wrote DINCAE interp (anomaly space): "
+                                  f"{dincae_interp_path}")
+
+                        # Restore context
+                        self.ctx.output_path = orig_output
+                        self.ctx.output_html_folder = orig_html
+                else:
+                    print(f"[Post] DINCAE interp already exists: "
+                          f"{os.path.basename(dincae_interp_path)}")
+            else:
+                print("[Post] dincae_results.nc not found; skipping DINCAE interp")
+
+    # ==================== DINCAE interpolation helpers ====================
+
+    def _find_dincae_results(self) -> Optional[str]:
+        # find dincae_results.nc (anomalies), deriving path from prepared.nc location
+        # prepared.nc is at {run_root}/prepared/{lake_id9}/prepared.nc
+        # dincae_results.nc is at {run_root}/dincae/{lake_id9}/{alpha}/dincae_results.nc
+        prepared_dir = os.path.dirname(self.dineof_input_path)  # .../prepared/{lake_id9}
+        lake_id9 = os.path.basename(prepared_dir)
+        run_root = os.path.dirname(os.path.dirname(prepared_dir))  # up 2 levels
+
+        # Get alpha from output_path: .../post/{lake_id9}/{alpha}/LAKE...nc
+        post_dir = os.path.dirname(self.output_path)
+        alpha = os.path.basename(post_dir)
+
+        path = os.path.join(run_root, "dincae", lake_id9, alpha, "dincae_results.nc")
+        if os.path.isfile(path):
+            return path
+        return None
+
+    def _interpolate_dincae_anomalies(self, dincae_results_path: str) -> Optional[xr.Dataset]:
+        # read dincae_results.nc (anomalies on prepared.nc sparse timeline),
+        # per-pixel linear interpolate to full daily timeline.
+        
+        # returns xr.Dataset with datetime64 time coords, temp_filled in ANOMALY space.
+        # Pipeline steps (trend, climatology, clamp) are applied by the caller.
+
+        base = np.datetime64("1981-01-01T12:00:00", "ns")
+        full_days = self.ctx.full_days
+        if full_days is None:
+            print("[Post] DINCAE interp: full_days not available, skipping")
+            return None
+
+        full_time = base + full_days.astype("timedelta64[D]")
+
+        try:
+            ds_dincae = xr.open_dataset(dincae_results_path)
+
+            # Handle integer or datetime64 time coords
+            dincae_time = ds_dincae["time"].values
+            if np.issubdtype(dincae_time.dtype, np.datetime64):
+                dincae_days = ((dincae_time.astype("datetime64[ns]").astype("int64")
+                                - base.astype("int64")) // 86_400_000_000_000).astype("int64")
+            else:
+                dincae_days = dincae_time.astype("int64")
+
+            temp_anomaly = ds_dincae["temp_filled"].values.astype("float64")
+            ds_dincae.close()
+
+            T_full = len(full_days)
+            ny, nx = temp_anomaly.shape[1], temp_anomaly.shape[2]
+            temp_full = np.full((T_full, ny, nx), np.nan, dtype="float32")
+
+            sparse_x = dincae_days.astype("float64")
+            full_x = full_days.astype("float64")
+
+            # Per-pixel linear interpolation (interior only)
+            n_interp = 0
+            for iy in range(ny):
+                for ix in range(nx):
+                    col = temp_anomaly[:, iy, ix]
+                    valid = np.isfinite(col)
+                    if valid.sum() < 2:
+                        for i_s, d in enumerate(dincae_days):
+                            j = np.searchsorted(full_days, d)
+                            if j < T_full and full_days[j] == d and valid[i_s]:
+                                temp_full[j, iy, ix] = col[i_s]
+                        continue
+
+                    x_valid = sparse_x[valid]
+                    y_valid = col[valid]
+
+                    i0 = np.searchsorted(full_x, x_valid[0])
+                    i1 = np.searchsorted(full_x, x_valid[-1])
+                    if i1 < T_full and full_x[i1] == x_valid[-1]:
+                        i1_end = i1 + 1
+                    else:
+                        i1_end = i1
+
+                    if i0 < i1_end:
+                        temp_full[i0:i1_end, iy, ix] = np.interp(
+                            full_x[i0:i1_end], x_valid, y_valid
+                        ).astype("float32")
+                        n_interp += 1
+
+            print(f"[Post] DINCAE interp: interpolated {n_interp} pixels onto "
+                  f"{T_full} daily timesteps (anomaly space)")
+
+            # Read prepared.nc for coords and metadata
+            with xr.open_dataset(self.dineof_input_path) as ds_in:
+                lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
+                lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
+                lat_vals = ds_in[lat_name].values
+                lon_vals = ds_in[lon_name].values
+                lakeid_data = ds_in.get("lakeid")
+
+            # Build dataset (matching Pass 3 format)
+            ds_out = xr.Dataset()
+            ds_out = ds_out.assign_coords({
+                self.ctx.time_name: full_time,
+                lat_name: lat_vals,
+                lon_name: lon_vals,
+            })
+
+            ds_out["temp_filled"] = xr.DataArray(
+                temp_full,
+                dims=(self.ctx.time_name, lat_name, lon_name),
+                coords={self.ctx.time_name: full_time,
+                        lat_name: lat_vals,
+                        lon_name: lon_vals},
+                attrs={"comment": "DINCAE anomalies interpolated to full daily "
+                       "(before trend/climatology add-back)"},
+            )
+
+            if lakeid_data is not None:
+                ds_out["lakeid"] = lakeid_data
+
+            # Copy attrs from prepared.nc (needed by AddBackTrendStep etc.)
+            if self.ctx.keep_attrs and hasattr(self.ctx, 'input_attrs') and self.ctx.input_attrs:
+                ds_out.attrs.update(self.ctx.input_attrs)
+            else:
+                with xr.open_dataset(self.dineof_input_path) as ds_in:
+                    ds_out.attrs.update(dict(ds_in.attrs))
+
+            ds_out.attrs["source_model"] = "DINCAE"
+            ds_out.attrs["interpolation_method"] = "per_pixel_linear"
+            ds_out.attrs["interpolation_edge_policy"] = "leave_nan"
+            ds_out.attrs["interpolation_source"] = os.path.basename(dincae_results_path)
+
+            return ds_out
+
+        except Exception as e:
+            print(f"[Post] DINCAE anomaly interpolation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
 
 # ===== CLI =====
@@ -638,6 +883,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-eof-interp", action="store_true", help="Disable temporal EOF interpolation step")
     p.add_argument("--eof-interp-edge", choices=("leave_nan","nearest"), default="leave_nan")
     
+    p.add_argument("--no-clamp-subzero", action="store_true",
+                   help="Disable clamping of sub-zero LSWT values")
+    p.add_argument("--no-dincae-interp", action="store_true",
+                   help="Disable DINCAE temporal interpolation to full daily")
+    
     
     return p
 
@@ -669,7 +919,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         eof_filter_output_suffix=args.eof_filter_suffix,
         recon_after_eof_filter = not args.no_recon_after_filter, 
         eof_interp_enable=not args.no_eof_interp,        
-        eof_interp_edge=args.eof_interp_edge,            
+        eof_interp_edge=args.eof_interp_edge,
+        clamp_subzero=not args.no_clamp_subzero,
+        dincae_temporal_interp=not args.no_dincae_interp,
     )
 
     proc = PostProcessor(

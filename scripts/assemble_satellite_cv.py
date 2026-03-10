@@ -39,7 +39,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import warnings
@@ -159,6 +159,69 @@ def assign_hemisphere(lat: float) -> str:
     return 'N' if lat >= 0 else 'S'
 
 
+def get_eof_flagged_dates(post_dir: str) -> Optional[set]:
+    """
+    Get the set of dates where EOF filtering changed temporal coefficients.
+
+    Compares eofs.nc vs eofs_filtered.nc directly — exact, no threshold.
+    Maps flagged timestep indices to dates via prepared.nc.
+
+    Returns set of datetime.date objects, or None if files not available.
+    """
+    # Derive paths from post_dir: {run_root}/post/{lake_id9}/{alpha}
+    alpha = os.path.basename(post_dir)
+    lake_id9 = os.path.basename(os.path.dirname(post_dir))
+    run_root = os.path.dirname(os.path.dirname(os.path.dirname(post_dir)))
+
+    eofs_path = os.path.join(run_root, "dineof", lake_id9, alpha, "eofs.nc")
+    filt_path = os.path.join(run_root, "dineof", lake_id9, alpha, "eofs_filtered.nc")
+    prepared_path = os.path.join(run_root, "prepared", lake_id9, "prepared.nc")
+
+    if not os.path.isfile(eofs_path) or not os.path.isfile(filt_path):
+        return None
+    if not os.path.isfile(prepared_path):
+        return None
+
+    try:
+        ds_orig = xr.open_dataset(eofs_path)
+        ds_filt = xr.open_dataset(filt_path)
+
+        # Find timesteps where ANY temporal EOF was changed
+        temporal_vars = sorted([v for v in ds_orig.data_vars if v.startswith("temporal_eof")])
+        flagged = np.zeros(ds_orig.sizes['t'], dtype=bool)
+        for v in temporal_vars:
+            diff = np.abs(ds_orig[v].values - ds_filt[v].values)
+            flagged |= (diff > 0)
+
+        ds_orig.close()
+        ds_filt.close()
+
+        if not flagged.any():
+            return set()
+
+        # Map flagged indices to dates via prepared.nc time axis
+        with xr.open_dataset(prepared_path) as ds_prep:
+            time_vals = ds_prep['time'].values
+            if np.issubdtype(time_vals.dtype, np.datetime64):
+                prep_dates = pd.to_datetime(time_vals).date
+            else:
+                # Integer days since 1981-01-01 12:00:00
+                base = np.datetime64("1981-01-01T12:00:00", "ns")
+                prep_dates = pd.to_datetime(
+                    base + time_vals.astype("timedelta64[D]")
+                ).date
+
+        if len(prep_dates) != len(flagged):
+            return None  # length mismatch, can't map
+
+        flagged_dates = set(prep_dates[flagged])
+        return flagged_dates
+
+    except Exception as e:
+        print(f"  WARNING: get_eof_flagged_dates failed: {e}")
+        return None
+
+
 # =============================================================================
 # Physical-mode extraction
 # =============================================================================
@@ -208,6 +271,9 @@ def extract_physical_lake(post_dir: str, lake_id: int,
     # Pre-load dineof values for eof_filter delta comparison
     dineof_cv_lookup = {}  # (lat_idx, lon_idx, time_idx) -> temp_filled value
 
+    # Get exact EOF-flagged dates from eofs.nc vs eofs_filtered.nc
+    eof_flagged_dates = get_eof_flagged_dates(post_dir)
+
     for method_key, nc_path in nc_files.items():
         if verbose:
             print(f"  [Lake {lake_id}] {method_key}: {os.path.basename(nc_path)}")
@@ -222,13 +288,11 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             if 'data_source' not in ds:
                 if verbose:
                     print(f"    data_source flag not found, skipping")
-                ds.close()
                 continue
 
             if 'temp_filled' not in ds:
                 if verbose:
                     print(f"    temp_filled not found, skipping")
-                ds.close()
                 continue
 
             # Step 1: Load ONLY data_source (uint8, ~2GB worst case) to find CV indices
@@ -243,7 +307,6 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             if len(cv_indices) == 0:
                 if verbose:
                     print(f"    No CV points found (data_source==2)")
-                ds.close()
                 continue
 
             if verbose:
@@ -267,15 +330,27 @@ def extract_physical_lake(post_dir: str, lake_id: int,
                     break
             has_ql = 'quality_level' in ds
 
+            # Bulk-load full arrays into memory (much faster than per-pixel isel
+            # on compressed NetCDF — avoids repeated chunk decompression)
+            if verbose:
+                print(f"    Loading arrays into memory...")
+            temp_filled_all = ds['temp_filled'].values  # (time, lat, lon), float32
+            obs_all = None
+            if obs_var_name:
+                obs_all = ds[obs_var_name].values
+            ql_all = None
+            if has_ql:
+                ql_all = ds['quality_level'].values
+
             for (lat_idx, lon_idx), time_indices in pixel_groups.items():
                 # Load one pixel's time series (tiny: just 1D arrays)
-                recon_ts = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+                recon_ts = temp_filled_all[:, lat_idx, lon_idx]
                 obs_ts = None
-                if obs_var_name:
-                    obs_ts = ds[obs_var_name].isel(lat=lat_idx, lon=lon_idx).values
+                if obs_all is not None:
+                    obs_ts = obs_all[:, lat_idx, lon_idx]
                 ql_ts = None
-                if has_ql:
-                    ql_ts = ds['quality_level'].isel(lat=lat_idx, lon=lon_idx).values
+                if ql_all is not None:
+                    ql_ts = ql_all[:, lat_idx, lon_idx]
 
                 for t_idx in time_indices:
                     recon_val = float(recon_ts[t_idx])
@@ -331,6 +406,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             import traceback
             traceback.print_exc()
         finally:
+            temp_filled_all = obs_all = ql_all = None
             ds.close()
 
     if not all_rows:
@@ -345,18 +421,24 @@ def extract_physical_lake(post_dir: str, lake_id: int,
         df['hemisphere'] = df['lat'].apply(assign_hemisphere)
 
     # Add eof_filter flags for eof_filtered rows
-    if 'eof_filtered' in df['method'].values and dineof_cv_lookup:
+    if 'eof_filtered' in df['method'].values:
         eof_mask = df['method'] == 'eof_filtered'
         is_replaced = np.zeros(len(df), dtype=bool)
         delta = np.full(len(df), np.nan)
 
-        for i, row in df[eof_mask].iterrows():
-            key = (row['lat_idx'], row['lon_idx'], row['time_idx'])
-            dineof_val = dineof_cv_lookup.get(key, np.nan)
-            if np.isfinite(dineof_val):
-                d = row['reconstructed_value'] - dineof_val
-                delta[i] = d
-                is_replaced[i] = abs(d) > 1e-6
+        if eof_flagged_dates is not None and len(eof_flagged_dates) > 0:
+            # Exact flag: date falls on an EOF-flagged timestep
+            for i, row in df[eof_mask].iterrows():
+                row_date = pd.Timestamp(row['date']).date() if not isinstance(row['date'], date) else row['date']
+                is_replaced[i] = row_date in eof_flagged_dates
+
+            # Compute delta for informational purposes (optional)
+            if dineof_cv_lookup:
+                for i, row in df[eof_mask].iterrows():
+                    key = (row['lat_idx'], row['lon_idx'], row['time_idx'])
+                    dineof_val = dineof_cv_lookup.get(key, np.nan)
+                    if np.isfinite(dineof_val):
+                        delta[i] = row['reconstructed_value'] - dineof_val
 
         df['is_eof_filtered_replaced'] = is_replaced
         df['eof_filter_delta'] = delta

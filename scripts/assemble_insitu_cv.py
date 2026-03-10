@@ -172,6 +172,66 @@ def assign_hemisphere(lat: float) -> str:
     return 'N' if lat >= 0 else 'S'
 
 
+def get_eof_flagged_dates(post_dir: str) -> Optional[set]:
+    """
+    Get the set of dates where EOF filtering changed temporal coefficients.
+
+    Compares eofs.nc vs eofs_filtered.nc directly — exact, no threshold.
+    Maps flagged timestep indices to dates via prepared.nc.
+
+    Returns set of datetime.date objects, or None if files not available.
+    """
+    alpha = os.path.basename(post_dir)
+    lake_id9 = os.path.basename(os.path.dirname(post_dir))
+    run_root = os.path.dirname(os.path.dirname(os.path.dirname(post_dir)))
+
+    eofs_path = os.path.join(run_root, "dineof", lake_id9, alpha, "eofs.nc")
+    filt_path = os.path.join(run_root, "dineof", lake_id9, alpha, "eofs_filtered.nc")
+    prepared_path = os.path.join(run_root, "prepared", lake_id9, "prepared.nc")
+
+    if not os.path.isfile(eofs_path) or not os.path.isfile(filt_path):
+        return None
+    if not os.path.isfile(prepared_path):
+        return None
+
+    try:
+        ds_orig = xr.open_dataset(eofs_path)
+        ds_filt = xr.open_dataset(filt_path)
+
+        temporal_vars = sorted([v for v in ds_orig.data_vars if v.startswith("temporal_eof")])
+        flagged = np.zeros(ds_orig.sizes['t'], dtype=bool)
+        for v in temporal_vars:
+            diff = np.abs(ds_orig[v].values - ds_filt[v].values)
+            flagged |= (diff > 0)
+
+        ds_orig.close()
+        ds_filt.close()
+
+        if not flagged.any():
+            return set()
+
+        with xr.open_dataset(prepared_path) as ds_prep:
+            time_vals = ds_prep['time'].values
+            if np.issubdtype(time_vals.dtype, np.datetime64):
+                prep_dates = pd.to_datetime(time_vals).date
+            else:
+                # Integer days since 1981-01-01 12:00:00
+                base = np.datetime64("1981-01-01T12:00:00", "ns")
+                prep_dates = pd.to_datetime(
+                    base + time_vals.astype("timedelta64[D]")
+                ).date
+
+        if len(prep_dates) != len(flagged):
+            return None
+
+        flagged_dates = set(prep_dates[flagged])
+        return flagged_dates
+
+    except Exception as e:
+        print(f"  WARNING: get_eof_flagged_dates failed: {e}")
+        return None
+
+
 def ensure_celsius(temps: np.ndarray) -> np.ndarray:
     """Convert Kelvin to Celsius if needed."""
     if len(temps) == 0:
@@ -343,6 +403,9 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
             break
     if post_dir is None:
         return None
+
+    # Get exact EOF-flagged dates from eofs.nc vs eofs_filtered.nc
+    eof_flagged_dates = get_eof_flagged_dates(post_dir)
 
     # Find sites
     sites = get_lake_sites(lake_id_cci, selection_dfs)
@@ -589,7 +652,12 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                         is_eof_replaced = False
                         eof_delta = float('nan')
                         if is_eof_filtered_method:
-                            # Compare against the non-filtered counterpart
+                            # Exact flag: check if date falls on EOF-flagged timestep
+                            if eof_flagged_dates is not None:
+                                d_date = d if isinstance(d, dt_date) else pd.Timestamp(d).date()
+                                is_eof_replaced = d_date in eof_flagged_dates
+
+                            # Compute delta for informational purposes
                             if method_key == 'eof_filtered':
                                 dineof_vals = sparse_pixel_vals.get('dineof', {})
                             elif method_key == 'eof_filtered_interp_full':
@@ -599,19 +667,13 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
 
                             dineof_val = dineof_vals.get(d)
                             if dineof_val is not None and np.isfinite(dineof_val):
-                                # For eof_filtered (sparse): compare directly
-                                # For eof_filtered_interp_full: compare the sparse eof_filtered
-                                # value against sparse dineof value at this date
                                 if method_key == 'eof_filtered':
                                     eof_delta = recon_val - dineof_val
-                                    is_eof_replaced = abs(eof_delta) > 1e-6
                                 elif method_key == 'eof_filtered_interp_full':
-                                    # Use sparse eof_filtered value for comparison
                                     eof_sparse_vals = sparse_pixel_vals.get('eof_filtered', {})
                                     eof_sparse_val = eof_sparse_vals.get(d)
                                     if eof_sparse_val is not None:
                                         eof_delta = eof_sparse_val - dineof_val
-                                        is_eof_replaced = abs(eof_delta) > 1e-6
 
                         # Get quality_level for reconstruction (for reference, not gating)
                         ql_recon = float('nan')

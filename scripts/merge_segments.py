@@ -34,6 +34,7 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 # Import helpers from cv_validation
@@ -288,14 +289,13 @@ def merge_post_files(
     time_chunk: int = 365,
 ) -> Dict:
     """
-    Overlay post-processed files from each segment using chunked I/O.
+    Merge post-processed files from each segment.
 
-    Each segment's post file is on the SAME time axis (the original CCI lake
-    file's full timeline), but only its time range has non-NaN temp_filled.
-    We overlay: use seg0 values where non-NaN, else seg1, etc.
+    Two modes depending on whether segments share the same time axis:
+    - SAME time axis (non-interp files): overlay NaN regions from each segment
+    - DIFFERENT time axes (interp files): concatenate along time, dedup boundaries
 
-    Memory-bounded: processes `time_chunk` timesteps at a time instead of
-    loading all segments fully into RAM.
+    Memory-bounded: processes `time_chunk` timesteps at a time for overlay mode.
     """
     import netCDF4
 
@@ -311,6 +311,222 @@ def merge_post_files(
         if verbose:
             print("      No post files found")
         return {"success": False}
+
+    # Detect whether segments share the same time axis
+    # (compare actual time values, not just sizes — interp files have same
+    #  size but different date ranges per segment)
+    with xr.open_dataset(existing_paths[0]) as ds_ref:
+        ref_time = ds_ref['time'].values
+
+    same_time_axis = True
+    for p in existing_paths[1:]:
+        with xr.open_dataset(p) as ds_tmp:
+            seg_time = ds_tmp['time'].values
+            if len(seg_time) != len(ref_time) or not np.array_equal(seg_time, ref_time):
+                same_time_axis = False
+                break
+
+    if not same_time_axis:
+        if verbose:
+            print(f"      Different time axes detected across {len(existing_paths)} segments → concat mode")
+        return _merge_post_concat(existing_paths, out_path, verbose)
+
+    # --- OVERLAY MODE (same time axis) ---
+    return _merge_post_overlay(existing_paths, out_path, verbose, time_chunk)
+
+
+def _merge_post_concat(
+    existing_paths: List[str],
+    out_path: str,
+    verbose: bool = True,
+) -> Dict:
+    """
+    Merge interp files by concatenating along time.
+    Each segment covers a different date range with possible 1-day overlap at boundaries.
+
+    Memory-efficient: writes seg0 first, then appends each subsequent segment
+    one at a time using netCDF4, never holding more than 2 segments in memory.
+    """
+    import netCDF4
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    # Step 1: Collect time axes and find boundary duplicates
+    seg_times = []
+    seg_attrs = {}
+    for i, p in enumerate(existing_paths):
+        with xr.open_dataset(p) as ds:
+            seg_times.append(ds['time'].values)
+            if verbose:
+                t0 = str(ds.time.values[0])[:10]
+                t1 = str(ds.time.values[-1])[:10]
+                print(f"      seg{i}: {ds.sizes['time']} timesteps, {t0} to {t1}")
+            for key in ["detrend_slope_per_day", "detrend_intercept", "detrend_t0_days",
+                         "trend_params", "trend_model", "trend_added_back"]:
+                if key in ds.attrs:
+                    seg_attrs[f"{key}_seg{i}"] = ds.attrs[key]
+
+    # Build merged time axis: seg0 full, then each subsequent segment minus
+    # any times already present in earlier segments
+    merged_times = list(seg_times[0])
+    seen = set(seg_times[0].astype('datetime64[ns]').astype(np.int64))
+    seg_keep_masks = [np.ones(len(seg_times[0]), dtype=bool)]  # keep all of seg0
+
+    n_dup_total = 0
+    for i in range(1, len(seg_times)):
+        keep = np.array([t.astype('datetime64[ns]').astype(np.int64) not in seen
+                         for t in seg_times[i]])
+        n_dup = int((~keep).sum())
+        n_dup_total += n_dup
+        seg_keep_masks.append(keep)
+        merged_times.extend(seg_times[i][keep])
+        seen.update(seg_times[i][keep].astype('datetime64[ns]').astype(np.int64))
+
+    if n_dup_total > 0 and verbose:
+        print(f"      Removed {n_dup_total} duplicate boundary timesteps")
+
+    merged_time_arr = np.array(merged_times, dtype='datetime64[ns]')
+    n_time_out = len(merged_time_arr)
+
+    # Step 2: Read seg0 for structure, create output with netCDF4
+    ds0 = xr.open_dataset(existing_paths[0])
+    data_vars_info = {}
+    for v in ds0.data_vars:
+        data_vars_info[v] = {
+            'dims': ds0[v].dims,
+            'dtype': ds0[v].dtype,
+            'attrs': dict(ds0[v].attrs),
+        }
+    coord_vars = {c: ds0.coords[c] for c in ds0.coords if c != 'time'}
+    global_attrs = dict(ds0.attrs)
+    global_attrs.update(seg_attrs)
+    global_attrs["temporal_chunking"] = "merged from segments (concat)"
+    global_attrs["n_segments"] = len(existing_paths)
+    ds0.close()
+
+    # Create output file with full time axis
+    nc_out = netCDF4.Dataset(out_path, 'w', format='NETCDF4')
+    nc_out.set_auto_mask(False)
+
+    # Global attrs
+    for k, v in global_attrs.items():
+        try:
+            nc_out.setncattr(k, v)
+        except Exception:
+            nc_out.setncattr(k, str(v))
+
+    # Dimensions
+    nc_out.createDimension('time', n_time_out)
+    for cname, cval in coord_vars.items():
+        if cname not in nc_out.dimensions:
+            nc_out.createDimension(cname, len(cval))
+
+    # Time variable
+    time_var = nc_out.createVariable('time', 'f8', ('time',), zlib=True)
+    time_var.units = 'days since 1970-01-01'
+    time_var.calendar = 'standard'
+    time_var[:] = netCDF4.date2num(
+        [pd.Timestamp(t).to_pydatetime() for t in merged_time_arr],
+        units='days since 1970-01-01', calendar='standard'
+    )
+
+    # Coordinate variables
+    for cname, cval in coord_vars.items():
+        cv = nc_out.createVariable(cname, cval.dtype, (cname,), zlib=True)
+        cv[:] = cval.values
+        for ak, av in cval.attrs.items():
+            try:
+                cv.setncattr(ak, av)
+            except Exception:
+                pass
+
+    # Data variables
+    nc_vars = {}
+    for vname, vinfo in data_vars_info.items():
+        dims = tuple('time' if d == 'time' else d for d in vinfo['dims'])
+        fill = None
+        if vinfo['dtype'].kind == 'f':
+            fill = np.nan
+        elif vinfo['dtype'].kind == 'u':
+            fill = 255
+
+        cv = nc_out.createVariable(
+            vname, vinfo['dtype'], dims,
+            zlib=True, complevel=5 if vname == 'temp_filled' else 4,
+            fill_value=fill,
+        )
+        for ak, av in vinfo['attrs'].items():
+            if ak != '_FillValue':
+                try:
+                    cv.setncattr(ak, av)
+                except Exception:
+                    pass
+        nc_vars[vname] = cv
+
+    # Write data segment by segment
+    t_offset = 0
+    for seg_i, p in enumerate(existing_paths):
+        ds_seg = xr.open_dataset(p)
+        keep = seg_keep_masks[seg_i]
+        n_keep = int(keep.sum())
+
+        for vname in data_vars_info:
+            if vname not in ds_seg:
+                continue
+            var_dims = data_vars_info[vname]['dims']
+            if 'time' in var_dims:
+                data = ds_seg[vname].values[keep]
+                t_idx = var_dims.index('time')
+                slices = [slice(None)] * len(var_dims)
+                slices[t_idx] = slice(t_offset, t_offset + n_keep)
+                nc_vars[vname][tuple(slices)] = data
+            elif seg_i == 0:
+                # Non-time vars: write once from seg0
+                nc_vars[vname][:] = ds_seg[vname].values
+
+        ds_seg.close()
+        t_offset += n_keep
+        if verbose:
+            print(f"      wrote seg{seg_i}: {n_keep} timesteps (offset {t_offset - n_keep}:{t_offset})")
+
+    nc_out.close()
+
+    # Count filled pixels
+    n_filled = 0
+    with xr.open_dataset(out_path) as ds_check:
+        n_time_final = ds_check.sizes['time']
+        if "temp_filled" in ds_check:
+            # Count in chunks to avoid OOM
+            chunk_size = 500
+            for t_start in range(0, n_time_final, chunk_size):
+                t_end = min(t_start + chunk_size, n_time_final)
+                chunk = ds_check["temp_filled"].isel(time=slice(t_start, t_end)).values
+                n_filled += int(np.count_nonzero(~np.isnan(chunk)))
+
+    if verbose:
+        print(f"      -> merged (concat): {n_time_final} timesteps, "
+              f"{n_filled:,} non-NaN temp_filled pixels")
+
+    return {"success": True, "n_filled": n_filled, "mode": "concat"}
+
+
+def _merge_post_overlay(
+    existing_paths: List[str],
+    out_path: str,
+    verbose: bool = True,
+    time_chunk: int = 365,
+) -> Dict:
+    """
+    Overlay post-processed files from each segment using chunked I/O.
+
+    Each segment's post file is on the SAME time axis (the original CCI lake
+    file's full timeline), but only its time range has non-NaN temp_filled.
+    We overlay: use seg0 values where non-NaN, else seg1, etc.
+
+    Memory-bounded: processes `time_chunk` timesteps at a time instead of
+    loading all segments fully into RAM.
+    """
+    import netCDF4
 
     # Open first dataset to get structure (coords, dims, dtypes, attrs)
     ds0 = xr.open_dataset(existing_paths[0])
@@ -402,7 +618,7 @@ def merge_post_files(
 
     if verbose:
         print(f"      -> merged post file: {n_filled:,} non-NaN temp_filled pixels")
-    return {"success": True, "n_filled": n_filled}
+    return {"success": True, "n_filled": n_filled, "mode": "overlay"}
 
 
 # =============================================================================
@@ -415,6 +631,7 @@ def merge_lake(
     merge_root: str,
     alpha: str = "a1000",
     verbose: bool = True,
+    file_filter: str = None,
 ) -> Dict:
     """
     Merge all outputs for a single lake across all segments.
@@ -425,6 +642,9 @@ def merge_lake(
     - Post files are overlaid on the shared CCI time axis.
     - prepared.nc, clouds_index.nc, dincae_results.nc are NOT merged
       (different spatial masks per segment; not needed for downstream).
+
+    If file_filter is set, only post files containing that substring are merged,
+    and CV/prepared steps are skipped.
     """
     lake_id9 = f"{lake_id:09d}"
     summary = {"lake_id": lake_id, "status": "ok", "steps": {}}
@@ -432,22 +652,26 @@ def merge_lake(
     if verbose:
         print(f"\n{'='*60}")
         print(f"Merging lake {lake_id} ({lake_id9})")
+        if file_filter:
+            print(f"  file_filter: {file_filter}")
         print(f"{'='*60}")
 
     # --- 1. DINEOF CV pairs (.dat → .npz) ---
-    if verbose:
-        print(f"\n  [1/4] DINEOF CV (per-segment → concatenate)")
-    seg_dineof_dirs = [os.path.join(r, "dineof", lake_id9, alpha) for r in seg_run_roots]
-    out_dineof_npz = os.path.join(merge_root, "dineof", lake_id9, alpha, "cv_pairs_dineof.npz")
-    info = merge_dineof_cv_pairs(seg_dineof_dirs, out_dineof_npz, verbose)
-    summary["steps"]["dineof_cv"] = info
+    if not file_filter:
+        if verbose:
+            print(f"\n  [1/4] DINEOF CV (per-segment → concatenate)")
+        seg_dineof_dirs = [os.path.join(r, "dineof", lake_id9, alpha) for r in seg_run_roots]
+        out_dineof_npz = os.path.join(merge_root, "dineof", lake_id9, alpha, "cv_pairs_dineof.npz")
+        info = merge_dineof_cv_pairs(seg_dineof_dirs, out_dineof_npz, verbose)
+        summary["steps"]["dineof_cv"] = info
 
     # --- 2. DINCAE CV pairs (per-segment computation → .npz) ---
-    if verbose:
-        print(f"\n  [2/4] DINCAE CV (per-segment → concatenate)")
-    out_dincae_npz = os.path.join(merge_root, "dincae", lake_id9, alpha, "cv_pairs_dincae.npz")
-    info = merge_dincae_cv_pairs(seg_run_roots, lake_id9, alpha, out_dincae_npz, verbose)
-    summary["steps"]["dincae_cv"] = info
+    if not file_filter:
+        if verbose:
+            print(f"\n  [2/4] DINCAE CV (per-segment → concatenate)")
+        out_dincae_npz = os.path.join(merge_root, "dincae", lake_id9, alpha, "cv_pairs_dincae.npz")
+        info = merge_dincae_cv_pairs(seg_run_roots, lake_id9, alpha, out_dincae_npz, verbose)
+        summary["steps"]["dincae_cv"] = info
 
     # --- 3. Post files (discover ALL .nc files, not just dineof/dincae) ---
     if verbose:
@@ -462,6 +686,10 @@ def merge_lake(
                 if fname.endswith(".nc"):
                     all_nc_filenames.add(fname)
 
+    # Apply file_filter
+    if file_filter:
+        all_nc_filenames = {f for f in all_nc_filenames if file_filter in f}
+
     for nc_fname in sorted(all_nc_filenames):
         seg_post = [os.path.join(r, "post", lake_id9, alpha, nc_fname) for r in seg_run_roots]
         out_post = os.path.join(merge_root, "post", lake_id9, alpha, nc_fname)
@@ -474,28 +702,29 @@ def merge_lake(
         summary["steps"][f"post_{label}"] = info
 
     # --- 4. Symlink prepared/ from first segment (needed by plot/insitu scripts) ---
-    if verbose:
-        print(f"\n  [4/4] Prepared directory link")
+    if not file_filter:
+        if verbose:
+            print(f"\n  [4/4] Prepared directory link")
 
-    prepared_link = os.path.join(merge_root, "prepared", lake_id9)
-    if not os.path.exists(prepared_link):
-        for r in seg_run_roots:
-            seg_prepared = os.path.join(r, "prepared", lake_id9)
-            if os.path.isdir(seg_prepared):
-                os.makedirs(os.path.dirname(prepared_link), exist_ok=True)
-                os.symlink(seg_prepared, prepared_link)
+        prepared_link = os.path.join(merge_root, "prepared", lake_id9)
+        if not os.path.exists(prepared_link):
+            for r in seg_run_roots:
+                seg_prepared = os.path.join(r, "prepared", lake_id9)
+                if os.path.isdir(seg_prepared):
+                    os.makedirs(os.path.dirname(prepared_link), exist_ok=True)
+                    os.symlink(seg_prepared, prepared_link)
+                    if verbose:
+                        print(f"    Symlinked: prepared/{lake_id9} -> {seg_prepared}")
+                    summary["steps"]["prepared_link"] = {"success": True, "source": seg_prepared}
+                    break
+            else:
                 if verbose:
-                    print(f"    Symlinked: prepared/{lake_id9} -> {seg_prepared}")
-                summary["steps"]["prepared_link"] = {"success": True, "source": seg_prepared}
-                break
+                    print(f"    WARNING: No prepared/ found in any segment")
+                summary["steps"]["prepared_link"] = {"success": False}
         else:
             if verbose:
-                print(f"    WARNING: No prepared/ found in any segment")
-            summary["steps"]["prepared_link"] = {"success": False}
-    else:
-        if verbose:
-            print(f"    prepared/{lake_id9} already exists")
-        summary["steps"]["prepared_link"] = {"success": True, "existing": True}
+                print(f"    prepared/{lake_id9} already exists")
+            summary["steps"]["prepared_link"] = {"success": True, "existing": True}
 
     return summary
 
@@ -589,6 +818,8 @@ def main():
     parser.add_argument("--lake-id", type=int, default=None,
                         help="Merge only this lake (default: all)")
     parser.add_argument("--alpha", default="a1000")
+    parser.add_argument("--file-filter", default=None,
+                        help="Only merge files whose name contains this substring (e.g. 'interp_full')")
     parser.add_argument("--verify", action="store_true",
                         help="Run verification checks after merge")
     parser.add_argument("-q", "--quiet", action="store_true")
@@ -610,7 +841,8 @@ def main():
 
     results = {}
     for lake_id in lakes:
-        summary = merge_lake(lake_id, seg_run_roots, merge_root, args.alpha, verbose)
+        summary = merge_lake(lake_id, seg_run_roots, merge_root, args.alpha, verbose,
+                             file_filter=args.file_filter)
         results[lake_id] = summary
 
         if args.verify:

@@ -34,6 +34,15 @@ EXP_ROOTS=(
 
 ASSEMBLIES=(satellite insitu)
 
+# Clean old assembly + stats files to prevent stale data / duplicate headers
+for EXP_ROOT in "${EXP_ROOTS[@]}"; do
+    for ASSEMBLY in "${ASSEMBLIES[@]}"; do
+        OUTPUT_DIR=${EXP_ROOT}/${ASSEMBLY}_cv_assembly
+        rm -f ${OUTPUT_DIR}/${ASSEMBLY}_cv_assembly_*.csv
+        rm -f ${OUTPUT_DIR}/${ASSEMBLY}_cv_assembly_*.parquet
+    done
+done
+
 for EXP_ROOT in "${EXP_ROOTS[@]}"; do
     EXP_NAME=$(basename "${EXP_ROOT}")
 
@@ -64,7 +73,7 @@ for EXP_ROOT in "${EXP_ROOTS[@]}"; do
             --output-dir ${OUTPUT_DIR} \
             --phase list-lakes \
             --all \
-            > ${OUTPUT_DIR}/lake_list_all.txt
+            | grep -E '^[0-9]+$' > ${OUTPUT_DIR}/lake_list_all.txt
 
         N_LAKES=$(wc -l < ${OUTPUT_DIR}/lake_list_all.txt)
         echo "Found ${N_LAKES} lakes"
@@ -81,11 +90,11 @@ for EXP_ROOT in "${EXP_ROOTS[@]}"; do
 #SBATCH --array=1-${N_LAKES}
 #SBATCH -o ${OUTPUT_DIR}/logs/extract_%a.out
 #SBATCH -e ${OUTPUT_DIR}/logs/extract_%a.err
-#SBATCH --mem=64G
-#SBATCH -t 48:00:00
+#SBATCH --mem=192G
+#SBATCH -t 2-00:00:00
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
-#SBATCH --qos=${QOS}
+#SBATCH --qos=high
 
 source ~/miniforge3/bin/activate
 conda activate lake_cci_gapfilling
@@ -113,11 +122,11 @@ EOF
 #SBATCH --job-name=${ASSEMBLY}_merge_all_${EXP_NAME:0:4}
 #SBATCH -o ${OUTPUT_DIR}/logs/merge_all.out
 #SBATCH -e ${OUTPUT_DIR}/logs/merge_all.err
-#SBATCH --mem=64G
-#SBATCH -t 48:00:00
+#SBATCH --mem=256G
+#SBATCH -t 2-00:00:00
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
-#SBATCH --qos=${QOS}
+#SBATCH --qos=high
 
 source ~/miniforge3/bin/activate
 conda activate lake_cci_gapfilling
@@ -141,11 +150,11 @@ EOF
 #SBATCH --job-name=${ASSEMBLY}_merge_lg_${EXP_NAME:0:4}
 #SBATCH -o ${OUTPUT_DIR}/logs/merge_large.out
 #SBATCH -e ${OUTPUT_DIR}/logs/merge_large.err
-#SBATCH --mem=64G
-#SBATCH -t 48:00:00
+#SBATCH --mem=256G
+#SBATCH -t 2-00:00:00
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
-#SBATCH --qos=${QOS}
+#SBATCH --qos=high
 
 source ~/miniforge3/bin/activate
 conda activate lake_cci_gapfilling

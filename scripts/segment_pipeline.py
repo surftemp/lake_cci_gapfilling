@@ -1168,7 +1168,7 @@ def stage_post(manifest: dict, status: dict, lake_ids: list,
 # ═══════════════════════════════════════════════════════════════════════════
 
 def stage_merge(manifest: dict, status: dict, lake_ids: list,
-                alpha: str, verbose: bool) -> dict:
+                alpha: str, verbose: bool, file_filter: str = None) -> dict:
     """Submit SLURM array to merge segment outputs for complete lakes."""
     all_lakes = lake_ids or manifest["lakes"]
     seg_run_roots = [s["run_root"] for s in manifest["segments"]]
@@ -1181,15 +1181,21 @@ def stage_merge(manifest: dict, status: dict, lake_ids: list,
     print(f"{'='*70}")
     print(f"  Merge root: {merge_root}")
 
+    # Auto-run diagnose if status is empty
+    if not any(status["lakes"].get(str(lid), {}).get("segments")
+               for lid in all_lakes):
+        print("  Running diagnose first...")
+        status = stage_diagnose(manifest, status, lake_ids, alpha, verbose)
+
     # Filter to lakes that are ALL_COMPLETE
     mergeable = []
     for lid in all_lakes:
         lid_str = str(lid)
         le = status["lakes"].get(lid_str, {})
         if le.get("overall") == "ALL_COMPLETE":
-            # Skip if already merged
+            # Skip if already merged (unless file_filter is set for partial re-merge)
             merge_info = le.get("merge", {})
-            if merge_info.get("status") == "complete":
+            if merge_info.get("status") == "complete" and not file_filter:
                 if verbose:
                     print(f"  Skipping lake {lid}: already merged")
                 continue
@@ -1221,6 +1227,8 @@ def stage_merge(manifest: dict, status: dict, lake_ids: list,
     log_dir = os.path.expanduser("~/lake_cci_gapfilling/logs")
     os.makedirs(log_dir, exist_ok=True)
 
+    file_filter_arg = f"--file-filter {file_filter}" if file_filter else ""
+
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name=merge_segments
 #SBATCH --array=1-{len(mergeable)}
@@ -1244,6 +1252,7 @@ python {merge_script} \\
     --manifest {manifest_path} \\
     --lake-id $LAKE_ID \\
     --alpha {alpha} \\
+    {file_filter_arg} \\
     --verify
 
 echo "Done: $(date)"
@@ -2097,6 +2106,8 @@ Examples:
     parser.add_argument("--lake-ids", type=int, nargs="+", default=None,
                         help="Subset of lakes to process (default: all)")
     parser.add_argument("--alpha", default="a1000")
+    parser.add_argument("--file-filter", default=None,
+                        help="For merge stage: only merge files containing this substring (e.g. 'interp_full')")
     parser.add_argument("--batch-size", type=int, default=16,
                         help="DINCAE batch size for GPU OOM recovery (default: 16)")
     parser.add_argument("--dry-run", action="store_true",
@@ -2173,7 +2184,8 @@ Examples:
                             config, config_path, args.dry_run, verbose)
 
     elif args.stage == "merge":
-        status = stage_merge(manifest, status, args.lake_ids, args.alpha, verbose)
+        status = stage_merge(manifest, status, args.lake_ids, args.alpha, verbose,
+                             file_filter=args.file_filter)
 
     elif args.stage == "validate":
         if not config:

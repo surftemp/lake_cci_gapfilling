@@ -114,4 +114,11 @@ class CopyOriginalVarsStep(PostProcessingStep):
                     attrs=ds_orig[var].attrs
                 )
                 print(f"[CopyOriginalVars] Copied '{var}' from original lake file")
+                # convert to celsius
+                if var == "lake_surface_water_temperature" and ctx.output_units == "celsius":
+                    finite = ds[var].values[np.isfinite(ds[var].values)]
+                    if len(finite) > 0 and np.nanmean(finite) > 100:
+                        ds[var] = (ds[var] - 273.15).astype("float32")
+                        ds[var].attrs["units"] = "degree_Celsius"
+                        print(f"[CopyOriginalVars] Converted '{var}' to Celsius")                
         return ds
