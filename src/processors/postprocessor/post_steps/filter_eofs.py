@@ -14,18 +14,23 @@ class FilterTemporalEOFsStep(PostProcessingStep):
     Filter outlier timesteps in eofs.nc based on temporal EOF outlier rules,
     replacing their values with linear interpolation on physical time (days since epoch).
     
-    - If ANY selected temporal EOF flags a time step as outlier, ALL temporal EOF values
-      at that timestep are replaced with linearly interpolated values from neighboring
-      good timesteps (using physical time, not array index, to respect irregular gaps).
-    - The output eofs_filtered.nc has the SAME number of timesteps as eofs.nc.
-    - At edge timesteps (first/last), np.interp clamps to the nearest good value.
-    - Supports three EOF selection methods for outlier detection:
+    Two replacement modes:
+      - "blanket" (default): If ANY selected temporal EOF flags a timestep as outlier,
+        ALL temporal EOF values at that timestep are replaced.
+      - "per_eof": Each selected EOF is only replaced at its own outlier timesteps.
+        Non-selected EOFs are left completely untouched.
+    
+    The output eofs_filtered.nc has the SAME number of timesteps as eofs.nc.
+    At edge timesteps (first/last), np.interp clamps to the nearest good value.
+    
+    Supports three EOF selection methods for outlier detection:
       1. "all": Apply filtering to all temporal EOFs
       2. "variance_threshold": Only filter EOFs that cumulatively explain Y% of variance
       3. "top_n": Only filter the first N EOFs
-    - Writes a new filtered file by default (suffix), or overwrites if configured.
-    - Does not modify the main LSWT dataset; returns ds unchanged.
-    - Writes filtering statistics to CSV file.
+    
+    Writes a new filtered file by default (suffix), or overwrites if configured.
+    Does not modify the main LSWT dataset; returns ds unchanged.
+    Writes filtering statistics to CSV file.
     """
 
     name = "FilterTemporalEOFs"
@@ -43,6 +48,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
         eof_selection: str = "all",                # "all", "variance_threshold", or "top_n"
         variance_threshold: float = 0.95,          # for variance_threshold: cumulative variance explained
         top_n_eofs: int = 3,                      # for top_n: number of EOFs to consider
+        replacement_mode: str = "blanket",         # "blanket" | "per_eof"
     ):
         self.method = method
         self.k = float(k)
@@ -55,6 +61,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
         self.eof_selection = eof_selection
         self.variance_threshold = variance_threshold
         self.top_n_eofs = top_n_eofs
+        self.replacement_mode = replacement_mode
 
         # populated after apply()
         self.info: Dict[str, Any] = {}
@@ -117,46 +124,72 @@ class FilterTemporalEOFsStep(PostProcessingStep):
             })
 
         # Replace outlier temporal EOF values with linear interpolation on physical time.
-        # Each EOF is only replaced at timesteps where THAT SPECIFIC EOF is an outlier
-        # (z > k*RSD), not at all timesteps where any EOF is an outlier.
-        # This avoids degrading good EOF coefficients at timesteps where only
-        # one or two EOFs have genuine outliers.
         eofs_filt = eofs.copy(deep=True)
         phys_days = self._get_physical_days(ctx, eofs)
         n_total_replacements = 0
 
-        for i, v in enumerate(temporal_vars):
-            if v not in selected_vars:
-                continue
-            this_flagged = per_eof_flagged[i]
-            if not this_flagged.any():
-                continue
-            good_mask = ~this_flagged
-            n_good = int(good_mask.sum())
-            if n_good < 2:
-                print(f"[{self.name}] WARNING: {v} has only {n_good} good timesteps, "
-                      f"cannot interpolate. Left unchanged.")
-                continue
-            vals = eofs_filt[v].values.copy()
-            original_outlier_vals = vals[this_flagged].copy()
-            vals[this_flagged] = np.interp(
-                phys_days[this_flagged],
-                phys_days[good_mask],
-                vals[good_mask]
-            )
-            eofs_filt[v] = (eofs_filt[v].dims, vals)
-            n_replaced = int(this_flagged.sum())
-            n_total_replacements += n_replaced
-            max_change = np.max(np.abs(vals[this_flagged] - original_outlier_vals))
-            print(f"[{self.name}] {v}: replaced {n_replaced} outlier values "
-                  f"(max abs change: {max_change:.6f})")
+        if self.replacement_mode == "blanket":
+            # Strategy 1 (default): If ANY selected EOF flags a timestep,
+            # replace ALL temporal EOF values at that timestep.
+            if flagged_any.any():
+                good_mask = ~flagged_any
+                n_good = int(good_mask.sum())
+                if n_good >= 2:
+                    for v in temporal_vars:
+                        vals = eofs_filt[v].values.copy()
+                        original_outlier_vals = vals[flagged_any].copy()
+                        vals[flagged_any] = np.interp(
+                            phys_days[flagged_any],
+                            phys_days[good_mask],
+                            vals[good_mask]
+                        )
+                        eofs_filt[v] = (eofs_filt[v].dims, vals)
+                        max_change = np.max(np.abs(vals[flagged_any] - original_outlier_vals))
+                        print(f"[{self.name}] {v}: replaced {total_replaced} values "
+                              f"(max abs change: {max_change:.6f})")
+                    n_total_replacements = int(flagged_any.sum()) * len(temporal_vars)
+                else:
+                    print(f"[{self.name}] WARNING: only {n_good} good timesteps, "
+                          f"cannot interpolate. Outlier values left unchanged.")
 
-        for i, v in enumerate(temporal_vars):
-            if v not in selected_vars:
-                print(f"[{self.name}] {v}: not selected, left untouched")
+        elif self.replacement_mode == "per_eof":
+            # Strategy 2: Replace each selected EOF only at its own outlier timesteps.
+            # Non-selected EOFs are left completely untouched.
+            for i, v in enumerate(temporal_vars):
+                if v not in selected_vars:
+                    continue
+                this_flagged = per_eof_flagged[i]
+                if not this_flagged.any():
+                    continue
+                good_mask = ~this_flagged
+                n_good = int(good_mask.sum())
+                if n_good < 2:
+                    print(f"[{self.name}] WARNING: {v} has only {n_good} good timesteps, "
+                          f"cannot interpolate. Left unchanged.")
+                    continue
+                vals = eofs_filt[v].values.copy()
+                original_outlier_vals = vals[this_flagged].copy()
+                vals[this_flagged] = np.interp(
+                    phys_days[this_flagged],
+                    phys_days[good_mask],
+                    vals[good_mask]
+                )
+                eofs_filt[v] = (eofs_filt[v].dims, vals)
+                n_replaced = int(this_flagged.sum())
+                n_total_replacements += n_replaced
+                max_change = np.max(np.abs(vals[this_flagged] - original_outlier_vals))
+                print(f"[{self.name}] {v}: replaced {n_replaced} outlier values "
+                      f"(max abs change: {max_change:.6f})")
 
-        print(f"[{self.name}] Total: {n_total_replacements} replacements "
-              f"across {len(selected_vars)} selected EOFs")
+            for i, v in enumerate(temporal_vars):
+                if v not in selected_vars:
+                    print(f"[{self.name}] {v}: not selected, left untouched")
+
+        else:
+            raise ValueError(f"Unknown replacement_mode: {self.replacement_mode}")
+
+        print(f"[{self.name}] Replacement mode: {self.replacement_mode}, "
+              f"total replacements: {n_total_replacements}")
 
         # Decide where to write
         if self.overwrite:
@@ -193,6 +226,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
             "replaced_indices": replaced_idx.tolist(),
             "fraction_replaced": fraction_replaced,
             "eof_selection": self.eof_selection,
+            "replacement_mode": self.replacement_mode,
             "n_eofs_selected": len(selected_vars),
             "n_eofs_total": len(temporal_vars),
         }
@@ -443,7 +477,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
                 writer.writerow(['# Filtering Parameters'])
                 writer.writerow(['method', self.method])
                 writer.writerow(['eof_selection', self.eof_selection])
-                writer.writerow(['replacement_method', 'linear_interpolation_on_physical_time'])
+                writer.writerow(['replacement_mode', self.replacement_mode])
                 
                 if self.eof_selection == "variance_threshold":
                     writer.writerow(['variance_threshold', f"{self.variance_threshold:.2%}"])

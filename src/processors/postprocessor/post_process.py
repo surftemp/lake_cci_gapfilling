@@ -125,6 +125,7 @@ class PostOptions:
     eof_filter_selection: str = "variance_threshold"               # "all" | "variance_threshold" | "top_n"
     eof_filter_variance_threshold: float = 0.5     # cumulative variance explained threshold
     eof_filter_top_n: int = 3                       # number of top EOFs to filter
+    eof_filter_replacement_mode: str = "blanket"    # "blanket" | "per_eof"
     
     add_data_source_flag: bool = True  # Add data_source flag (CV/observed/gap)
     clamp_subzero: bool = True         # Clamp sub-zero LSWT to freezing point
@@ -220,7 +221,8 @@ class PostProcessor:
                     overwrite=self.options.eof_filter_overwrite,
                     eof_selection=self.options.eof_filter_selection,
                     variance_threshold=self.options.eof_filter_variance_threshold,
-                    top_n_eofs=self.options.eof_filter_top_n,                    
+                    top_n_eofs=self.options.eof_filter_top_n,
+                    replacement_mode=self.options.eof_filter_replacement_mode,
                 )
             )
 
@@ -876,6 +878,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Cumulative variance threshold for EOF selection (0-1, default 0.5 = 50%%)")
     p.add_argument("--eof-filter-top-n", type=int, default=3,
                    help="Number of top EOFs to filter when using top_n selection")
+    p.add_argument("--eof-filter-replacement-mode", choices=("blanket", "per_eof"),
+                   default="blanket",
+                   help="'blanket': replace all EOFs at any flagged timestep. "
+                        "'per_eof': replace each selected EOF only at its own outlier timesteps.")
     
     p.add_argument("--no-recon-after-filter", action="store_true",
                    help="Do not reconstruct dineof_results_eof_filtered.nc after EOF filtering")
@@ -917,6 +923,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         eof_filter_temporal_prefix=args.eof_filter_prefix,
         eof_filter_overwrite=args.eof_filter_overwrite,
         eof_filter_output_suffix=args.eof_filter_suffix,
+        eof_filter_replacement_mode=args.eof_filter_replacement_mode,
         recon_after_eof_filter = not args.no_recon_after_filter, 
         eof_interp_enable=not args.no_eof_interp,        
         eof_interp_edge=args.eof_interp_edge,

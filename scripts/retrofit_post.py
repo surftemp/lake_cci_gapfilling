@@ -166,11 +166,12 @@ def refilter_and_reconstruct_eofs(
     top_n = post_cfg.get("eof_filter_top_n", 3)
     filter_method = post_cfg.get("eof_filter_method", "robust_sd")
     filter_k = post_cfg.get("eof_filter_k", 4.0)
+    replacement_mode = post_cfg.get("eof_filter_replacement_mode", "blanket")
 
     modified = False
 
     # Step 0a: Re-filter EOFs
-    print(f"  [0a] Re-filtering EOFs (selection={eof_selection}, method={filter_method}, k={filter_k})...")
+    print(f"  [0a] Re-filtering EOFs (selection={eof_selection}, method={filter_method}, k={filter_k}, replacement={replacement_mode})...")
     filter_step = FilterTemporalEOFsStep(
         method=filter_method,
         k=filter_k,
@@ -178,6 +179,7 @@ def refilter_and_reconstruct_eofs(
         variance_threshold=variance_threshold,
         top_n_eofs=top_n,
         overwrite=False,  # writes eofs_filtered.nc (not overwriting eofs.nc)
+        replacement_mode=replacement_mode,
     )
     if filter_step.should_apply(ctx, None):
         filter_step.apply(ctx, None)
@@ -261,6 +263,7 @@ def rerun_post_processing(
         eof_filter_top_n=post_cfg.get("eof_filter_top_n", 3),
         eof_filter_method=post_cfg.get("eof_filter_method", "robust_sd"),
         eof_filter_k=post_cfg.get("eof_filter_k", 4.0),
+        eof_filter_replacement_mode=post_cfg.get("eof_filter_replacement_mode", "blanket"),
         output_units=post_cfg.get("output_units", "celsius"),
         clamp_subzero=True,
         dincae_temporal_interp=True,
