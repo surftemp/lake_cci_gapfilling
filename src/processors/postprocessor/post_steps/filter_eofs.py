@@ -49,6 +49,7 @@ class FilterTemporalEOFsStep(PostProcessingStep):
         variance_threshold: float = 0.95,          # for variance_threshold: cumulative variance explained
         top_n_eofs: int = 3,                      # for top_n: number of EOFs to consider
         replacement_mode: str = "blanket",         # "blanket" | "per_eof"
+        eofs_basename: str = "eofs",               # base name for EOF file (e.g. "eofs" or "eofs_for_cv")
     ):
         self.method = method
         self.k = float(k)
@@ -56,12 +57,13 @@ class FilterTemporalEOFsStep(PostProcessingStep):
         self.temporal_var_prefix = temporal_var_prefix
         self.output_suffix = output_suffix
         self.overwrite = overwrite
-        
+
         # EOF selection parameters
         self.eof_selection = eof_selection
         self.variance_threshold = variance_threshold
         self.top_n_eofs = top_n_eofs
         self.replacement_mode = replacement_mode
+        self.eofs_basename = eofs_basename
 
         # populated after apply()
         self.info: Dict[str, Any] = {}
@@ -251,23 +253,24 @@ class FilterTemporalEOFsStep(PostProcessingStep):
 
     def _find_eofs_path(self, ctx: PostContext) -> Optional[str]:
         """
-        Heuristics: look in the dineof_output_path directory for a file named *eofs*.nc
-        Prefer exact 'eofs.nc' if present.
+        Look in the dineof_output_path directory for the EOF file.
+        Uses self.eofs_basename (default "eofs") to find e.g. "eofs.nc" or "eofs_for_cv.nc".
         """
         base_dir = os.path.dirname(ctx.dineof_output_path)
         candidates = [
-            os.path.join(base_dir, "eofs.nc"),
-            os.path.join(base_dir, "EOFs.nc"),
+            os.path.join(base_dir, f"{self.eofs_basename}.nc"),
+            os.path.join(base_dir, f"{self.eofs_basename.upper()}.nc"),
         ]
         for c in candidates:
             if os.path.isfile(c):
                 return c
 
-        globs = glob.glob(os.path.join(base_dir, "*eofs*.nc"))
-        if globs:
-            # deterministic choice: shortest name, then lexicographic
-            globs.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
-            return globs[0]
+        # Fallback glob only for default basename
+        if self.eofs_basename == "eofs":
+            globs = glob.glob(os.path.join(base_dir, "*eofs*.nc"))
+            if globs:
+                globs.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
+                return globs[0]
         return None
 
     def _get_physical_days(self, ctx: PostContext, eofs: xr.Dataset) -> np.ndarray:

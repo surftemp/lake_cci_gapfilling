@@ -165,20 +165,20 @@ def validate_lake(run_root: Path, lake_id: int, alpha: float = 1000,
             ds_out.close()
             return result
         
-        if "temp_filled" not in ds_out:
-            result.errors.append("temp_filled variable not found in output file")
+        if "lake_surface_water_temperature_reconstructed" not in ds_out:
+            result.errors.append("lake_surface_water_temperature_reconstructed variable not found in output file")
             ds_out.close()
             return result
         
         flag = ds_out["data_source"].values  # (time, lat, lon)
-        temp_filled = ds_out["temp_filled"].values  # (time, lat, lon)
+        lake_surface_water_temperature_reconstructed = ds_out["lake_surface_water_temperature_reconstructed"].values  # (time, lat, lon)
         out_time = ds_out["time"].values
         out_lat = ds_out["lat"].values
         out_lon = ds_out["lon"].values
         n_time_out, n_lat_out, n_lon_out = flag.shape
         
-        # Get reconstruction mask from temp_filled
-        recon_mask = ~np.isnan(temp_filled)
+        # Get reconstruction mask from lake_surface_water_temperature_reconstructed
+        recon_mask = ~np.isnan(lake_surface_water_temperature_reconstructed)
         n_recon_from_temp = int(recon_mask.sum())
         
         result.total_pixels = flag.size
@@ -191,14 +191,14 @@ def validate_lake(run_root: Path, lake_id: int, alpha: float = 1000,
         if verbose:
             print(f"\nOutput file: {files['output_dineof'].name}")
             print(f"  Shape: ({n_time_out}, {n_lat_out}, {n_lon_out})")
-            print(f"  temp_filled not NaN: {n_recon_from_temp:,}")
+            print(f"  lake_surface_water_temperature_reconstructed not NaN: {n_recon_from_temp:,}")
             print(f"  flag reconstructed (0+1+2): {result.n_reconstructed:,}")
             print(f"  Not reconstructed (255): {result.n_flag255:,}")
             print(f"    gap(0)={result.n_flag0:,}, seen(1)={result.n_flag1:,}, cv(2)={result.n_flag2:,}")
             
-            # Check consistency: flag reconstructed should match temp_filled reconstructed
+            # Check consistency: flag reconstructed should match lake_surface_water_temperature_reconstructed reconstructed
             if n_recon_from_temp != result.n_reconstructed:
-                print(f"  WARNING: Mismatch between temp_filled ({n_recon_from_temp:,}) and flag ({result.n_reconstructed:,})")
+                print(f"  WARNING: Mismatch between lake_surface_water_temperature_reconstructed ({n_recon_from_temp:,}) and flag ({result.n_reconstructed:,})")
         
         ds_out.close()
         
@@ -292,7 +292,7 @@ def validate_lake(run_root: Path, lake_id: int, alpha: float = 1000,
         
         # Load reconstruction mask from output - only validate within reconstructed pixels
         ds_out_reopen = xr.open_dataset(files["output_dineof"])
-        recon_mask = ~np.isnan(ds_out_reopen["temp_filled"].values)
+        recon_mask = ~np.isnan(ds_out_reopen["lake_surface_water_temperature_reconstructed"].values)
         ds_out_reopen.close()
         
         n_skipped_not_recon = 0
@@ -477,8 +477,8 @@ def validate_lake(run_root: Path, lake_id: int, alpha: float = 1000,
         # ===== Validate gaps using prepared.nc =====
         # Re-open output to get recon_mask for gap validation
         ds_out = xr.open_dataset(files["output_dineof"])
-        temp_filled = ds_out["temp_filled"].values
-        recon_mask = ~np.isnan(temp_filled)  # True where reconstruction exists
+        lake_surface_water_temperature_reconstructed = ds_out["lake_surface_water_temperature_reconstructed"].values
+        recon_mask = ~np.isnan(lake_surface_water_temperature_reconstructed)  # True where reconstruction exists
         ds_out.close()
         
         ds_prep = xr.open_dataset(files["prepared"])
@@ -501,7 +501,7 @@ def validate_lake(run_root: Path, lake_id: int, alpha: float = 1000,
                 out_to_prep_idx.append(prep_day_to_idx.get(int(d), -1))
             out_to_prep_idx = np.array(out_to_prep_idx, dtype=np.int64)
             
-            # Validate gaps: for pixels where temp_filled is not NaN AND prepared.nc has NaN
+            # Validate gaps: for pixels where lake_surface_water_temperature_reconstructed is not NaN AND prepared.nc has NaN
             # flag should be 0 (true gap)
             n_gap_expected = 0
             n_gap_actual = 0

@@ -254,10 +254,10 @@ def load_satellite_obs_at_pixel(nc_path: str, lat_idx: int, lon_idx: int,
         # Get temperature
         if 'lswt' in ds:
             temps = ds['lswt'].isel(lat=lat_idx, lon=lon_idx).values
-        elif 'temp_filled' in ds:
+        elif 'lake_surface_water_temperature_reconstructed' in ds:
             # Use original obs from a reconstruction file
             # Need to identify which are original vs filled
-            temps = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+            temps = ds['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values
         else:
             return np.array([])
         
@@ -313,7 +313,7 @@ def load_satellite_from_dineof_output(nc_path: str, lat_idx: int, lon_idx: int,
     Returns array of valid temperature observations (only original obs, not gap-filled).
     """
     with xr.open_dataset(nc_path) as ds:
-        temps = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+        temps = ds['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values
         
         # Identify original observations using quality_level
         if 'quality_level' in ds:

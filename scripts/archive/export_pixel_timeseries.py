@@ -75,8 +75,8 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
         else:
             mask = np.isfinite(lakeid) & (lakeid != 0)
     else:
-        if 'temp_filled' in ds:
-            mask = np.any(np.isfinite(ds['temp_filled'].values), axis=0)
+        if 'lake_surface_water_temperature_reconstructed' in ds:
+            mask = np.any(np.isfinite(ds['lake_surface_water_temperature_reconstructed'].values), axis=0)
         else:
             return None
     return mask.astype(bool)
@@ -249,7 +249,7 @@ def extract_timeseries_at_pixel(ds: xr.Dataset, lat_idx: int, lon_idx: int,
     times = pd.to_datetime(ds['time'].values)
     
     # Get reconstruction
-    recon = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+    recon = ds['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values
     
     # Convert to Celsius if needed
     if np.nanmean(recon) > 100:

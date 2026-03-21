@@ -302,7 +302,7 @@ def compute_dincae_cv(
     
     # Load reconstruction
     ds_recon = xr.open_dataset(dincae_results_nc)
-    recon_var = "temp_filled" if "temp_filled" in ds_recon else list(ds_recon.data_vars)[0]
+    recon_var = "lake_surface_water_temperature_reconstructed" if "lake_surface_water_temperature_reconstructed" in ds_recon else list(ds_recon.data_vars)[0]
     reconstructed = ds_recon[recon_var].values
     ds_recon.close()
     

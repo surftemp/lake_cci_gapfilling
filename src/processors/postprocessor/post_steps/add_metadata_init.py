@@ -21,7 +21,7 @@ class AddInitMetadataStep(PostProcessingStep):
     INIT_ROOT = "/home/users/shaerdan/lake_dashboard"
 
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
-        return ds is not None and "temp_filled" in ds and ctx.lake_id is not None and ctx.lake_id >= 0
+        return ds is not None and "lake_surface_water_temperature_reconstructed" in ds and ctx.lake_id is not None and ctx.lake_id >= 0
 
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
         assert ds is not None

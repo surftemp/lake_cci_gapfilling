@@ -44,9 +44,9 @@ def main():
     print(f"Coordinates: {list(ds.coords)}")
     print(f"Dimensions: {dict(ds.sizes)}")
     
-    if "temp_filled" in ds:
-        tf = ds["temp_filled"].values
-        print(f"\n>>> temp_filled:")
+    if "lake_surface_water_temperature_reconstructed" in ds:
+        tf = ds["lake_surface_water_temperature_reconstructed"].values
+        print(f"\n>>> lake_surface_water_temperature_reconstructed:")
         print(f"  Shape: {tf.shape}")
         print(f"  Dtype: {tf.dtype}")
         
@@ -115,9 +115,9 @@ def main():
         print(f"\nFile: {post_output[0]}")
         print(f"Dimensions: {dict(ds_post.sizes)}")
         
-        if "temp_filled" in ds_post:
-            tf_post = ds_post["temp_filled"].values
-            print(f"\n>>> temp_filled:")
+        if "lake_surface_water_temperature_reconstructed" in ds_post:
+            tf_post = ds_post["lake_surface_water_temperature_reconstructed"].values
+            print(f"\n>>> lake_surface_water_temperature_reconstructed:")
             print(f"  Shape: {tf_post.shape}")
             
             n_total = tf_post.size

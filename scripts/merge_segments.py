@@ -174,7 +174,7 @@ def _extract_dincae_cv_from_segment(
 
     # Load reconstruction
     ds_recon = xr.open_dataset(dincae_results_nc)
-    recon_var = "temp_filled" if "temp_filled" in ds_recon else list(ds_recon.data_vars)[0]
+    recon_var = "lake_surface_water_temperature_reconstructed" if "lake_surface_water_temperature_reconstructed" in ds_recon else list(ds_recon.data_vars)[0]
     reconstructed = ds_recon[recon_var].values
     ds_recon.close()
 
@@ -452,7 +452,7 @@ def _merge_post_concat(
 
         cv = nc_out.createVariable(
             vname, vinfo['dtype'], dims,
-            zlib=True, complevel=5 if vname == 'temp_filled' else 4,
+            zlib=True, complevel=5 if vname == 'lake_surface_water_temperature_reconstructed' else 4,
             fill_value=fill,
         )
         for ak, av in vinfo['attrs'].items():
@@ -495,17 +495,17 @@ def _merge_post_concat(
     n_filled = 0
     with xr.open_dataset(out_path) as ds_check:
         n_time_final = ds_check.sizes['time']
-        if "temp_filled" in ds_check:
+        if "lake_surface_water_temperature_reconstructed" in ds_check:
             # Count in chunks to avoid OOM
             chunk_size = 500
             for t_start in range(0, n_time_final, chunk_size):
                 t_end = min(t_start + chunk_size, n_time_final)
-                chunk = ds_check["temp_filled"].isel(time=slice(t_start, t_end)).values
+                chunk = ds_check["lake_surface_water_temperature_reconstructed"].isel(time=slice(t_start, t_end)).values
                 n_filled += int(np.count_nonzero(~np.isnan(chunk)))
 
     if verbose:
         print(f"      -> merged (concat): {n_time_final} timesteps, "
-              f"{n_filled:,} non-NaN temp_filled pixels")
+              f"{n_filled:,} non-NaN lake_surface_water_temperature_reconstructed pixels")
 
     return {"success": True, "n_filled": n_filled, "mode": "concat"}
 
@@ -520,7 +520,7 @@ def _merge_post_overlay(
     Overlay post-processed files from each segment using chunked I/O.
 
     Each segment's post file is on the SAME time axis (the original CCI lake
-    file's full timeline), but only its time range has non-NaN temp_filled.
+    file's full timeline), but only its time range has non-NaN lake_surface_water_temperature_reconstructed.
     We overlay: use seg0 values where non-NaN, else seg1, etc.
 
     Memory-bounded: processes `time_chunk` timesteps at a time instead of
@@ -552,8 +552,8 @@ def _merge_post_overlay(
     # Prepare output file: write seg0 as base
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     enc = {v: {"zlib": True, "complevel": 4} for v in ds0.data_vars}
-    if "temp_filled" in ds0:
-        enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+    if "lake_surface_water_temperature_reconstructed" in ds0:
+        enc["lake_surface_water_temperature_reconstructed"] = {"dtype": "float32", "zlib": True, "complevel": 5}
 
     ds0_full = xr.open_dataset(existing_paths[0])
     ds0_full.attrs.update(seg_attrs)
@@ -610,14 +610,14 @@ def _merge_post_overlay(
     # Count filled pixels for summary
     n_filled = 0
     with xr.open_dataset(out_path) as ds_check:
-        if "temp_filled" in ds_check:
+        if "lake_surface_water_temperature_reconstructed" in ds_check:
             for t_start in range(0, n_time, time_chunk):
                 t_end = min(t_start + time_chunk, n_time)
-                chunk = ds_check["temp_filled"].isel({time_name: slice(t_start, t_end)}).values
+                chunk = ds_check["lake_surface_water_temperature_reconstructed"].isel({time_name: slice(t_start, t_end)}).values
                 n_filled += int(np.count_nonzero(~np.isnan(chunk)))
 
     if verbose:
-        print(f"      -> merged post file: {n_filled:,} non-NaN temp_filled pixels")
+        print(f"      -> merged post file: {n_filled:,} non-NaN lake_surface_water_temperature_reconstructed pixels")
     return {"success": True, "n_filled": n_filled, "mode": "overlay"}
 
 
@@ -772,12 +772,12 @@ def verify_merge(
             label = fname.split("_")[-1].replace(".nc", "") if "_" in fname else fname
             fpath = os.path.join(post_dir, fname)
             ds = xr.open_dataset(fpath)
-            if "temp_filled" in ds:
+            if "lake_surface_water_temperature_reconstructed" in ds:
                 n_time = ds.sizes.get("time", 0)
                 q = n_time // 4 if n_time >= 4 else n_time
                 quarter_counts = []
                 for qi in range(4):
-                    chunk = ds["temp_filled"].isel(time=slice(qi * q, (qi + 1) * q))
+                    chunk = ds["lake_surface_water_temperature_reconstructed"].isel(time=slice(qi * q, (qi + 1) * q))
                     quarter_counts.append(int(chunk.count().values))
                 all_quarters_ok = all(c > 0 for c in quarter_counts)
                 checks[f"post_{label}_all_quarters"] = all_quarters_ok

@@ -48,33 +48,18 @@ def estimate_nbclean(prepared_path: str, data_var: str, mask_var: str, target_fr
     # TODO: use the avg from the actual cloud fraction range used  
     avg_cloud_cov = cloudcov.mean()
     
-    print(f"[DEBUG] Cloud coverages (sorted): {sorted_cov[:10]}...")
-    print(f"[DEBUG] Avg cloud coverage: {avg_cloud_cov:.3f}, Total valid pixels: {total_valid}")
-
     # For each candidate nbclean, estimate fraction of new clouds added
     for nb in range(1, ntime + 1):
-        # Clean frames have the lowest cloud coverage
         clean_cov = sorted_cov[:nb].mean()
-        
-        # Valid pixels in these clean frames
         valid_in_clean_frames = nb * Mcount * (1 - clean_cov)
-        
-        # Donor frames will paste their clouds onto clean frames
-        # New clouds ≈ valid_in_clean * avg_cloud_cov (probability overlap)
-        estimated_new_clouds = valid_in_clean_frames * avg_cloud_cov    
-        
-        # Fraction of total valid data that becomes clouded
+        estimated_new_clouds = valid_in_clean_frames * avg_cloud_cov
         fraction_added = estimated_new_clouds / total_valid
-        
-        if nb <= 5 or nb % 10 == 0:
-            print(f"[DEBUG] nbclean={nb}: clean_cov={clean_cov:.3f}, "
-                  f"est_fraction={fraction_added:.4f} ({fraction_added*100:.2f}%)")
-        
+
         if fraction_added >= target_frac:
-            print(f"[DEBUG] Estimated nbclean: {nb} for target fraction: {target_frac}")
+            print(f"[CV] Estimated nbclean={nb} for target fraction={target_frac}")
             return nb
 
-    print(f"[DEBUG] Could not reach target {target_frac}, using all frames: {ntime}")
+    print(f"[CV] Could not reach target {target_frac}, using all frames: {ntime}")
     return ntime
 
 

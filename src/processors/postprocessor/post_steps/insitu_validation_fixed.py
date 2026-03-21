@@ -532,7 +532,7 @@ class InsituValidationStep(PostProcessingStep):
         return index, min_dist
     
     def _extract_matched_temps(self, ds: xr.Dataset, grid_idx: Tuple[int, int],
-                                buoy_dates: List, var_name: str = 'temp_filled',
+                                buoy_dates: List, var_name: str = 'lake_surface_water_temperature_reconstructed',
                                 quality_threshold: Optional[int] = None) -> Dict:
         """
         Extract temperatures for dates matching buoy data.
@@ -575,7 +575,7 @@ class InsituValidationStep(PostProcessingStep):
         return {'temps': temps_array, 'matched_dates': matched_dates}
     
     def _extract_full_timeseries(self, ds: xr.Dataset, grid_idx: Tuple[int, int], 
-                                  var_name: str = 'temp_filled') -> Dict:
+                                  var_name: str = 'lake_surface_water_temperature_reconstructed') -> Dict:
         """Extract full time series for a pixel, ensuring Celsius."""
         if var_name not in ds:
             return {'times': pd.DatetimeIndex([]), 'temps': np.array([])}
@@ -847,8 +847,8 @@ class InsituValidationStep(PostProcessingStep):
                             ds.close()
                             return
                     
-                    # Extract RECONSTRUCTION (temp_filled)
-                    recon_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'temp_filled')
+                    # Extract RECONSTRUCTION (lake_surface_water_temperature_reconstructed)
+                    recon_extracted = self._extract_matched_temps(ds, grid_idx, unique_buoy_dates, 'lake_surface_water_temperature_reconstructed')
                     
                     # Extract OBSERVATION (lake_surface_water_temperature) with quality filter
                     quality_threshold = self.config.get("quality_threshold", 3)
@@ -975,7 +975,7 @@ class InsituValidationStep(PostProcessingStep):
                         
                         # For interpolated files, extract full time series
                         if is_interpolated:
-                            results['methods'][method_name]['recon']['full_timeseries'] = self._extract_full_timeseries(ds, grid_idx, 'temp_filled')
+                            results['methods'][method_name]['recon']['full_timeseries'] = self._extract_full_timeseries(ds, grid_idx, 'lake_surface_water_temperature_reconstructed')
                         
                         print(f"[InsituValidation] {method_name} (recon): N={recon_stats['n_matches']}, RMSE={recon_stats['rmse']:.3f}°C, Bias={recon_stats['bias']:.3f}°C")
                     

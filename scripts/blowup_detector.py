@@ -109,16 +109,19 @@ def load_time_from_eofs(eofs_path: str) -> np.ndarray:
 
 def load_reconstruction(dineof_results_path: str) -> np.ndarray:
     """
-    Load temp_filled from dineof_results.nc.
+    Load lake_surface_water_temperature_reconstructed from dineof_results.nc.
 
     Returns:
         3D array (time, lat, lon) with DINEOF missing_value replaced by NaN.
     """
     with xr.open_dataset(dineof_results_path) as ds:
-        if "temp_filled" not in ds:
-            raise ValueError(f"No 'temp_filled' in {dineof_results_path}")
+        # Fallback: DINEOF binary writes "temp_filled"
+        if "lake_surface_water_temperature_reconstructed" not in ds and "temp_filled" in ds:
+            ds = ds.rename({"temp_filled": "lake_surface_water_temperature_reconstructed"})
+        if "lake_surface_water_temperature_reconstructed" not in ds:
+            raise ValueError(f"No 'lake_surface_water_temperature_reconstructed' in {dineof_results_path}")
 
-        tf = ds["temp_filled"].values.copy()  # (dim003=time, dim002=lat, dim001=lon)
+        tf = ds["lake_surface_water_temperature_reconstructed"].values.copy()  # (dim003=time, dim002=lat, dim001=lon)
 
         # Replace DINEOF missing value (9999) with NaN
         tf[tf > 9990] = np.nan

@@ -17,7 +17,7 @@ pairs from all 6 reconstruction method variants:
 
 Two data_types per non-interpolated method:
     - observation: raw satellite LSWT (quality_level >= 3) vs buoy
-    - reconstruction: temp_filled (gap-filled) vs buoy
+    - reconstruction: lake_surface_water_temperature_reconstructed (gap-filled) vs buoy
 
 For reconstruction, also tags each pair as was_observed (True/False),
 enabling sub-aggregation into reconstruction_observed and reconstruction_missing.
@@ -475,7 +475,7 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
     # Pre-load sparse method data for cross-referencing flags
     # We need: sparse file time axes, and sparse file pixel values
     sparse_time_dates = {}   # method_key -> set of dates
-    sparse_pixel_vals = {}   # method_key -> {date: temp_filled_value}
+    sparse_pixel_vals = {}   # method_key -> {date: lake_surface_water_temperature_reconstructed_value}
 
     all_rows = []
 
@@ -539,8 +539,8 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                 # Cache sparse file time dates and pixel values for later flag computation
                 if not is_interpolated and method_key not in sparse_time_dates:
                     sparse_time_dates[method_key] = set(date_to_idx.keys())
-                    if 'temp_filled' in ds:
-                        px_ts = ds['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values
+                    if 'lake_surface_water_temperature_reconstructed' in ds:
+                        px_ts = ds['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values
                         px_ts = ensure_celsius(px_ts)
                         sv = {}
                         for d, tidx in date_to_idx.items():
@@ -610,8 +610,8 @@ def extract_lake(run_root: str, lake_id_cci: int, alpha: str,
                         })
 
                 # --- Extract RECONSTRUCTION data_type ---
-                if 'temp_filled' in ds:
-                    recon_pixel = ds['temp_filled'].isel(
+                if 'lake_surface_water_temperature_reconstructed' in ds:
+                    recon_pixel = ds['lake_surface_water_temperature_reconstructed'].isel(
                         lat=lat_idx, lon=lon_idx).values
                     recon_pixel = ensure_celsius(recon_pixel)
 
@@ -922,7 +922,7 @@ Methods extracted (6 variants):
 
 Data types:
     observation       — satellite LSWT (QL>=3) vs buoy [sparse methods only]
-    reconstruction    — temp_filled vs buoy [all methods]
+    reconstruction    — lake_surface_water_temperature_reconstructed vs buoy [all methods]
       sub-split by was_observed: reconstruction_observed / reconstruction_missing
 
 Output files (in --output-dir):
@@ -1085,6 +1085,9 @@ Examples:
         header_written = False
         if args.append and os.path.exists(assembly_csv):
             header_written = True
+        elif os.path.exists(assembly_csv):
+            os.remove(assembly_csv)
+            print(f"  Removed stale assembly: {assembly_csv}")
 
         n_rows = 0
         for csv_file in csv_files:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Convert temp_filled from Kelvin to Celsius in post .nc files.
+Convert lake_surface_water_temperature_reconstructed from Kelvin to Celsius in post .nc files.
 Operates in-place. Only converts if units indicate Kelvin.
 """
 import argparse
@@ -19,16 +19,16 @@ def convert_lake(post_dir: str, verbose: bool = True) -> int:
     for nc_path in nc_files:
         try:
             ds = xr.open_dataset(nc_path)
-            if "temp_filled" not in ds:
+            if "lake_surface_water_temperature_reconstructed" not in ds:
                 ds.close()
                 continue
 
-            units = ds["temp_filled"].attrs.get("units", "").lower().strip()
+            units = ds["lake_surface_water_temperature_reconstructed"].attrs.get("units", "").lower().strip()
             # Check if Kelvin — either explicit or values > 100
             is_kelvin = "kelvin" in units or units == "k"
             if not is_kelvin:
                 # Also check by value range as safety net
-                sample = ds["temp_filled"].values.ravel()
+                sample = ds["lake_surface_water_temperature_reconstructed"].values.ravel()
                 finite = sample[np.isfinite(sample)]
                 if len(finite) > 0 and np.nanmean(finite) > 100:
                     is_kelvin = True
@@ -40,8 +40,8 @@ def convert_lake(post_dir: str, verbose: bool = True) -> int:
                 continue
 
             # Convert
-            ds["temp_filled"] = (ds["temp_filled"] - 273.15).astype("float32")
-            ds["temp_filled"].attrs["units"] = "degree_Celsius"
+            ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] - 273.15).astype("float32")
+            ds["lake_surface_water_temperature_reconstructed"].attrs["units"] = "degree_Celsius"
 
             # Update clamp threshold if present
             if ds.attrs.get("subzero_clamped", 0) == 1:
@@ -50,8 +50,8 @@ def convert_lake(post_dir: str, verbose: bool = True) -> int:
             # Write to temp then rename (atomic)
             tmp_path = nc_path + ".tmp"
             enc = {v: {"zlib": True, "complevel": 4} for v in ds.data_vars}
-            if "temp_filled" in ds:
-                enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+            if "lake_surface_water_temperature_reconstructed" in ds:
+                enc["lake_surface_water_temperature_reconstructed"] = {"dtype": "float32", "zlib": True, "complevel": 5}
             ds.to_netcdf(tmp_path, encoding=enc)
             ds.close()
             os.replace(tmp_path, nc_path)
@@ -71,7 +71,7 @@ def convert_lake(post_dir: str, verbose: bool = True) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert temp_filled from Kelvin to Celsius")
+    parser = argparse.ArgumentParser(description="Convert lake_surface_water_temperature_reconstructed from Kelvin to Celsius")
     parser.add_argument("--run-root", required=True)
     parser.add_argument("--lake-id", type=int, required=True)
     parser.add_argument("--alpha", default="a1000")

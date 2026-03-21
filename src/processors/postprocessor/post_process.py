@@ -32,8 +32,11 @@ Author: refactor based on your original post-processor
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
+import uuid
+from datetime import datetime, timezone
 import xarray as xr
 import numpy as np
 from dataclasses import dataclass
@@ -42,7 +45,7 @@ import glob
 
 # ==== step imports (factorized) ====
 # Ensure these modules exist under lake_dashboard/dineof_postprocessor/post_steps/
-from .post_steps.base import PostProcessingStep, PostContext
+from .post_steps.base import PostProcessingStep, PostContext, get_current_rss_mb, get_peak_rss_mb
 from .post_steps.merge_outputs import MergeOutputsStep
 from .post_steps.copy_aux_flags import CopyAuxFlagsStep, CopyOriginalVarsStep
 from .post_steps.add_back_trend import AddBackTrendStep
@@ -97,6 +100,17 @@ def _resolve_climatology_path(
 def _with_suffix(path: str, suffix: str) -> str:
     root, ext = os.path.splitext(path)
     return f"{root}{suffix}{ext}"
+
+def _cci_product_filename(lake_path: str, output_dir: str) -> str:
+    """
+    Derive CCI-aligned final product filename from the input lake file path.
+
+    Input:  LAKE000001241-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc
+    Output: LAKE000001241-CCI-L3S-LSWT-CDR-4.5-fv01.0-FILLED.nc
+    """
+    base = os.path.basename(lake_path)
+    root, ext = os.path.splitext(base)
+    return os.path.join(output_dir, f"{root}-FILLED{ext}")
     
 # ===== Pipeline Orchestrator =====
 
@@ -169,6 +183,9 @@ class PostProcessor:
             keep_attrs=self.options.keep_attrs,
             experiment_config_path=self.experiment_config_file,
         )
+
+        # Cache original CCI coordinate attrs for output formatting
+        self._orig_coord_attrs = self._load_orig_coord_attrs()
 
         # Build pipeline
         self.pipeline: List[PostProcessingStep] = self._create_pipeline()
@@ -265,6 +282,556 @@ class PostProcessor:
         
         return steps
 
+    # ===== Output formatting helpers =====
+
+    def _load_orig_coord_attrs(self) -> dict:
+        """Load coordinate attributes from the original ESA CCI lake file."""
+        attrs = {"lat": {}, "lon": {}, "time": {}}
+        try:
+            with xr.open_dataset(self.lake_path) as ds_orig:
+                for coord in ("lat", "lon", "time"):
+                    if coord in ds_orig.coords:
+                        attrs[coord] = dict(ds_orig[coord].attrs)
+        except Exception as e:
+            print(f"[Post] Warning: could not load coordinate attrs from {self.lake_path}: {e}")
+        return attrs
+
+    def _build_output_encoding(self, ds: xr.Dataset) -> dict:
+        """Build netCDF encoding dict that matches ESA CCI format conventions."""
+        enc = {var: {"zlib": True, "complevel": 4} for var in ds.data_vars}
+
+        # Time: match ESA CCI input (seconds since 1970-01-01, gregorian, int32)
+        enc["time"] = {
+            "units": "seconds since 1970-01-01 00:00:00",
+            "calendar": "gregorian",
+            "dtype": "int32",
+        }
+
+        # Coordinates: suppress xarray's auto-added _FillValue
+        enc["lat"] = {"_FillValue": None}
+        enc["lon"] = {"_FillValue": None}
+
+        # Bounds: no _FillValue, no compression needed
+        for bnd in ("lat_bounds", "lon_bounds"):
+            if bnd in ds:
+                enc[bnd] = {"_FillValue": None}
+
+        # crs scalar: no compression
+        if "crs" in ds:
+            enc["crs"] = {"dtype": "int32"}
+
+        # Reconstructed LSWT: float32, compressed
+        RECON_VAR = "lake_surface_water_temperature_reconstructed"
+        if RECON_VAR in ds:
+            enc[RECON_VAR] = {"dtype": "float32", "zlib": True, "complevel": 5}
+
+        # lake_surface_water_temperature: float32
+        if "lake_surface_water_temperature" in ds:
+            enc["lake_surface_water_temperature"] = {"dtype": "float32", "zlib": True, "complevel": 4}
+
+        # quality_level: int8 to match input (byte)
+        if "quality_level" in ds:
+            enc["quality_level"] = {"dtype": "int8", "_FillValue": np.int8(0), "zlib": True, "complevel": 4}
+
+        # Flag variables: uint8
+        for flag_var in ("data_source", "ice_replaced"):
+            if flag_var in ds:
+                enc[flag_var] = {"dtype": "uint8", "zlib": True, "complevel": 4}
+
+        # Lake ID masks: int32
+        for lid_var in ("lakeid", "lakeid_original"):
+            if lid_var in ds:
+                enc[lid_var] = {"dtype": "int32", "zlib": True, "complevel": 4}
+
+        return enc
+
+    def _fix_output_attrs(self, ds: xr.Dataset) -> xr.Dataset:
+        """Restore coordinate attributes and add CCI-compliant metadata."""
+        RECON_VAR = "lake_surface_water_temperature_reconstructed"
+
+        # --- Coordinate attributes from original CCI file ---
+        for coord in ("lat", "lon", "time"):
+            if coord in ds.coords and self._orig_coord_attrs.get(coord):
+                ds[coord].attrs.pop("_FillValue", None)
+                for k, v in self._orig_coord_attrs[coord].items():
+                    ds[coord].attrs[k] = v
+
+        # --- Lat/lon bounds ---
+        if "lat" in ds.coords and "lat_bounds" not in ds:
+            lat = ds["lat"].values
+            lon = ds["lon"].values
+            if len(lat) > 1 and len(lon) > 1:
+                dlat = np.abs(np.diff(lat[:2])[0]) / 2
+                dlon = np.abs(np.diff(lon[:2])[0]) / 2
+                ds["lat_bounds"] = xr.DataArray(
+                    np.column_stack([lat - dlat, lat + dlat]),
+                    dims=("lat", "nv"),
+                )
+                ds["lon_bounds"] = xr.DataArray(
+                    np.column_stack([lon - dlon, lon + dlon]),
+                    dims=("lon", "nv"),
+                )
+                ds["lat"].attrs["bounds"] = "lat_bounds"
+                ds["lon"].attrs["bounds"] = "lon_bounds"
+
+        # --- CRS grid mapping (WGS84) ---
+        if "crs" not in ds:
+            ds["crs"] = xr.DataArray(
+                np.int32(0),
+                attrs={
+                    "grid_mapping_name": "latitude_longitude",
+                    "semi_major_axis": 6378137.0,
+                    "inverse_flattening": 298.257223563,
+                    "longitude_of_prime_meridian": 0.0,
+                },
+            )
+        # Add grid_mapping to all data variables
+        for var in list(ds.data_vars):
+            if var not in ("crs", "lat_bounds", "lon_bounds", "lakeid", "lakeid_original"):
+                ds[var].attrs.setdefault("grid_mapping", "crs")
+
+        # --- Reconstructed LSWT metadata ---
+        if RECON_VAR in ds:
+            tf_attrs = ds[RECON_VAR].attrs
+            tf_attrs["long_name"] = (
+                "complete two-dimensional lake surface water temperature "
+                "reconstructed by robust-DINEOF"
+            )
+            tf_attrs["standard_name"] = "lake_surface_water_temperature_reconstructed"
+            tf_attrs.setdefault("units", "degree_Celsius")
+            tf_attrs["ancillary_variables"] = "quality_level data_source"
+
+        return ds
+
+    def _write_output(self, ds: xr.Dataset, path: str, extra_attrs: Optional[dict] = None) -> None:
+        """Write output dataset with proper encoding, coordinate attrs, and provenance."""
+        self._fix_output_attrs(ds)
+
+        # Ensure output variable has the standard name (fallback for any edge case)
+        RECON_VAR = "lake_surface_water_temperature_reconstructed"
+        if RECON_VAR not in ds and "temp_filled" in ds:
+            ds = ds.rename({"temp_filled": RECON_VAR})
+
+        # --- CCI-required global attributes ---
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Fresh UUID per output file (do NOT inherit from input)
+        ds.attrs["tracking_id"] = str(uuid.uuid4())
+
+        # Production timestamp (overwrite inherited input date)
+        ds.attrs["date_created"] = now_str
+
+        # Append gap-filling provenance to history
+        old_history = ds.attrs.get("history", "")
+        ds.attrs["history"] = (
+            f"{old_history}; {now_str} gap-filled by robust-DINEOF "
+            f"(lake_cci_gapfilling pipeline)"
+        )
+
+        # CCI data standards compliance
+        ds.attrs["format_version"] = "CCI Data Standards v2.3"
+        ds.attrs["naming_authority"] = "lakes.esa-cci"
+        ds.attrs["Conventions"] = "CF-1.8"
+
+        # Temporal resolution (daily for all products)
+        ds.attrs["time_coverage_resolution"] = "P1D"
+
+        # Provenance paths
+        try:
+            with xr.open_dataset(self.dineof_input_path) as ds_in:
+                pcfg = ds_in.attrs.get("preprocess_config_path")
+                if pcfg:
+                    ds.attrs["preprocess_config_path"] = str(pcfg)
+        except Exception:
+            pass
+        if self.experiment_config_file:
+            ds.attrs["experiment_config_file"] = str(self.experiment_config_file)
+
+        if extra_attrs:
+            ds.attrs.update(extra_attrs)
+
+        enc = self._build_output_encoding(ds)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        ds.to_netcdf(path, encoding=enc, unlimited_dims=["time"])
+        print(f"[Post] Wrote: {path}")
+
+    # ==================== Memory-profiled step runner ====================
+
+    def _run_steps(self, ds: Optional[xr.Dataset], skip_steps: Optional[set] = None,
+                   pass_label: str = "") -> Optional[xr.Dataset]:
+        """Run pipeline steps on ds, with optional memory profiling and step skipping."""
+        skip = skip_steps or set()
+        profiling = self.ctx.profile_memory
+        for step in self.pipeline:
+            if step.name in skip:
+                continue
+            if not step.should_apply(self.ctx, ds):
+                if profiling:
+                    print(f"[Post] Skipping: {step.name}")
+                continue
+            if profiling:
+                rss_before = get_current_rss_mb()
+            print(f"[Post]{' ' + pass_label + ' --' if pass_label else ''} Applying: {step.name}")
+            ds = step.apply(self.ctx, ds)
+            if profiling:
+                rss_after = get_current_rss_mb()
+                print(f"[MEM] {step.name}: RSS {rss_before:.0f} -> {rss_after:.0f} MB "
+                      f"(delta {rss_after - rss_before:+.0f} MB)")
+        return ds
+
+    def _log_pass_memory(self, pass_name: str) -> None:
+        """Log memory at pass boundary if profiling is enabled."""
+        if self.ctx.profile_memory:
+            rss = get_current_rss_mb()
+            peak = get_peak_rss_mb()
+            print(f"[MEM] === {pass_name} complete: RSS={rss:.0f} MB, peak={peak:.0f} MB ===")
+
+    # ==================== Individual pass methods ====================
+
+    def _pass1_baseline(self) -> None:
+        """Pass 1: Baseline DINEOF reconstruction on original sparse timeline."""
+        ds = self._run_steps(None, pass_label="Pass1")
+        if ds is not None:
+            self._write_output(ds, self.output_path)
+        del ds
+        gc.collect()
+        self._log_pass_memory("Pass 1 (baseline)")
+
+    def _pass2_eof_filtered(self) -> None:
+        """Pass 2: EOF-filtered reconstruction on original sparse timeline."""
+        base_dir = os.path.dirname(self.dineof_output_path)
+        filtered_results = os.path.join(base_dir, "dineof_results_eof_filtered.nc")
+        if not os.path.isfile(filtered_results):
+            return
+
+        print(f"[Post] Found filtered reconstruction: {filtered_results}")
+
+        orig_results = self.ctx.dineof_output_path
+        orig_output  = self.ctx.output_path
+        orig_html    = self.ctx.output_html_folder
+        if orig_html:
+            self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_filtered")
+        self.ctx.dineof_output_path = filtered_results
+        self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered")
+
+        skip_steps = {
+            "FilterTemporalEOFs",
+            "InterpolateTemporalEOFs_raw",
+            "InterpolateTemporalEOFs_filtered",
+            "ReconstructFromEOFs_filtered",
+            "ReconstructFromEOFs_interp",
+            "ReconstructFromEOFs_filtered_interp",
+        }
+
+        ds = self._run_steps(None, skip_steps=skip_steps, pass_label="Pass2")
+        if ds is not None:
+            self._write_output(ds, self.ctx.output_path)
+
+        # restore
+        self.ctx.dineof_output_path = orig_results
+        self.ctx.output_path        = orig_output
+        self.ctx.output_html_folder = orig_html
+        del ds
+        gc.collect()
+        self._log_pass_memory("Pass 2 (eof_filtered)")
+
+    def _build_full_daily_dataset(self, interp_nc_path: str, comment: str) -> xr.Dataset:
+        """Build an xr.Dataset on the full daily timeline from an interpolated results file."""
+        base_time = np.datetime64("1981-01-01T12:00:00")
+        full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
+
+        with xr.open_dataset(interp_nc_path) as ds_interp:
+            with xr.open_dataset(self.dineof_input_path) as ds_in:
+                self.ctx.input_attrs = dict(ds_in.attrs)
+                self.ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
+                self.ctx.test_id = str(ds_in.attrs.get("test_id", ""))
+                lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
+                lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
+                lat_vals = ds_in[lat_name].values
+                lon_vals = ds_in[lon_name].values
+                lakeid_data = ds_in.get("lakeid")
+
+            temp_data = ds_interp["lake_surface_water_temperature_reconstructed"].values
+
+        ds = xr.Dataset()
+        ds = ds.assign_coords({
+            self.ctx.time_name: full_time,
+            lat_name: lat_vals,
+            lon_name: lon_vals
+        })
+        if lakeid_data is not None:
+            ds["lakeid"] = lakeid_data
+        ds["lake_surface_water_temperature_reconstructed"] = xr.DataArray(
+            temp_data,
+            dims=(self.ctx.time_name, lat_name, lon_name),
+            coords={self.ctx.time_name: full_time,
+                    lat_name: lat_vals,
+                    lon_name: lon_vals},
+            attrs={"comment": comment}
+        )
+        if self.ctx.keep_attrs:
+            ds.attrs.update(self.ctx.input_attrs)
+        ds.attrs["prepared_source"] = self.dineof_input_path
+        ds.attrs["dineof_source"] = self.ctx.dineof_output_path
+        if self.ctx.test_id is not None:
+            ds.attrs["test_id"] = self.ctx.test_id
+        if self.ctx.lake_id is not None and self.ctx.lake_id >= 0:
+            ds.attrs["lake_id"] = self.ctx.lake_id
+
+        print(f"[Post] Created dataset with {len(full_time)} timesteps (full daily timeline)")
+        return ds
+
+    _FULL_DAILY_SKIP_STEPS = {
+        "FilterTemporalEOFs",
+        "InterpolateTemporalEOFs_raw",
+        "InterpolateTemporalEOFs_filtered",
+        "MergeOutputsStep",
+        "ReconstructFromEOFs_filtered",
+        "ReconstructFromEOFs_interp",
+        "ReconstructFromEOFs_filtered_interp",
+    }
+
+    def _pass3_interp_full(self) -> None:
+        """Pass 3: Raw EOFs interpolated to full daily timeline."""
+        base_dir = os.path.dirname(self.dineof_output_path)
+        interp_results = os.path.join(base_dir, "dineof_results_eof_interp_full.nc")
+        if not os.path.isfile(interp_results):
+            return
+
+        print(f"[Post] Found full-daily interpolated reconstruction: {interp_results}")
+
+        orig_results = self.ctx.dineof_output_path
+        orig_output  = self.ctx.output_path
+        orig_html    = self.ctx.output_html_folder
+        self.ctx.dineof_output_path = interp_results
+        self.ctx.output_path        = _with_suffix(orig_output, "_eof_interp_full")
+        if orig_html:
+            self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_interp_full")
+
+        ds = self._build_full_daily_dataset(
+            interp_results,
+            "DINEOF-filled anomalies (daily interpolated, before trend/climatology add-back)")
+        ds = self._run_steps(ds, skip_steps=self._FULL_DAILY_SKIP_STEPS, pass_label="Pass3")
+        if ds is not None:
+            self._write_output(ds, self.ctx.output_path)
+
+        # restore
+        self.ctx.dineof_output_path = orig_results
+        self.ctx.output_path        = orig_output
+        self.ctx.output_html_folder = orig_html
+        del ds
+        gc.collect()
+        self._log_pass_memory("Pass 3 (interp_full)")
+
+    def _pass4_filtered_interp_full(self) -> None:
+        """Pass 4: Filtered EOFs interpolated to full daily timeline (final product)."""
+        base_dir = os.path.dirname(self.dineof_output_path)
+        filtered_interp_results = os.path.join(base_dir, "dineof_results_eof_filtered_interp_full.nc")
+        if not os.path.isfile(filtered_interp_results):
+            return
+
+        print(f"[Post] Found filtered-interpolated reconstruction: {filtered_interp_results}")
+
+        orig_results = self.ctx.dineof_output_path
+        orig_output  = self.ctx.output_path
+        orig_html    = self.ctx.output_html_folder
+        self.ctx.dineof_output_path = filtered_interp_results
+        self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered_interp_full")
+        if orig_html:
+            self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_filtered_interp_full")
+
+        ds = self._build_full_daily_dataset(
+            filtered_interp_results,
+            "DINEOF-filled anomalies (filtered + daily interpolated, before trend/climatology add-back)")
+        ds = self._run_steps(ds, skip_steps=self._FULL_DAILY_SKIP_STEPS, pass_label="Pass4")
+
+        if ds is not None:
+            self._write_output(ds, self.ctx.output_path)
+            # Also write the CCI-aligned final product file
+            post_dir = os.path.dirname(self.ctx.output_path)
+            final_path = _cci_product_filename(self.lake_path, post_dir)
+            self._write_output(ds, final_path)
+            print(f"[Post] Final CCI product: {final_path}")
+
+        # restore
+        self.ctx.dineof_output_path = orig_results
+        self.ctx.output_path        = orig_output
+        self.ctx.output_html_folder = orig_html
+        del ds
+        gc.collect()
+        self._log_pass_memory("Pass 4 (filtered_interp_full)")
+
+    def _pass_cv(self) -> None:
+        """CV passes: _for_cv baseline and eof_filtered variants for satellite CV."""
+        base_dir = os.path.dirname(self.dineof_output_path)
+        cv_results = os.path.join(base_dir, "dineof_results_for_cv.nc")
+        cv_eofs = os.path.join(base_dir, "eofs_for_cv.nc")
+
+        if not os.path.isfile(cv_results):
+            return
+
+        print(f"[Post] Found CV-withheld reconstruction: {cv_results}")
+
+        # --- Filter _for_cv EOFs and reconstruct filtered _for_cv results ---
+        if os.path.isfile(cv_eofs) and self.options.eof_filter_enable:
+            cv_filter_step = FilterTemporalEOFsStep(
+                method=self.options.eof_filter_method,
+                k=self.options.eof_filter_k,
+                quantiles=self.options.eof_filter_quantiles,
+                temporal_var_prefix=self.options.eof_filter_temporal_prefix,
+                output_suffix=self.options.eof_filter_output_suffix,
+                overwrite=self.options.eof_filter_overwrite,
+                eof_selection=self.options.eof_filter_selection,
+                variance_threshold=self.options.eof_filter_variance_threshold,
+                top_n_eofs=self.options.eof_filter_top_n,
+                replacement_mode=self.options.eof_filter_replacement_mode,
+                eofs_basename="eofs_for_cv",
+            )
+            # These steps operate on files, ds=None is fine
+            if cv_filter_step.should_apply(self.ctx, None):
+                print(f"[Post] Filtering CV-withheld EOFs: eofs_for_cv.nc")
+                cv_filter_step.apply(self.ctx, None)
+
+            if self.options.recon_after_eof_filter:
+                cv_recon_step = ReconstructFromEOFsStep(
+                    source_mode="filtered",
+                    eofs_prefix="eofs_for_cv",
+                    output_cv_suffix="_for_cv",
+                )
+                if cv_recon_step.should_apply(self.ctx, None):
+                    print(f"[Post] Reconstructing from filtered CV-withheld EOFs")
+                    cv_recon_step.apply(self.ctx, None)
+
+        skip_steps = {
+            "FilterTemporalEOFs",
+            "InterpolateTemporalEOFs_raw",
+            "InterpolateTemporalEOFs_filtered",
+            "ReconstructFromEOFs_filtered",
+            "ReconstructFromEOFs_interp",
+            "ReconstructFromEOFs_filtered_interp",
+            "QAPlotsStep",
+            "LSWTPlotsStep",
+        }
+
+        # Enable CV point marking for _for_cv passes
+        self.ctx.mark_cv_points = True
+
+        # --- CV-1: baseline _for_cv ---
+        orig_results = self.ctx.dineof_output_path
+        orig_output  = self.ctx.output_path
+        orig_html    = self.ctx.output_html_folder
+
+        self.ctx.dineof_output_path = cv_results
+        self.ctx.output_path        = _with_suffix(orig_output, "_for_cv")
+
+        ds = self._run_steps(None, skip_steps=skip_steps, pass_label="CV-1")
+        if ds is not None:
+            self._write_output(ds, self.ctx.output_path, {"cv_withheld": 1})
+
+        self.ctx.dineof_output_path = orig_results
+        self.ctx.output_path        = orig_output
+        self.ctx.output_html_folder = orig_html
+        del ds
+        gc.collect()
+        self._log_pass_memory("CV-1 (baseline_for_cv)")
+
+        # --- CV-2: eof_filtered _for_cv ---
+        cv_filtered_results = os.path.join(base_dir, "dineof_results_eof_filtered_for_cv.nc")
+        if os.path.isfile(cv_filtered_results):
+            print(f"[Post] Found CV-withheld filtered reconstruction: {cv_filtered_results}")
+
+            orig_results = self.ctx.dineof_output_path
+            orig_output  = self.ctx.output_path
+            orig_html    = self.ctx.output_html_folder
+
+            self.ctx.dineof_output_path = cv_filtered_results
+            self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered_for_cv")
+
+            ds = self._run_steps(None, skip_steps=skip_steps, pass_label="CV-2")
+            if ds is not None:
+                self._write_output(ds, self.ctx.output_path, {"cv_withheld": 1})
+
+            self.ctx.dineof_output_path = orig_results
+            self.ctx.output_path        = orig_output
+            self.ctx.output_html_folder = orig_html
+            del ds
+            gc.collect()
+            self._log_pass_memory("CV-2 (eof_filtered_for_cv)")
+
+        # Disable CV marking after _for_cv passes are done
+        self.ctx.mark_cv_points = False
+
+    def _pass5_dincae_interp(self) -> None:
+        """Pass 5: DINCAE temporal interpolation to full daily timeline."""
+        if not self.options.dincae_temporal_interp:
+            return
+
+        dincae_results_path = self._find_dincae_results()
+        if dincae_results_path is None:
+            print("[Post] dincae_results.nc not found; skipping DINCAE interp")
+            return
+
+        post_dir = os.path.dirname(self.output_path)
+        dincae_sparse_files = glob.glob(os.path.join(post_dir, "*_dincae.nc"))
+        if dincae_sparse_files:
+            dincae_interp_path = dincae_sparse_files[0].replace(
+                "_dincae.nc", "_dincae_interp_full.nc")
+        else:
+            dincae_interp_path = os.path.join(
+                post_dir, _with_suffix(
+                    os.path.basename(self.output_path), "_dincae_interp_full"
+                ).replace("_dineof", ""))
+
+        if os.path.isfile(dincae_interp_path):
+            print(f"[Post] DINCAE interp already exists: {os.path.basename(dincae_interp_path)}")
+            return
+
+        print(f"[Post] Creating DINCAE daily interpolation from anomalies: "
+              f"{os.path.basename(dincae_results_path)}")
+
+        ds = self._interpolate_dincae_anomalies(dincae_results_path)
+        if ds is None:
+            return
+
+        orig_output = self.ctx.output_path
+        orig_html = self.ctx.output_html_folder
+        self.ctx.output_path = dincae_interp_path
+        if orig_html:
+            self.ctx.output_html_folder = _with_suffix(orig_html, "_dincae_interp_full")
+
+        if not hasattr(self.ctx, 'input_attrs') or not self.ctx.input_attrs:
+            with xr.open_dataset(self.dineof_input_path) as ds_in:
+                self.ctx.input_attrs = dict(ds_in.attrs)
+
+        skip_steps = {
+            "FilterTemporalEOFs",
+            "InterpolateTemporalEOFs_raw",
+            "InterpolateTemporalEOFs_filtered",
+            "MergeOutputsStep",
+            "ReconstructFromEOFs_filtered",
+            "ReconstructFromEOFs_interp",
+            "ReconstructFromEOFs_filtered_interp",
+            "CopyOriginalVarsStep",
+            "CopyAuxFlagsStep",
+            "AddDataSourceFlagStep",
+            "QAPlotsStep",
+            "AddInitMetadataStep",
+            "AddEOFsMetadataStep",
+            "AddDineofLogMetadataStep",
+        }
+
+        ds = self._run_steps(ds, skip_steps=skip_steps, pass_label="Pass5-DINCAE")
+        if ds is not None:
+            self._write_output(ds, dincae_interp_path, {"dincae_interp_anomaly_space": 1})
+
+        self.ctx.output_path = orig_output
+        self.ctx.output_html_folder = orig_html
+        del ds
+        gc.collect()
+        self._log_pass_memory("Pass 5 (dincae_interp)")
+
+    # ==================== Main entry point ====================
+
     def run(self) -> None:
         # Resolve climatology path if CLI didn't provide it
         if not self.ctx.climatology_path:
@@ -276,8 +843,6 @@ class PostProcessor:
                 print(f"[Post] Using climatology from preprocess JSON: {self.ctx.climatology_path}")
             else:
                 print("[Post] No climatology file available; will skip AddBackClimatologyStep if present.")
-                        
-        ds: Optional[xr.Dataset] = None
 
         # Load prepared attrs to construct full daily axis
         with xr.open_dataset(self.dineof_input_path) as ds_in:
@@ -287,418 +852,24 @@ class PostProcessor:
         self.ctx.time_units = tu
         self.ctx.time_start_days = t0
         self.ctx.time_end_days = t1
-        self.ctx.full_days = np.arange(t0, t1 + 1, dtype="int64")        
+        self.ctx.full_days = np.arange(t0, t1 + 1, dtype="int64")
 
-        # Run pipeline
-        for step in self.pipeline:
-            if not step.should_apply(self.ctx, ds):
-                print(f"[Post] Skipping: {step.name}")
-                continue
-            print(f"[Post] Applying: {step.name}")
-            ds = step.apply(self.ctx, ds)
+        if self.ctx.profile_memory:
+            rss = get_current_rss_mb()
+            print(f"[MEM] === Post-processing start: RSS={rss:.0f} MB ===")
 
-        # Final write (if the last step hasn’t already written)
-        if ds is not None:
-            # record provenance paths on the final dataset
-            try:
-                # propagate preprocess_config_path if present on prepared.nc
-                with xr.open_dataset(self.dineof_input_path) as ds_in:
-                    pcfg = ds_in.attrs.get("preprocess_config_path")
-                    if pcfg:
-                        ds.attrs["preprocess_config_path"] = str(pcfg)
-            except Exception:
-                pass
-            if self.experiment_config_file:
-                ds.attrs["experiment_config_file"] = str(self.experiment_config_file)
+        # Each pass runs in its own method scope, so the dataset is freed after each pass.
+        self._pass1_baseline()
+        self._pass2_eof_filtered()
+        self._pass3_interp_full()
+        self._pass4_filtered_interp_full()
+        self._pass_cv()
+        self._pass5_dincae_interp()
 
-            # sensible default encoding
-            enc = {var: {"zlib": True, "complevel": 4} for var in ds.data_vars}
-            # Guarantee float32 for temp_filled (matches earlier behavior)
-            if "temp_filled" in ds:
-                enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
-            os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
-            ds.to_netcdf(self.output_path, encoding=enc)
-            print(f"[Post] Wrote merged output: {self.output_path}")
-
-        # the second pass creates eof filtered recon
-        base_dir = os.path.dirname(self.dineof_output_path)
-        filtered_results = os.path.join(base_dir, "dineof_results_eof_filtered.nc")
-        
-        if os.path.isfile(filtered_results):
-            print(f"[Post] Found filtered reconstruction: {filtered_results}")
-        
-            # Temporarily switch source results and output path
-            orig_results = self.ctx.dineof_output_path
-            orig_output  = self.ctx.output_path
-            orig_html = self.ctx.output_html_folder
-            if orig_html:
-                self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_filtered") 
-                
-            self.ctx.dineof_output_path = filtered_results
-            self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered")
-        
-            # Skip the EOF steps on this second pass (we already filtered & reconstructed)
-            skip_steps = {
-                "FilterTemporalEOFs", 
-                "InterpolateTemporalEOFs_raw",
-                "InterpolateTemporalEOFs_filtered",
-                "ReconstructFromEOFs_filtered", 
-                "ReconstructFromEOFs_interp",
-                "ReconstructFromEOFs_filtered_interp",
-            }
-        
-            ds2 = None
-            for step in self.pipeline:
-                if step.name in skip_steps:
-                    continue
-                if not step.should_apply(self.ctx, ds2):
-                    continue
-                ds2 = step.apply(self.ctx, ds2)
-        
-            if ds2 is not None:
-                # same provenance + encoding as your first write
-                try:
-                    with xr.open_dataset(self.dineof_input_path) as ds_in:
-                        pcfg = ds_in.attrs.get("preprocess_config_path")
-                        if pcfg:
-                            ds2.attrs["preprocess_config_path"] = str(pcfg)
-                except Exception:
-                    pass
-                if self.experiment_config_file:
-                    ds2.attrs["experiment_config_file"] = str(self.experiment_config_file)
-        
-                enc2 = {v: {"zlib": True, "complevel": 4} for v in ds2.data_vars}
-                if "temp_filled" in ds2:
-                    enc2["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
-                os.makedirs(os.path.dirname(self.ctx.output_path), exist_ok=True)
-                ds2.to_netcdf(self.ctx.output_path, encoding=enc2)
-                print(f"[Post] Wrote filtered final output: {self.ctx.output_path}")
-        
-            # restore
-            self.ctx.dineof_output_path = orig_results
-            self.ctx.output_path        = orig_output            
-            self.ctx.output_html_folder = orig_html
-
-        # the third pass that creates eof temporally interpolated recon  
-        base_dir = os.path.dirname(self.dineof_output_path)
-        interp_results = os.path.join(base_dir, "dineof_results_eof_interp_full.nc")
-        if os.path.isfile(interp_results):
-            print(f"[Post] Found full-daily interpolated reconstruction: {interp_results}")
-        
-            # stash originals
-            orig_results = self.ctx.dineof_output_path
-            orig_output  = self.ctx.output_path
-            orig_html    = self.ctx.output_html_folder
-        
-            # switch to interpolated result; suffix output
-            self.ctx.dineof_output_path = interp_results
-            self.ctx.output_path        = _with_suffix(orig_output, "_eof_interp_full")
-            if orig_html:
-                self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_interp_full")
-        
-            # Skip MergeOutputs because we want the full daily timeline, not original lake timeline
-            skip_steps = {
-                "FilterTemporalEOFs", 
-                "InterpolateTemporalEOFs_raw",
-                "InterpolateTemporalEOFs_filtered", 
-                "MergeOutputsStep",
-                "ReconstructFromEOFs_filtered", 
-                "ReconstructFromEOFs_interp",
-                "ReconstructFromEOFs_filtered_interp",
-            }
-        
-            # Create initial dataset with full daily timeline instead of using MergeOutputsStep
-            with xr.open_dataset(interp_results) as ds_interp:
-                # Read prepared.nc for metadata and coordinates
-                with xr.open_dataset(self.dineof_input_path) as ds_in:
-                    self.ctx.input_attrs = dict(ds_in.attrs)
-                    self.ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
-                    self.ctx.test_id = str(ds_in.attrs.get("test_id", ""))
-                    lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
-                    lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
-                    lat_vals = ds_in[lat_name].values
-                    lon_vals = ds_in[lon_name].values
-                    lakeid_data = ds_in.get("lakeid")
-                
-                # Convert full_days (integer days since epoch) to datetime64
-                base_time = np.datetime64("1981-01-01T12:00:00")
-                full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
-                
-                # Get temp_filled from interpolated results
-                temp_data = ds_interp["temp_filled"].values
-                
-                # Build dataset with full daily timeline
-                ds3 = xr.Dataset()
-                ds3 = ds3.assign_coords({
-                    self.ctx.time_name: full_time,
-                    lat_name: lat_vals,
-                    lon_name: lon_vals
-                })
-                
-                if lakeid_data is not None:
-                    ds3["lakeid"] = lakeid_data
-                
-                ds3["temp_filled"] = xr.DataArray(
-                    temp_data,
-                    dims=(self.ctx.time_name, lat_name, lon_name),
-                    coords={self.ctx.time_name: full_time,
-                            lat_name: lat_vals,
-                            lon_name: lon_vals},
-                    attrs={"comment": "DINEOF-filled anomalies (daily interpolated, before trend/climatology add-back)"}
-                )
-                
-                # Copy attributes
-                if self.ctx.keep_attrs:
-                    ds3.attrs.update(self.ctx.input_attrs)
-                ds3.attrs["prepared_source"] = self.dineof_input_path
-                ds3.attrs["dineof_source"] = self.ctx.dineof_output_path
-                if self.ctx.test_id is not None:
-                    ds3.attrs["test_id"] = self.ctx.test_id
-                if self.ctx.lake_id is not None and self.ctx.lake_id >= 0:
-                    ds3.attrs["lake_id"] = self.ctx.lake_id
-                
-                print(f"[Post] Created daily interpolated dataset with {len(full_time)} timesteps (full daily timeline)")
-        
-            # Now run remaining steps (AddBackTrend, AddBackClimatology, etc.) on the daily timeline
-            for step in self.pipeline:
-                if step.name in skip_steps:
-                    continue
-                if not step.should_apply(self.ctx, ds3):
-                    continue
-                ds3 = step.apply(self.ctx, ds3)
-        
-            if ds3 is not None:
-                try:
-                    with xr.open_dataset(self.dineof_input_path) as ds_in:
-                        pcfg = ds_in.attrs.get("preprocess_config_path")
-                        if pcfg:
-                            ds3.attrs["preprocess_config_path"] = str(pcfg)
-                except Exception:
-                    pass
-                if self.experiment_config_file:
-                    ds3.attrs["experiment_config_file"] = str(self.experiment_config_file)
-        
-                enc3 = {v: {"zlib": True, "complevel": 4} for v in ds3.data_vars}
-                if "temp_filled" in ds3:
-                    enc3["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
-                os.makedirs(os.path.dirname(self.ctx.output_path), exist_ok=True)
-                ds3.to_netcdf(self.ctx.output_path, encoding=enc3)
-                print(f"[Post] Wrote full-daily interpolated final output: {self.ctx.output_path}")
-        
-            # restore
-            self.ctx.dineof_output_path = orig_results
-            self.ctx.output_path        = orig_output
-            self.ctx.output_html_folder = orig_html
-        
-        # ==================== PASS 4: filtered interpolated (full daily from filtered) ====================
-        base_dir = os.path.dirname(self.dineof_output_path)
-        filtered_interp_results = os.path.join(base_dir, "dineof_results_eof_filtered_interp_full.nc")
-        if os.path.isfile(filtered_interp_results):
-            print(f"[Post] Found filtered-interpolated reconstruction: {filtered_interp_results}")
-        
-            # stash originals
-            orig_results = self.ctx.dineof_output_path
-            orig_output  = self.ctx.output_path
-            orig_html    = self.ctx.output_html_folder
-        
-            # switch to filtered interpolated result; suffix output
-            self.ctx.dineof_output_path = filtered_interp_results
-            self.ctx.output_path        = _with_suffix(orig_output, "_eof_filtered_interp_full")
-            if orig_html:
-                self.ctx.output_html_folder = _with_suffix(orig_html, "_eof_filtered_interp_full")
-        
-            # Skip same steps as pass 3
-            skip_steps = {
-                "FilterTemporalEOFs", 
-                "InterpolateTemporalEOFs_raw",
-                "InterpolateTemporalEOFs_filtered", 
-                "MergeOutputsStep",
-                "ReconstructFromEOFs_filtered", 
-                "ReconstructFromEOFs_interp",
-                "ReconstructFromEOFs_filtered_interp",
-            }
-        
-            # Create initial dataset with full daily timeline instead of using MergeOutputsStep
-            with xr.open_dataset(filtered_interp_results) as ds_interp:
-                # Read prepared.nc for metadata and coordinates
-                with xr.open_dataset(self.dineof_input_path) as ds_in:
-                    self.ctx.input_attrs = dict(ds_in.attrs)
-                    self.ctx.lake_id = int(ds_in.attrs.get("lake_id", -1))
-                    self.ctx.test_id = str(ds_in.attrs.get("test_id", ""))
-                    lat_name = "lat" if "lat" in ds_in.coords else self.ctx.lat_name
-                    lon_name = "lon" if "lon" in ds_in.coords else self.ctx.lon_name
-                    lat_vals = ds_in[lat_name].values
-                    lon_vals = ds_in[lon_name].values
-                    lakeid_data = ds_in.get("lakeid")
-                
-                # Convert full_days (integer days since epoch) to datetime64
-                base_time = np.datetime64("1981-01-01T12:00:00")
-                full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
-                
-                # Get temp_filled from interpolated results
-                temp_data = ds_interp["temp_filled"].values
-                
-                # Build dataset with full daily timeline
-                ds4 = xr.Dataset()
-                ds4 = ds4.assign_coords({
-                    self.ctx.time_name: full_time,
-                    lat_name: lat_vals,
-                    lon_name: lon_vals
-                })
-                
-                if lakeid_data is not None:
-                    ds4["lakeid"] = lakeid_data
-                
-                ds4["temp_filled"] = xr.DataArray(
-                    temp_data,
-                    dims=(self.ctx.time_name, lat_name, lon_name),
-                    coords={self.ctx.time_name: full_time,
-                            lat_name: lat_vals,
-                            lon_name: lon_vals},
-                    attrs={"comment": "DINEOF-filled anomalies (filtered + daily interpolated, before trend/climatology add-back)"}
-                )
-                
-                # Copy attributes
-                if self.ctx.keep_attrs:
-                    ds4.attrs.update(self.ctx.input_attrs)
-                ds4.attrs["prepared_source"] = self.dineof_input_path
-                ds4.attrs["dineof_source"] = self.ctx.dineof_output_path
-                if self.ctx.test_id is not None:
-                    ds4.attrs["test_id"] = self.ctx.test_id
-                if self.ctx.lake_id is not None and self.ctx.lake_id >= 0:
-                    ds4.attrs["lake_id"] = self.ctx.lake_id
-                
-                print(f"[Post] Created filtered-interpolated dataset with {len(full_time)} timesteps (full daily timeline)")
-        
-            # Now run remaining steps (AddBackTrend, AddBackClimatology, etc.) on the daily timeline
-            for step in self.pipeline:
-                if step.name in skip_steps:
-                    continue
-                if not step.should_apply(self.ctx, ds4):
-                    continue
-                ds4 = step.apply(self.ctx, ds4)
-        
-            if ds4 is not None:
-                try:
-                    with xr.open_dataset(self.dineof_input_path) as ds_in:
-                        pcfg = ds_in.attrs.get("preprocess_config_path")
-                        if pcfg:
-                            ds4.attrs["preprocess_config_path"] = str(pcfg)
-                except Exception:
-                    pass
-                if self.experiment_config_file:
-                    ds4.attrs["experiment_config_file"] = str(self.experiment_config_file)
-        
-                enc4 = {v: {"zlib": True, "complevel": 4} for v in ds4.data_vars}
-                if "temp_filled" in ds4:
-                    enc4["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
-                os.makedirs(os.path.dirname(self.ctx.output_path), exist_ok=True)
-                ds4.to_netcdf(self.ctx.output_path, encoding=enc4)
-                print(f"[Post] Wrote filtered-interpolated final output: {self.ctx.output_path}")
-        
-            # restore
-            self.ctx.dineof_output_path = orig_results
-            self.ctx.output_path        = orig_output
-            self.ctx.output_html_folder = orig_html
-        
-        # ==================== PASS 5: DINCAE temporal interpolation ====================
-        # Interpolate anomalies then create dincae full interpo netcdf 
-        #   1) Reads dincae_results.nc (anomalies)
-        #   2) Interpolates anomalies to full daily timeline
-        #   3) Runs AddBackTrend → AddBackClimatology → ClampSubZero
-        # This matches how DINEOF interp files (Pass 3) are produced.
-        if self.options.dincae_temporal_interp:
-            dincae_results_path = self._find_dincae_results()
-            if dincae_results_path is not None:
-                post_dir = os.path.dirname(self.output_path)
-                # Determine output filename from existing _dincae.nc
-                dincae_sparse_files = glob.glob(os.path.join(post_dir, "*_dincae.nc"))
-                if dincae_sparse_files:
-                    dincae_interp_path = dincae_sparse_files[0].replace(
-                        "_dincae.nc", "_dincae_interp_full.nc")
-                else:
-                    dincae_interp_path = os.path.join(
-                        post_dir, _with_suffix(
-                            os.path.basename(self.output_path), "_dincae_interp_full"
-                        ).replace("_dineof", ""))
-
-                if not os.path.isfile(dincae_interp_path):
-                    print(f"[Post] Creating DINCAE daily interpolation from anomalies: "
-                          f"{os.path.basename(dincae_results_path)}")
-
-                    ds5 = self._interpolate_dincae_anomalies(dincae_results_path)
-                    if ds5 is not None:
-                        # Stash/restore context
-                        orig_output = self.ctx.output_path
-                        orig_html = self.ctx.output_html_folder
-                        self.ctx.output_path = dincae_interp_path
-                        if orig_html:
-                            self.ctx.output_html_folder = _with_suffix(
-                                orig_html, "_dincae_interp_full")
-
-                        # Ensure ctx.input_attrs has prepared.nc attrs
-                        if not hasattr(self.ctx, 'input_attrs') or not self.ctx.input_attrs:
-                            with xr.open_dataset(self.dineof_input_path) as ds_in:
-                                self.ctx.input_attrs = dict(ds_in.attrs)
-
-                        # Run pipeline steps that apply after interpolation
-                        # (same set skipped as Pass 3)
-                        skip_steps = {
-                            "FilterTemporalEOFs",
-                            "InterpolateTemporalEOFs_raw",
-                            "InterpolateTemporalEOFs_filtered",
-                            "MergeOutputsStep",
-                            "ReconstructFromEOFs_filtered",
-                            "ReconstructFromEOFs_interp",
-                            "ReconstructFromEOFs_filtered_interp",
-                            "CopyOriginalVarsStep",
-                            "CopyAuxFlagsStep",
-                            "AddDataSourceFlagStep",
-                            "QAPlotsStep",
-                            "AddInitMetadataStep",
-                            "AddEOFsMetadataStep",
-                            "AddDineofLogMetadataStep",
-                        }
-
-                        for step in self.pipeline:
-                            if step.name in skip_steps:
-                                continue
-                            if not step.should_apply(self.ctx, ds5):
-                                continue
-                            print(f"[Post] DINCAE interp — Applying: {step.name}")
-                            ds5 = step.apply(self.ctx, ds5)
-
-                        if ds5 is not None:
-                            # Provenance
-                            try:
-                                with xr.open_dataset(self.dineof_input_path) as ds_in:
-                                    pcfg = ds_in.attrs.get("preprocess_config_path")
-                                    if pcfg:
-                                        ds5.attrs["preprocess_config_path"] = str(pcfg)
-                            except Exception:
-                                pass
-                            if self.experiment_config_file:
-                                ds5.attrs["experiment_config_file"] = str(
-                                    self.experiment_config_file)
-                            ds5.attrs["dincae_interp_anomaly_space"] = 1
-
-                            enc5 = {v: {"zlib": True, "complevel": 4} for v in ds5.data_vars}
-                            if "temp_filled" in ds5:
-                                enc5["temp_filled"] = {
-                                    "dtype": "float32", "zlib": True, "complevel": 5}
-                            os.makedirs(os.path.dirname(dincae_interp_path), exist_ok=True)
-                            ds5.to_netcdf(dincae_interp_path, encoding=enc5)
-                            print(f"[Post] Wrote DINCAE interp (anomaly space): "
-                                  f"{dincae_interp_path}")
-
-                        # Restore context
-                        self.ctx.output_path = orig_output
-                        self.ctx.output_html_folder = orig_html
-                else:
-                    print(f"[Post] DINCAE interp already exists: "
-                          f"{os.path.basename(dincae_interp_path)}")
-            else:
-                print("[Post] dincae_results.nc not found; skipping DINCAE interp")
+        if self.ctx.profile_memory:
+            rss = get_current_rss_mb()
+            peak = get_peak_rss_mb()
+            print(f"[MEM] === Post-processing complete: RSS={rss:.0f} MB, lifetime peak={peak:.0f} MB ===")
 
     # ==================== DINCAE interpolation helpers ====================
 
@@ -723,7 +894,7 @@ class PostProcessor:
         # read dincae_results.nc (anomalies on prepared.nc sparse timeline),
         # per-pixel linear interpolate to full daily timeline.
         
-        # returns xr.Dataset with datetime64 time coords, temp_filled in ANOMALY space.
+        # returns xr.Dataset with datetime64 time coords, lake_surface_water_temperature_reconstructed in ANOMALY space.
         # Pipeline steps (trend, climatology, clamp) are applied by the caller.
 
         base = np.datetime64("1981-01-01T12:00:00", "ns")
@@ -745,7 +916,8 @@ class PostProcessor:
             else:
                 dincae_days = dincae_time.astype("int64")
 
-            temp_anomaly = ds_dincae["temp_filled"].values.astype("float64")
+            _rv = "lake_surface_water_temperature_reconstructed" if "lake_surface_water_temperature_reconstructed" in ds_dincae else "temp_filled"
+            temp_anomaly = ds_dincae[_rv].values.astype("float64")
             ds_dincae.close()
 
             T_full = len(full_days)
@@ -803,7 +975,7 @@ class PostProcessor:
                 lon_name: lon_vals,
             })
 
-            ds_out["temp_filled"] = xr.DataArray(
+            ds_out["lake_surface_water_temperature_reconstructed"] = xr.DataArray(
                 temp_full,
                 dims=(self.ctx.time_name, lat_name, lon_name),
                 coords={self.ctx.time_name: full_time,
@@ -893,8 +1065,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Disable clamping of sub-zero LSWT values")
     p.add_argument("--no-dincae-interp", action="store_true",
                    help="Disable DINCAE temporal interpolation to full daily")
-    
-    
+    p.add_argument("--profile-memory", action="store_true",
+                   help="Log VmRSS before/after each step and at pass boundaries")
+
     return p
 
 
@@ -941,6 +1114,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         experiment_config_file=args.config_file,
         options=opts,
     )
+    proc.ctx.profile_memory = args.profile_memory
     proc.run()
 
 

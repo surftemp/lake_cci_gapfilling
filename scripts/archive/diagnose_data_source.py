@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple diagnostic to check the ground truth in prepared.nc and temp_filled.
+Simple diagnostic to check the ground truth in prepared.nc and lake_surface_water_temperature_reconstructed.
 
 Run:
     python diagnose_data_source.py --lake-id 310 --run-root /gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/anomaly-20260125-4d8546-exp0_dineof_noretrain
@@ -137,9 +137,9 @@ def main():
         print(f"Coordinates: {list(ds_out.coords)}")
         print(f"Dimensions: {dict(ds_out.dims)}")
         
-        if "temp_filled" in ds_out:
-            tf = ds_out["temp_filled"].values
-            print(f"\n>>> Variable: 'temp_filled' (reconstruction)")
+        if "lake_surface_water_temperature_reconstructed" in ds_out:
+            tf = ds_out["lake_surface_water_temperature_reconstructed"].values
+            print(f"\n>>> Variable: 'lake_surface_water_temperature_reconstructed' (reconstruction)")
             print(f"  Shape: {tf.shape}  (time, lat, lon)")
             print(f"  Dtype: {tf.dtype}")
             
@@ -162,7 +162,7 @@ def main():
                 valid_per_time_nonzero = valid_per_time[valid_per_time > 0]
                 print(f"  Valid pixels per reconstructed timestep: min={valid_per_time_nonzero.min()}, max={valid_per_time_nonzero.max()}, mean={valid_per_time_nonzero.mean():.1f}")
         else:
-            print("\n  WARNING: 'temp_filled' not found in output file")
+            print("\n  WARNING: 'lake_surface_water_temperature_reconstructed' not found in output file")
             print(f"  Available data variables: {list(ds_out.data_vars)}")
         
         if "data_source" in ds_out:
@@ -180,7 +180,7 @@ def main():
     # Cross-check if both prepared and output provided
     if args.output and lswt_var:
         print("\n" + "=" * 70)
-        print("CROSS-CHECK: prepared.nc vs temp_filled")
+        print("CROSS-CHECK: prepared.nc vs lake_surface_water_temperature_reconstructed")
         print("=" * 70)
         
         ds_prep = xr.open_dataset(args.prepared)
@@ -196,13 +196,13 @@ def main():
         print(f"    Valid (observations): {prep_valid:,}")
         print(f"    NaN (missing): {prep_nan:,}")
         
-        if "temp_filled" in ds_out:
-            temp_filled = ds_out["temp_filled"].values
-            tf_valid = int(np.sum(~np.isnan(temp_filled)))
-            tf_nan = int(np.sum(np.isnan(temp_filled)))
+        if "lake_surface_water_temperature_reconstructed" in ds_out:
+            lake_surface_water_temperature_reconstructed = ds_out["lake_surface_water_temperature_reconstructed"].values
+            tf_valid = int(np.sum(~np.isnan(lake_surface_water_temperature_reconstructed)))
+            tf_nan = int(np.sum(np.isnan(lake_surface_water_temperature_reconstructed)))
             
-            print(f"\n  temp_filled:")
-            print(f"    Shape: {temp_filled.shape}")
+            print(f"\n  lake_surface_water_temperature_reconstructed:")
+            print(f"    Shape: {lake_surface_water_temperature_reconstructed.shape}")
             print(f"    Valid (reconstructed): {tf_valid:,}")
             print(f"    NaN (not reconstructed): {tf_nan:,}")
             

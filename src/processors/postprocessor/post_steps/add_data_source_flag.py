@@ -58,13 +58,14 @@ class AddDataSourceFlagStep(PostProcessingStep):
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
         if ds is None:
             return False
-        
-        # Check if clouds_index.nc exists
-        clouds_index_path = self._get_clouds_index_path(ctx)
-        if clouds_index_path is None or not os.path.exists(clouds_index_path):
-            print(f"[{self.name}] clouds_index.nc not found; skipping")
-            return False
-        
+
+        # clouds_index.nc is only required when mark_cv_points is True
+        if getattr(ctx, 'mark_cv_points', False):
+            clouds_index_path = self._get_clouds_index_path(ctx)
+            if clouds_index_path is None or not os.path.exists(clouds_index_path):
+                print(f"[{self.name}] clouds_index.nc not found; skipping")
+                return False
+
         return True
     
     def _get_clouds_index_path(self, ctx: PostContext) -> Optional[str]:
@@ -108,18 +109,18 @@ class AddDataSourceFlagStep(PostProcessingStep):
         FLAG_NOT_RECONSTRUCTED = 255
         flag = np.full((n_time, n_lat, n_lon), FLAG_NOT_RECONSTRUCTED, dtype=np.uint8)
         
-        # Get the reconstruction mask from temp_filled
-        # Only pixels where temp_filled is NOT NaN were actually reconstructed
-        if "temp_filled" not in ds:
-            print(f"[{self.name}] Warning: temp_filled not found in output, cannot create flag")
+        # Get the reconstruction mask from lake_surface_water_temperature_reconstructed
+        # Only pixels where lake_surface_water_temperature_reconstructed is NOT NaN were actually reconstructed
+        if "lake_surface_water_temperature_reconstructed" not in ds:
+            print(f"[{self.name}] Warning: lake_surface_water_temperature_reconstructed not found in output, cannot create flag")
             return ds
         
-        temp_filled = ds["temp_filled"].values  # (time, lat, lon)
-        recon_mask = ~np.isnan(temp_filled)  # True where reconstruction exists
+        lake_surface_water_temperature_reconstructed = ds["lake_surface_water_temperature_reconstructed"].values  # (time, lat, lon)
+        recon_mask = ~np.isnan(lake_surface_water_temperature_reconstructed)  # True where reconstruction exists
         n_reconstructed = recon_mask.sum()
         
-        print(f"[{self.name}] Output shape: {temp_filled.shape}")
-        print(f"[{self.name}] Reconstructed pixels (temp_filled not NaN): {n_reconstructed:,}")
+        print(f"[{self.name}] Output shape: {lake_surface_water_temperature_reconstructed.shape}")
+        print(f"[{self.name}] Reconstructed pixels (lake_surface_water_temperature_reconstructed not NaN): {n_reconstructed:,}")
         
         # --- Step 1: Load prepared.nc to get observation mask ---
         with xr.open_dataset(ctx.dineof_input_path) as ds_prep:
@@ -184,12 +185,20 @@ class AddDataSourceFlagStep(PostProcessingStep):
                 flag[t_out, lat_idx, lon_idx] = FLAG_TRUE_GAP
         
         # --- Step 4: Load CV points and mark them as FLAG_CV_WITHHELD ---
-        clouds_index_path = self._get_clouds_index_path(ctx)
-        if clouds_index_path and os.path.exists(clouds_index_path):
-            n_cv_marked = self._mark_cv_points(
-                flag, clouds_index_path, prep_time_days, prep_to_out_idx, n_lat, n_lon
-            )
-            print(f"[{self.name}] Marked {n_cv_marked:,} CV points as withheld")
+        # Only mark CV points when ctx.mark_cv_points is True (_for_cv passes).
+        # For Stage 2 (full reconstruction), CV points are back in training data
+        # and should remain as FLAG_OBSERVED_SEEN (1).
+        if getattr(ctx, 'mark_cv_points', False):
+            clouds_index_path = self._get_clouds_index_path(ctx)
+            if clouds_index_path and os.path.exists(clouds_index_path):
+                n_cv_marked = self._mark_cv_points(
+                    flag, clouds_index_path, prep_time_days, prep_to_out_idx, n_lat, n_lon
+                )
+                print(f"[{self.name}] Marked {n_cv_marked:,} CV points as withheld")
+            else:
+                print(f"[{self.name}] mark_cv_points=True but clouds_index.nc not found")
+        else:
+            print(f"[{self.name}] Stage 2 mode: CV points remain as observed (flag=1)")
         
         # --- Step 5: Add flag to dataset ---
         ds["data_source"] = xr.DataArray(
@@ -204,12 +213,12 @@ class AddDataSourceFlagStep(PostProcessingStep):
                     "0=true gap (originally missing, gapfilled by method), "
                     "1=observed and seen in training (reconstruction of observation), "
                     "2=CV point (withheld observation, reconstruction of CV point), "
-                    "255=not reconstructed (temp_filled is NaN at this pixel)"
+                    "255=not reconstructed (lake_surface_water_temperature_reconstructed is NaN at this pixel)"
                 ),
             }
         )
         
-        # Summary statistics - only count within reconstructed pixels (temp_filled not NaN)
+        # Summary statistics - only count within reconstructed pixels (lake_surface_water_temperature_reconstructed not NaN)
         n_not_recon = int((flag == 255).sum())
         n_gap = int((flag == FLAG_TRUE_GAP).sum())
         n_observed = int((flag == FLAG_OBSERVED_SEEN).sum())
@@ -217,16 +226,16 @@ class AddDataSourceFlagStep(PostProcessingStep):
         n_flagged_recon = n_gap + n_observed + n_cv
         
         # Verification: flag counts should match recon_mask
-        n_temp_filled_valid = int(recon_mask.sum())
-        if n_flagged_recon != n_temp_filled_valid:
+        n_lake_surface_water_temperature_reconstructed_valid = int(recon_mask.sum())
+        if n_flagged_recon != n_lake_surface_water_temperature_reconstructed_valid:
             print(f"[{self.name}] WARNING: Flag count mismatch!")
-            print(f"[{self.name}]   temp_filled valid pixels: {n_temp_filled_valid:,}")
+            print(f"[{self.name}]   lake_surface_water_temperature_reconstructed valid pixels: {n_lake_surface_water_temperature_reconstructed_valid:,}")
             print(f"[{self.name}]   flag 0+1+2 pixels: {n_flagged_recon:,}")
-            print(f"[{self.name}]   Difference: {n_flagged_recon - n_temp_filled_valid:,}")
+            print(f"[{self.name}]   Difference: {n_flagged_recon - n_lake_surface_water_temperature_reconstructed_valid:,}")
         
         print(f"[{self.name}] Data source flag summary:")
-        print(f"[{self.name}]   temp_filled valid (recon_mask): {n_temp_filled_valid:>12,}")
-        print(f"[{self.name}]   Not reconstructed (255): {n_not_recon:>12,} (temp_filled is NaN)")
+        print(f"[{self.name}]   lake_surface_water_temperature_reconstructed valid (recon_mask): {n_lake_surface_water_temperature_reconstructed_valid:>12,}")
+        print(f"[{self.name}]   Not reconstructed (255): {n_not_recon:>12,} (lake_surface_water_temperature_reconstructed is NaN)")
         print(f"[{self.name}]   --- Within reconstructed pixels ({n_flagged_recon:,} flagged as 0/1/2) ---")
         print(f"[{self.name}]   True gaps (0):     {n_gap:>12,} ({100*n_gap/n_flagged_recon:.2f}%)")
         print(f"[{self.name}]   Observed/seen (1): {n_observed:>12,} ({100*n_observed/n_flagged_recon:.2f}%)")
@@ -340,7 +349,7 @@ class AddDataSourceFlagStep(PostProcessingStep):
                 # Mark as CV point (should currently be FLAG_OBSERVED_SEEN)
                 current_flag = flag[t_out, lat_idx, lon_idx]
                 if current_flag == 255:
-                    # Not reconstructed (temp_filled is NaN here) - skip
+                    # Not reconstructed (lake_surface_water_temperature_reconstructed is NaN here) - skip
                     n_skipped_not_recon += 1
                     continue
                 elif current_flag == FLAG_TRUE_GAP:

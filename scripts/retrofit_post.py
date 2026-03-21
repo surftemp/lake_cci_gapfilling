@@ -290,7 +290,7 @@ def rerun_post_processing(
 
 def clamp_subzero_file(nc_path: str, threshold: float = 0.0, dry_run: bool = False) -> bool:
     """
-    Clamp sub-zero temp_filled values in-place.
+    Clamp sub-zero lake_surface_water_temperature_reconstructed values in-place.
     Returns True if file was modified, False if skipped.
     
     Uses write-to-temp + os.replace to avoid in-place write issues
@@ -303,10 +303,10 @@ def clamp_subzero_file(nc_path: str, threshold: float = 0.0, dry_run: bool = Fal
         if ds.attrs.get("subzero_clamped", 0) == 1:
             return False
 
-        if "temp_filled" not in ds:
+        if "lake_surface_water_temperature_reconstructed" not in ds:
             return False
 
-        arr = ds["temp_filled"].values
+        arr = ds["lake_surface_water_temperature_reconstructed"].values
         n_subzero = int(np.nansum(arr < threshold))
         total_valid = int(np.nansum(np.isfinite(arr)))
 
@@ -317,7 +317,7 @@ def clamp_subzero_file(nc_path: str, threshold: float = 0.0, dry_run: bool = Fal
             return False
 
         if n_subzero > 0:
-            ds["temp_filled"] = ds["temp_filled"].clip(min=threshold)
+            ds["lake_surface_water_temperature_reconstructed"] = ds["lake_surface_water_temperature_reconstructed"].clip(min=threshold)
             pct = 100.0 * n_subzero / total_valid if total_valid > 0 else 0
             print(f"  Clamped {n_subzero:,} values in {os.path.basename(nc_path)} "
                   f"({pct:.2f}%)")
@@ -330,8 +330,8 @@ def clamp_subzero_file(nc_path: str, threshold: float = 0.0, dry_run: bool = Fal
         # Write to temp file, then atomic replace (avoids in-place write issues)
         tmp_path = nc_path + ".tmp"
         enc = {v: {"zlib": True, "complevel": 4} for v in ds.data_vars}
-        if "temp_filled" in ds:
-            enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+        if "lake_surface_water_temperature_reconstructed" in ds:
+            enc["lake_surface_water_temperature_reconstructed"] = {"dtype": "float32", "zlib": True, "complevel": 5}
         ds.to_netcdf(tmp_path, encoding=enc)
         os.replace(tmp_path, nc_path)
         return True
@@ -396,7 +396,7 @@ def create_dincae_interp(
         sparse_x = sparse_days.astype("float64")
         full_x = full_days.astype("float64")
 
-        temp_sparse = ds_sparse["temp_filled"].values  # (T_sparse, lat, lon)
+        temp_sparse = ds_sparse["lake_surface_water_temperature_reconstructed"].values  # (T_sparse, lat, lon)
         T_full = len(full_days)
         ny, nx = temp_sparse.shape[1], temp_sparse.shape[2]
         temp_full = np.full((T_full, ny, nx), np.nan, dtype="float32")
@@ -440,7 +440,7 @@ def create_dincae_interp(
             lat_name: ds_sparse[lat_name].values,
             lon_name: ds_sparse[lon_name].values,
         })
-        ds_out["temp_filled"] = xr.DataArray(
+        ds_out["lake_surface_water_temperature_reconstructed"] = xr.DataArray(
             temp_full,
             dims=("time", lat_name, lon_name),
             coords={"time": full_time,
@@ -466,8 +466,8 @@ def create_dincae_interp(
         ds_out.attrs["subzero_threshold"] = 0.0
 
         enc = {v: {"zlib": True, "complevel": 4} for v in ds_out.data_vars}
-        if "temp_filled" in ds_out:
-            enc["temp_filled"] = {"dtype": "float32", "zlib": True, "complevel": 5}
+        if "lake_surface_water_temperature_reconstructed" in ds_out:
+            enc["lake_surface_water_temperature_reconstructed"] = {"dtype": "float32", "zlib": True, "complevel": 5}
         ds_out.to_netcdf(out_path, encoding=enc)
         print(f"  Wrote: {os.path.basename(out_path)}")
 

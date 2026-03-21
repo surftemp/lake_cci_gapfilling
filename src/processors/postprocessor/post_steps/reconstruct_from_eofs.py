@@ -31,11 +31,16 @@ class ReconstructFromEOFsStep(PostProcessingStep):
 
     name = "ReconstructFromEOFs"  # Base name, will be overridden in __init__
 
-    def __init__(self, *, source_mode: str = "filtered"):
+    def __init__(self, *, source_mode: str = "filtered",
+                 eofs_prefix: str = "eofs", output_cv_suffix: str = ""):
         assert source_mode in ("filtered", "interp", "filtered_interp")
         self.source_mode = source_mode
+        self.eofs_prefix = eofs_prefix
+        self.output_cv_suffix = output_cv_suffix
         # Dynamic name for skip_steps logic in multi-pass
         self.name = f"ReconstructFromEOFs_{source_mode}"
+        if output_cv_suffix:
+            self.name += output_cv_suffix
 
     # ---------- plumbing ----------
 
@@ -139,7 +144,7 @@ class ReconstructFromEOFsStep(PostProcessingStep):
                 y_name: eofs[y_name].values if y_name in eofs.coords else np.arange(recon.shape[1]),
                 x_name: eofs[x_name].values if x_name in eofs.coords else np.arange(recon.shape[2]),
             },
-            name="temp_filled",
+            name="lake_surface_water_temperature_reconstructed",
         )
 
         eofs.close()
@@ -147,24 +152,24 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         # --- mirror original dineof_results.nc structure
         try:
             with xr.open_dataset(ctx.dineof_output_path) as orig:
-                # align to template using 'temp_filled' (if orig doesn't have it, this still works)
-                da_recon = self._align_to_template(da_recon, orig, "temp_filled")
+                # align to template using 'lake_surface_water_temperature_reconstructed' (if orig doesn't have it, this still works)
+                da_recon = self._align_to_template(da_recon, orig, "lake_surface_water_temperature_reconstructed")
             
-                ds_out = xr.Dataset({"temp_filled": da_recon})
+                ds_out = xr.Dataset({"lake_surface_water_temperature_reconstructed": da_recon})
             
                 # copy global attrs
                 ds_out.attrs = dict(orig.attrs)
                 # copy var attrs if present on the original
-                if "temp_filled" in orig:
-                    ds_out["temp_filled"].attrs = dict(orig["temp_filled"].attrs)
+                if "lake_surface_water_temperature_reconstructed" in orig:
+                    ds_out["lake_surface_water_temperature_reconstructed"].attrs = dict(orig["lake_surface_water_temperature_reconstructed"].attrs)
                 
                 # Add attr to track mean offset correction
                 if mean_offset is not None:
                     ds_out.attrs["mean_offset_applied"] = float(mean_offset)
             
-                enc = {"temp_filled": {"dtype": "float32", "zlib": True, "complevel": 4}}
+                enc = {"lake_surface_water_temperature_reconstructed": {"dtype": "float32", "zlib": True, "complevel": 4}}
                 ds_out.to_netcdf(target_path, encoding=enc)
-                print(f"[{self.name}] Wrote {target_path} (var='temp_filled')")
+                print(f"[{self.name}] Wrote {target_path} (var='lake_surface_water_temperature_reconstructed')")
         except Exception as e:
             print(f"[{self.name}] Failed to mirror/write result: {e}")
 
@@ -200,27 +205,28 @@ class ReconstructFromEOFsStep(PostProcessingStep):
             return None
 
     def _get_eofs_source(self, base_dir: str) -> Optional[str]:
-        """Explicit source selection based on source_mode."""
+        """Explicit source selection based on source_mode and eofs_prefix."""
         if self.source_mode == "filtered":
-            p = os.path.join(base_dir, "eofs_filtered.nc")
+            p = os.path.join(base_dir, f"{self.eofs_prefix}_filtered.nc")
             return p if os.path.isfile(p) else None
         elif self.source_mode == "interp":
-            p = os.path.join(base_dir, "eofs_interpolated.nc")
+            p = os.path.join(base_dir, f"{self.eofs_prefix}_interpolated.nc")
             return p if os.path.isfile(p) else None
         elif self.source_mode == "filtered_interp":
-            p = os.path.join(base_dir, "eofs_filtered_interpolated.nc")
+            p = os.path.join(base_dir, f"{self.eofs_prefix}_filtered_interpolated.nc")
             return p if os.path.isfile(p) else None
         return None
-    
+
     def _get_output_filename(self) -> str:
-        """Output filename based on source_mode."""
+        """Output filename based on source_mode and output_cv_suffix."""
+        s = self.output_cv_suffix  # e.g. "" or "_for_cv"
         if self.source_mode == "filtered":
-            return "dineof_results_eof_filtered.nc"
+            return f"dineof_results_eof_filtered{s}.nc"
         elif self.source_mode == "interp":
-            return "dineof_results_eof_interp_full.nc"
+            return f"dineof_results_eof_interp_full{s}.nc"
         elif self.source_mode == "filtered_interp":
-            return "dineof_results_eof_filtered_interp_full.nc"
-        return "dineof_results_from_eofs.nc"
+            return f"dineof_results_eof_filtered_interp_full{s}.nc"
+        return f"dineof_results_from_eofs{s}.nc"
 
     def _infer_yx_names(self, ds: xr.Dataset) -> Tuple[str, str]:
         for yx in (("y","x"), ("lat","lon")):

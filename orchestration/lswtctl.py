@@ -125,59 +125,32 @@ def _idempotent_skip(path:str, label:str):
 # ----- helper for cv percentage control ------
 def _count_valid_pixels(prepared_nc: str, var_name: str, mask_var: str) -> int:
     """
-    Count valid pixels: in mask AND finite AND not fill value.
-    
+    Count valid pixels: in lake mask AND finite (not NaN/fill).
+
+    Uses mask_and_scale=True so fill values are already NaN.
+    Processes one timestep at a time to minimize memory usage.
+
     Returns: number of (time, lat, lon) points that are valid
     """
     import xarray as xr
     import numpy as np
-    
-    # Open in both modes to check CF and RAW
-    ds_cf = xr.open_dataset(prepared_nc, mask_and_scale=True)
-    ds_raw = xr.open_dataset(prepared_nc, mask_and_scale=False)
-    
+
+    ds = xr.open_dataset(prepared_nc, mask_and_scale=True)
     try:
-        # Get mask: 1 = water/valid, 0 = land/invalid
-        mask = ds_cf[mask_var].values  # (lat, lon)
+        mask = ds[mask_var].values  # (lat, lon)
         lake_mask = (mask == 1)
-        
-        # Get data
-        A_cf = ds_cf[var_name].values  # (time, lat, lon)
-        A_raw = ds_raw[var_name].values
-        T, nlat, nlon = A_cf.shape
-        
-        # Collect fill values
-        fills = []
-        for key in ("_FillValue", "missing_value"):
-            if key in ds_raw[var_name].attrs:
-                val = ds_raw[var_name].attrs[key]
-                if np.isscalar(val):
-                    fills.append(float(val))
-        fills.extend([9.96921e36, 1.0e36, 1.0e30, -1.0e30, 1.0e20, -1.0e20, 9999.0, -9999.0])
-        fill_vec = np.array(sorted(set(fills)), dtype=np.float64)
-        
-        # Broadcast mask to 3D
-        SEA = np.broadcast_to(lake_mask[None, :, :], (T, nlat, nlon))
-        
-        # Check CF finite
-        valid = SEA & np.isfinite(A_cf)
-        
-        # Check RAW against fill values
-        if fill_vec.size:
-            raw = A_raw.astype(np.float64)
-            is_fill = np.any(
-                np.isclose(raw[..., None], fill_vec[None, None, None, :], 
-                          rtol=0, atol=1e-12), 
-                axis=-1
-            )
-            valid &= ~is_fill
-        
-        valid_count = int(valid.sum())
+
+        data = ds[var_name]  # keep lazy
+        T = data.sizes["time"]
+
+        valid_count = 0
+        for t in range(T):
+            frame = data.isel(time=t).values  # (lat, lon), single timestep
+            valid_count += int((lake_mask & np.isfinite(frame)).sum())
+
         return valid_count
-        
     finally:
-        ds_cf.close()
-        ds_raw.close()
+        ds.close()
 
 
 # ---------- stage.slurm materializer ----------
@@ -322,6 +295,8 @@ def do_submit(conf_path:str, single_stage:str=None):
     maxc = str(sub.get("max_concurrent", 50))
     part = sub.get("partition"); qos  = sub.get("qos"); acc  = sub.get("account")
     tim  = sub.get("time", "12:00:00"); mem  = sub.get("mem", "8G")
+    cpus = sub.get("cpus_per_task", 1)
+    omp_threads = sub.get("omp_num_threads", cpus)
     per_index = bool(sub.get("per_index_chain", False))
 
     # Get job prefix from config filename for easy identification/cancellation
@@ -331,6 +306,7 @@ def do_submit(conf_path:str, single_stage:str=None):
     base = ["sbatch", "--parsable",
             f"--array=0-{nmax}%{maxc}",
             f"--time={tim}", f"--mem={mem}",
+            f"--cpus-per-task={cpus}",
             "--output", "/dev/null",
             "--error", "/dev/null"]
     if part: base += ["-p", part]
@@ -342,7 +318,8 @@ def do_submit(conf_path:str, single_stage:str=None):
     def submit_stage(stage, dep=None, name=None):
         env = os.environ.copy()
         # Use manifest.json which has the locked run_tag from submission time
-        env.update({"CONF": os.path.abspath(conf_to_use), "STAGE": stage, "LOGS_DIR": logd})
+        env.update({"CONF": os.path.abspath(conf_to_use), "STAGE": stage, "LOGS_DIR": logd,
+                     "OMP_NUM_THREADS": str(omp_threads)})
         job_name = name or f"{job_prefix}_{stage}"
         cmd = base + ["--job-name", job_name]
         if dep: cmd += ["--dependency", dep]
@@ -418,6 +395,7 @@ def do_exec(conf_path:str, row:int, stage:str):
     behavior = conf.get("behavior", {})
     keep_temps = bool(behavior.get("keep_temps", False))
     idempotent = bool(behavior.get("idempotent", True))
+    profile_memory = bool(behavior.get("profile_memory", False))
 
     # --- PRE ---
     def run_pre():
@@ -665,6 +643,7 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             f"--config-file {os.path.abspath(conf_path)} "
             f"--climatology-file {paths['clim_nc']} "
             f"--units celsius"
+            + (" --profile-memory" if profile_memory else "")
         )
         print("[POST_DINEOF] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)
@@ -685,10 +664,11 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             f"--config-file {os.path.abspath(conf_path)} "
             f"--climatology-file {paths['clim_nc']} "
             f"--units celsius "
-            f"--no-eof-filter "      
-            f"--no-eof-interp "      
-            f"--no-eof-meta "       
-            f"--no-log-meta"             
+            f"--no-eof-filter "
+            f"--no-eof-interp "
+            f"--no-eof-meta "
+            f"--no-log-meta"
+            + (" --profile-memory" if profile_memory else "")
         )
         print("[POST_DINCAE] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)

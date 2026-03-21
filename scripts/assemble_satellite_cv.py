@@ -10,7 +10,7 @@ Two modes:
   --mode physical  (default)
       Uses post files (*_dineof.nc, *_dineof_eof_filtered.nc, *_dincae.nc)
       which have data_source flag (0=gap, 1=observed, 2=CV).
-      Extracts temp_filled (recon °C) and lake_surface_water_temperature (obs).
+      Extracts lake_surface_water_temperature_reconstructed (recon °C) and lake_surface_water_temperature (obs).
       All 3 methods: dineof, eof_filtered, dincae.
 
   --mode anomaly
@@ -67,9 +67,12 @@ FLAG_OBSERVED_SEEN = 1
 FLAG_CV_WITHHELD = 2
 
 # Methods to extract in physical mode
+# DINEOF methods use _for_cv suffix: reconstruction with CV points withheld
+# (fair comparison — model never saw those observations during training).
+# DINCAE uses the standard output (DINCAE has its own CV handling).
 PHYSICAL_METHODS = {
-    'dineof':       '_dineof.nc',
-    'eof_filtered': '_dineof_eof_filtered.nc',
+    'dineof':       '_dineof_for_cv.nc',
+    'eof_filtered': '_dineof_eof_filtered_for_cv.nc',
     'dincae':       '_dincae.nc',
 }
 
@@ -232,7 +235,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
     Extract CV pixel pairs from post files (physical space, °C).
 
     For each of the 3 methods, finds pixels where data_source == 2 (CV),
-    extracts temp_filled (reconstruction) and lake_surface_water_temperature
+    extracts lake_surface_water_temperature_reconstructed (reconstruction) and lake_surface_water_temperature
     (original observation).
 
     Also computes eof_filter_replaced flag and delta by cross-referencing
@@ -269,7 +272,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
     all_rows = []
 
     # Pre-load dineof values for eof_filter delta comparison
-    dineof_cv_lookup = {}  # (lat_idx, lon_idx, time_idx) -> temp_filled value
+    dineof_cv_lookup = {}  # (lat_idx, lon_idx, time_idx) -> lake_surface_water_temperature_reconstructed value
 
     # Get exact EOF-flagged dates from eofs.nc vs eofs_filtered.nc
     eof_flagged_dates = get_eof_flagged_dates(post_dir)
@@ -290,9 +293,9 @@ def extract_physical_lake(post_dir: str, lake_id: int,
                     print(f"    data_source flag not found, skipping")
                 continue
 
-            if 'temp_filled' not in ds:
+            if 'lake_surface_water_temperature_reconstructed' not in ds:
                 if verbose:
-                    print(f"    temp_filled not found, skipping")
+                    print(f"    lake_surface_water_temperature_reconstructed not found, skipping")
                 continue
 
             # Step 1: Load ONLY data_source (uint8, ~2GB worst case) to find CV indices
@@ -334,7 +337,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             # on compressed NetCDF — avoids repeated chunk decompression)
             if verbose:
                 print(f"    Loading arrays into memory...")
-            temp_filled_all = ds['temp_filled'].values  # (time, lat, lon), float32
+            lake_surface_water_temperature_reconstructed_all = ds['lake_surface_water_temperature_reconstructed'].values  # (time, lat, lon), float32
             obs_all = None
             if obs_var_name:
                 obs_all = ds[obs_var_name].values
@@ -344,7 +347,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
 
             for (lat_idx, lon_idx), time_indices in pixel_groups.items():
                 # Load one pixel's time series (tiny: just 1D arrays)
-                recon_ts = temp_filled_all[:, lat_idx, lon_idx]
+                recon_ts = lake_surface_water_temperature_reconstructed_all[:, lat_idx, lon_idx]
                 obs_ts = None
                 if obs_all is not None:
                     obs_ts = obs_all[:, lat_idx, lon_idx]
@@ -406,7 +409,7 @@ def extract_physical_lake(post_dir: str, lake_id: int,
             import traceback
             traceback.print_exc()
         finally:
-            temp_filled_all = obs_all = ql_all = None
+            lake_surface_water_temperature_reconstructed_all = obs_all = ql_all = None
             ds.close()
 
     if not all_rows:
@@ -521,12 +524,12 @@ def extract_anomaly_lake(run_root: str, lake_id: int, alpha: str = 'a1000',
 
     if os.path.exists(dineof_results):
         ds_din = xr.load_dataset(dineof_results)
-        var_name = 'temp_filled' if 'temp_filled' in ds_din else list(ds_din.data_vars)[0]
+        var_name = 'lake_surface_water_temperature_reconstructed' if 'lake_surface_water_temperature_reconstructed' in ds_din else list(ds_din.data_vars)[0]
         recon_files['dineof'] = ds_din[var_name].values
         ds_din.close()
     if os.path.exists(dincae_results):
         ds_din = xr.load_dataset(dincae_results)
-        var_name = 'temp_filled' if 'temp_filled' in ds_din else list(ds_din.data_vars)[0]
+        var_name = 'lake_surface_water_temperature_reconstructed' if 'lake_surface_water_temperature_reconstructed' in ds_din else list(ds_din.data_vars)[0]
         recon_files['dincae'] = ds_din[var_name].values
         ds_din.close()
 
@@ -541,7 +544,7 @@ def extract_anomaly_lake(run_root: str, lake_id: int, alpha: str = 'a1000',
     ql_time_to_idx = None
     post_dir = os.path.join(run_root, "post", lake_id9, alpha)
     if os.path.exists(post_dir):
-        for suffix in ['_dineof.nc', '_dincae.nc']:
+        for suffix in ['_dineof.nc', '_dineof_for_cv.nc', '_dincae.nc']:
             candidates = list(Path(post_dir).glob(f"*{suffix}"))
             if candidates:
                 try:

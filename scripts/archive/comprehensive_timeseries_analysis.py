@@ -170,8 +170,8 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
         else:
             mask = np.isfinite(lakeid) & (lakeid != 0)
     else:
-        if 'temp_filled' in ds:
-            mask = np.any(np.isfinite(ds['temp_filled'].values), axis=0)
+        if 'lake_surface_water_temperature_reconstructed' in ds:
+            mask = np.any(np.isfinite(ds['lake_surface_water_temperature_reconstructed'].values), axis=0)
         else:
             return None
     return mask.astype(bool)
@@ -243,13 +243,13 @@ def extract_pixel_data(ds_dineof: xr.Dataset, ds_dincae: xr.Dataset,
     """
     Extract reconstruction and satellite observation at a pixel.
     
-    Uses 'lswt' for original satellite observations and 'temp_filled' for reconstruction.
+    Uses 'lswt' for original satellite observations and 'lake_surface_water_temperature_reconstructed' for reconstruction.
     """
     times = pd.to_datetime(ds_dineof['time'].values)
     
-    # Get reconstruction (temp_filled)
-    dineof_recon = ds_dineof['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values.copy()
-    dincae_recon = ds_dincae['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values.copy()
+    # Get reconstruction (lake_surface_water_temperature_reconstructed)
+    dineof_recon = ds_dineof['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values.copy()
+    dincae_recon = ds_dincae['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values.copy()
     
     # Get original satellite observation (lswt) - this is the ground truth
     # Try different possible variable names

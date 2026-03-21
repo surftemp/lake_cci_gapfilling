@@ -10,14 +10,14 @@ from .base import PostProcessingStep, PostContext
 
 class MergeOutputsStep(PostProcessingStep):
     """
-    Merge DINEOF 'temp_filled' back onto the original lake time axis.
+    Merge DINEOF 'lake_surface_water_temperature_reconstructed' back onto the original lake time axis.
 
     - Reads:
         * ctx.lake_path
         * ctx.dineof_input_path (prepared.nc, carries attrs and the subset time samples)
-        * ctx.dineof_output_path (dineof_results.nc with 'temp_filled')
+        * ctx.dineof_output_path (dineof_results.nc with 'lake_surface_water_temperature_reconstructed')
     - Writes:
-        * Dataset with variables: time, lat, lon, lakeid (if present in original), temp_filled
+        * Dataset with variables: time, lat, lon, lakeid (if present in original), lake_surface_water_temperature_reconstructed
         * ctx.input_attrs, ctx.lake_id, ctx.test_id
         * ctx.orig_time_days, ctx.prepared_time_days, ctx.map_prepared_to_orig
     """
@@ -46,10 +46,15 @@ class MergeOutputsStep(PostProcessingStep):
             ctx.prepared_time_days = prep_days
     
         # DINEOF output (unfiltered or filtered)
+        RECON_VAR = "lake_surface_water_temperature_reconstructed"
         ds_out = xr.open_dataset(ctx.dineof_output_path)
         try:
-            if "temp_filled" not in ds_out:
-                raise KeyError(f"'temp_filled' not found in {ctx.dineof_output_path}")
+            # DINEOF/DINCAE binaries write "temp_filled"; pipeline intermediate files
+            # may already use the new name. Accept either.
+            if RECON_VAR not in ds_out and "temp_filled" in ds_out:
+                ds_out = ds_out.rename({"temp_filled": RECON_VAR})
+            if RECON_VAR not in ds_out:
+                raise KeyError(f"Neither '{RECON_VAR}' nor 'temp_filled' found in {ctx.dineof_output_path}")
     
             # Use the OUTPUT file's time if present; else fallback to EOF file or prepared
             if ctx.time_name in ds_out.coords:
@@ -57,7 +62,7 @@ class MergeOutputsStep(PostProcessingStep):
                 sub_days = self.npdatetime_to_days_since_epoch(sub_time_npdt)
             else:
                 # For files without time coordinate, we need to handle different cases
-                temp_shape = ds_out["temp_filled"].shape[0]
+                temp_shape = ds_out["lake_surface_water_temperature_reconstructed"].shape[0]
                 
                 # Check if this might be an interpolated reconstruction (full timeline)
                 if ctx.full_days is not None and temp_shape == len(ctx.full_days):
@@ -89,7 +94,7 @@ class MergeOutputsStep(PostProcessingStep):
             lon_len = ds_orig.dims[lon_name]
             out = np.full((t_len, lat_len, lon_len), np.nan, dtype="float32")
     
-            temp_out = ds_out["temp_filled"].values  # (t_sub, lat, lon)
+            temp_out = ds_out["lake_surface_water_temperature_reconstructed"].values  # (t_sub, lat, lon)
     
             # Ensure sub_days and temp_out have matching lengths
             actual_timesteps = min(len(sub_days), temp_out.shape[0])
@@ -209,7 +214,7 @@ class MergeOutputsStep(PostProcessingStep):
                             "Lake mask after temporal observation availability filtering: "
                             "pixels with less than 5% valid observations across the time series "
                             "are reclassified as land. This mask matches the spatial extent of "
-                            "the gap-filled reconstruction (temp_filled). "
+                            "the gap-filled reconstruction (lake_surface_water_temperature_reconstructed). "
                             "See lakeid_original for the unfiltered CCI source lake boundary."
                         ),
                     }
@@ -223,7 +228,7 @@ class MergeOutputsStep(PostProcessingStep):
                     attrs={"long_name": "lake mask", "flag_values": "0=land, 1=lake"}
                 )
     
-            ds_merged["temp_filled"] = xr.DataArray(
+            ds_merged["lake_surface_water_temperature_reconstructed"] = xr.DataArray(
                 out,
                 dims=(ctx.time_name, lat_name, lon_name),
                 coords={ctx.time_name: ds_orig[ctx.time_name].values,

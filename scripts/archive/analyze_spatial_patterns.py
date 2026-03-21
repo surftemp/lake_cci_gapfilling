@@ -63,8 +63,8 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
             mask = np.isfinite(lakeid) & (lakeid != 0)
     else:
         # Fallback: use valid data mask
-        if 'temp_filled' in ds:
-            mask = np.any(np.isfinite(ds['temp_filled'].values), axis=0)
+        if 'lake_surface_water_temperature_reconstructed' in ds:
+            mask = np.any(np.isfinite(ds['lake_surface_water_temperature_reconstructed'].values), axis=0)
         else:
             return None
     return mask.astype(bool)
@@ -149,7 +149,7 @@ def find_nearest_pixel(lat_array: np.ndarray, lon_array: np.ndarray,
 # =============================================================================
 
 def extract_pixel_timeseries(ds: xr.Dataset, lat_idx: int, lon_idx: int,
-                              var_name: str = 'temp_filled') -> np.ndarray:
+                              var_name: str = 'lake_surface_water_temperature_reconstructed') -> np.ndarray:
     """Extract timeseries at a pixel."""
     if var_name not in ds:
         return np.array([])
@@ -166,7 +166,7 @@ def extract_pixel_timeseries(ds: xr.Dataset, lat_idx: int, lon_idx: int,
 def extract_observations_at_pixel(ds: xr.Dataset, lat_idx: int, lon_idx: int,
                                    quality_threshold: int = 3) -> np.ndarray:
     """Extract only original observations (not gap-filled) at a pixel."""
-    temps = extract_pixel_timeseries(ds, lat_idx, lon_idx, 'temp_filled')
+    temps = extract_pixel_timeseries(ds, lat_idx, lon_idx, 'lake_surface_water_temperature_reconstructed')
     
     if 'quality_level' in ds:
         quality = ds['quality_level'].isel(lat=lat_idx, lon=lon_idx).values

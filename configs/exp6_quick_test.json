@@ -1,15 +1,15 @@
 {
-  "experiment_name": "test_eofs_earlier_interp",
-  "description": "test_eofs_earlier_interp",
+  "experiment_name": "exp6_quick_test",
+  "description": "exp6: quick test of pipeline changes (memory refactor, profiling) on short QOS",
   "mode": "anomaly",
-  "note": "test_eofs_earlier_interp",
+  "note": "exp6_quick_test",
   "_note_engine_mode": "dineof | dincae | both ",
   "engine_mode": "dineof",
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
-    "custom_lake_ids": [ 
-        88
+    "custom_lake_ids": [
+      1241
     ],
     "versions_to_process": [
       "v2"
@@ -20,7 +20,7 @@
   },
   "paths": {
     "_run_tag_note": "Leave empty to auto-generate: {mode}-{date}-{hash}-{note}",
-    "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
+    "run_root_template": "/work/scratch-nopw2/shaerdan_lake/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
     "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",
@@ -30,7 +30,7 @@
     "prepared_filename": "prepared.nc",
     "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
     "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc",
-    "ice_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/LIC_MASK_L3/ESACCI-LIC-GAPFILLED-LAKEID-{lake_id}-fv3.0.nc"
+    "ice_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/LIC_MASK_L3/ESACCI-LIC-RAW-LAKEID-{lake_id}-fv3.0.nc"
   },
   "variables": {
     "lswt_var": "lake_surface_water_temperature",
@@ -62,7 +62,8 @@
   },
   "behavior": {
     "idempotent": false,
-    "keep_temps": false
+    "keep_temps": false,
+    "profile_memory": true
   },
   "preprocessing_options": {
     "start_date": "2000-01-01",
@@ -77,9 +78,9 @@
     "cv_min_cloud_frac": 0.3,
     "cv_max_cloud_frac": 0.7,
     "remove_avhrr_ql3": false,
-    "replace_ice_zero": false,
-    "_comment": "=== ice lic variable options are: smoothed_gap_filled_lic_class, gap_filled_lic_class, raw_lic_class, raw_quality_level ===",
-    "ice_lic_var": "raw_lic_class",
+    "replace_ice_zero": true,
+    "_comment": "=== ice lic variable options are: smoothed_gap_filled_lic_class, gap_filled_lic_class, raw_lic_class, lake_cover_class, raw_quality_level ===",
+    "ice_lic_var": "lake_cover_class",
     "remove_threshold": 0.05,
     "apply_zscore_filter": true,
     "outlier_mode": "zscore",
@@ -197,10 +198,10 @@
   },
   "submission": {
     "partition": "standard",
-    "qos": "long",
+    "qos": "short",
     "account": "eocis_chuk",
-    "time": "120:00:00",
-    "mem": "128G",
+    "time": "04:00:00",
+    "mem": "48G",
     "max_concurrent": 120,
     "per_index_chain": true
   },

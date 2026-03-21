@@ -37,14 +37,14 @@ def post_map_to_full(pred_nc: Path, cropped_nc: Path, prepared_full_nc: Path, ou
 def to_dineof_shape(full_nc: Path, prepared_full_nc: Path, out_nc: Path, var_name: str) -> None:
     ds_full = xr.load_dataset(full_nc)
     ds_ref = xr.load_dataset(prepared_full_nc)
-    # FIX: Identify source variable and rename to 'temp_filled' for DINEOF compatibility
+    # FIX: Identify source variable and rename to 'lake_surface_water_temperature_reconstructed' for DINEOF compatibility
     source_var = var_name
     if source_var not in ds_full:
         candidates = [v for v in ds_full.data_vars]
         if not candidates: raise ValueError("Full product has no data variable to rename.")
         source_var = candidates[0]
-    # CRITICAL: Rename to temp_filled
-    target_var = "temp_filled"
+    # CRITICAL: Rename to lake_surface_water_temperature_reconstructed
+    target_var = "lake_surface_water_temperature_reconstructed"
     if source_var != target_var:
         ds_full = ds_full.rename({source_var: target_var})
     ds_out = ds_full.reindex_like(ds_ref, method=None, copy=True)
@@ -56,8 +56,8 @@ def to_dineof_shape(full_nc: Path, prepared_full_nc: Path, out_nc: Path, var_nam
 def make_merged(output_nc: Path, prepared_full_nc: Path, out_merged_nc: Path, var_name: str) -> None:
     ds_pred = xr.load_dataset(output_nc)
     ds_ref = xr.load_dataset(prepared_full_nc)
-    # FIX: Use 'temp_filled' for prediction variable
-    pred_var = "temp_filled"
+    # FIX: Use 'lake_surface_water_temperature_reconstructed' for prediction variable
+    pred_var = "lake_surface_water_temperature_reconstructed"
     ref_var = var_name
     if pred_var not in ds_pred or ref_var not in ds_ref:
         raise ValueError(f"Expected '{pred_var}' in prediction and '{ref_var}' in reference.")

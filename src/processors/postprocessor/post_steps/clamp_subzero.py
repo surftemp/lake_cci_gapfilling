@@ -15,7 +15,7 @@ from .base import PostProcessingStep, PostContext
 
 class ClampSubZeroStep(PostProcessingStep):
     """
-    Clip temp_filled so that no pixel has LSWT below the freezing point.
+    Clip lake_surface_water_temperature_reconstructed so that no pixel has LSWT below the freezing point.
 
     The threshold depends on ctx.output_units:
       - "celsius"  ->  0.0
@@ -23,7 +23,7 @@ class ClampSubZeroStep(PostProcessingStep):
     """
 
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
-        return ds is not None and "temp_filled" in ds
+        return ds is not None and "lake_surface_water_temperature_reconstructed" in ds
 
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
         assert ds is not None
@@ -33,12 +33,12 @@ class ClampSubZeroStep(PostProcessingStep):
         else:
             threshold = 0.0
 
-        arr = ds["temp_filled"].values
+        arr = ds["lake_surface_water_temperature_reconstructed"].values
         n_subzero = int(np.nansum(arr < threshold))
         total_valid = int(np.nansum(np.isfinite(arr)))
 
         if n_subzero > 0:
-            ds["temp_filled"] = ds["temp_filled"].clip(min=threshold)
+            ds["lake_surface_water_temperature_reconstructed"] = ds["lake_surface_water_temperature_reconstructed"].clip(min=threshold)
             pct = 100.0 * n_subzero / total_valid if total_valid > 0 else 0
             print(f"[ClampSubZero] Clamped {n_subzero:,} values below {threshold} "
                   f"({pct:.2f}% of {total_valid:,} valid pixels)")

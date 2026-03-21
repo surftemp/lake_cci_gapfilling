@@ -10,7 +10,7 @@ from .base import PostProcessingStep, PostContext
 
 class AddBackClimatologyStep(PostProcessingStep):
     """
-    Add back per-pixel climatology: temp_filled = temp_filled + clim(doy, lat, lon)
+    Add back per-pixel climatology: lake_surface_water_temperature_reconstructed = lake_surface_water_temperature_reconstructed + clim(doy, lat, lon)
 
     Climatology file:
       - Variable candidates: 'lswt_mean_trimmed_345', 'lswt_mean', 'climatology'
@@ -22,7 +22,7 @@ class AddBackClimatologyStep(PostProcessingStep):
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
         if ds is None:
             return False
-        if "temp_filled" not in ds:
+        if "lake_surface_water_temperature_reconstructed" not in ds:
             return False
         if not ctx.climatology_path:
             return False
@@ -71,23 +71,23 @@ class AddBackClimatologyStep(PostProcessingStep):
             clim_t = clim_t.transpose("doy", "lat", "lon")
             clim_t = clim_t.drop_vars("doy", errors="ignore")
         # Ensure lat/lon match
-        clim_t = clim_t.reindex_like(ds["temp_filled"], method=None)
+        clim_t = clim_t.reindex_like(ds["lake_surface_water_temperature_reconstructed"], method=None)
 
         # Broadcast time dimension if needed
         if "doy" in clim_t.coords:
             clim_t = clim_t.drop_vars("doy")
 
         # Add back
-        ds["temp_filled"] = (ds["temp_filled"] + clim_t).astype("float32")
+        ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] + clim_t).astype("float32")
         ds.attrs["climatology_added_back"] = 1
         ds.attrs["climatology_file"] = clim_path
 
         # Units handling
         if ctx.output_units == "celsius":
-            ds["temp_filled"] = (ds["temp_filled"] - 273.15).astype("float32")
-            ds["temp_filled"].attrs["units"] = "degree_Celsius"
+            ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] - 273.15).astype("float32")
+            ds["lake_surface_water_temperature_reconstructed"].attrs["units"] = "degree_Celsius"
         else:
-            ds["temp_filled"].attrs["units"] = "kelvin"
+            ds["lake_surface_water_temperature_reconstructed"].attrs["units"] = "kelvin"
 
         clim_ds.close()
         return ds

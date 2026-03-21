@@ -19,7 +19,7 @@ class AddBackTrendStep(PostProcessingStep):
 
     We compute trend(t) = slope * (days - t0) + intercept   (if t0 present)
                       or = slope * days + intercept         (if t0 missing)
-    Then: temp_filled += trend(t)
+    Then: lake_surface_water_temperature_reconstructed += trend(t)
     """
 
     def should_apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> bool:
@@ -29,7 +29,7 @@ class AddBackTrendStep(PostProcessingStep):
         method = str(ia.get("detrend_method", "none")).lower()
         if method in ("", "none", "false", "0", "off"):
             return False
-        return "temp_filled" in ds
+        return "lake_surface_water_temperature_reconstructed" in ds
 
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
         assert ds is not None
@@ -54,9 +54,9 @@ class AddBackTrendStep(PostProcessingStep):
         trend = float(slope) * x + float(intercept)  # shape (time,)
         # Broadcast to 3D
         trend3d = xr.DataArray(trend, dims=("time",), coords={"time": ds["time"].values})
-        trend3d = trend3d.broadcast_like(ds["temp_filled"])
+        trend3d = trend3d.broadcast_like(ds["lake_surface_water_temperature_reconstructed"])
 
-        ds["temp_filled"] = (ds["temp_filled"] + trend3d).astype("float32")
+        ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] + trend3d).astype("float32")
         ds.attrs["trend_added_back"] = 1
         ds.attrs["trend_model"] = "linear"
         ds.attrs["trend_params"] = f"slope_per_day={slope}, intercept={intercept}, t0_days={t0}"

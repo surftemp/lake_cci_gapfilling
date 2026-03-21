@@ -179,13 +179,8 @@ function dineof_cvp(fname, maskfname, outdir, nbclean;
             # Track donor usage
             donor_usage_count[chosen_donor] = get(donor_usage_count, chosen_donor, 0) + 1
             
-            println("  Frame $c (obs=$(round(clean_obs_frac, digits=3))): " *
-                    "$(length(valid_donors)) valid donors, chose $chosen_donor " *
-                    "(cloud=$(round(cloudcov[chosen_donor], digits=3))) → " *
-                    "result obs=$(round(chosen_resulting_frac, digits=3)) ✓")
         else
-            println("  Frame $c (obs=$(round(clean_obs_frac, digits=3))): " *
-                    "NO valid donor found (all would drop below $min_obs_frac) ✗")
+            println("  WARNING: Frame $c — no valid donor (all would drop below $min_obs_frac)")
         end
     end
 

@@ -62,6 +62,12 @@ class InterpolateTemporalEOFsStep(PostProcessingStep):
                 # map available days into target positions
                 for i_src, d in enumerate(avail_days):
                     j = pos_in_target.get(int(d), -1)
+                    if j < 0:
+                        # Clamp out-of-range days to nearest target boundary
+                        if int(d) < int(target_days[0]):
+                            j = 0
+                        elif int(d) > int(target_days[-1]):
+                            j = len(target_days) - 1
                     if j >= 0:
                         out[j] = src[i_src]
 

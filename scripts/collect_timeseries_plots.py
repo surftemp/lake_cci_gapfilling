@@ -7,9 +7,12 @@ Generates galleries for:
   2. DINEOF vs EOF-filtered comparison
   3. DINEOF vs DINCAE comparison
   4. DINEOF-filtered vs DINCAE comparison
-  5. In-situ validation (main multi-method panels per site)
-  6. In-situ yearly validation
-  7. In-situ same-date comparison
+  5. DINEOF-filtered-interp vs DINCAE-interp (side-by-side)
+  6. DINEOF-interp vs DINEOF-filtered-interp (side-by-side)
+  7. In-situ validation (main multi-method panels per site)
+  8. In-situ yearly validation
+  9. In-situ same-date comparison
+  10. In-situ distance maps
 
 Usage:
   python collect_timeseries_plots.py \
@@ -17,12 +20,12 @@ Usage:
 
   # Specific galleries only
   python collect_timeseries_plots.py \
-    --exp-dir /gws/.../ --galleries dineof_vs_dincae insitu
+    --exp-dir /gws/.../ --galleries filtered_interp_vs_dincae_interp
 
   # List available galleries
   python collect_timeseries_plots.py --exp-dir /gws/.../ --list
 """
-import argparse, glob, os, base64
+import argparse, glob, os, base64, re
 
 
 # =========================================================================
@@ -55,6 +58,27 @@ GALLERY_DEFS = {
         "title": "DINEOF-Filtered vs DINCAE",
         "folder": "timeseries_all_filtered_vs_DINCAE",
     },
+    # --- Interpolated comparison galleries (side-by-side from individual PNGs) ---
+    "filtered_interp_vs_dincae_interp": {
+        "type": "paired",
+        "glob_left": "post/*/a*/plots/LAKE*_DINEOF_filtered_interp.png",
+        "glob_right": "post/*/a*/plots/LAKE*_DINCAE_interp.png",
+        "label_left": "DINEOF Filtered Interp",
+        "label_right": "DINCAE Interp",
+        "html": "gallery_filtered_interp_vs_dincae_interp.html",
+        "title": "DINEOF-Filtered-Interp vs DINCAE-Interp",
+        "folder": "timeseries_all_filtered_interp_vs_DINCAE_interp",
+    },
+    "dineof_interp_vs_filtered_interp": {
+        "type": "paired",
+        "glob_left": "post/*/a*/plots/LAKE*_DINEOF_interp.png",
+        "glob_right": "post/*/a*/plots/LAKE*_DINEOF_filtered_interp.png",
+        "label_left": "DINEOF Interp",
+        "label_right": "DINEOF Filtered Interp",
+        "html": "gallery_dineof_interp_vs_filtered_interp.html",
+        "title": "DINEOF-Interp vs DINEOF-Filtered-Interp",
+        "folder": "timeseries_all_DINEOF_interp_vs_filtered_interp",
+    },
     # --- In-situ validation galleries (in post/*/a*/insitu_cv_validation/) ---
     "insitu": {
         "glob": "post/*/a*/insitu_cv_validation/LAKE*_insitu_validation_site*.png",
@@ -83,33 +107,83 @@ GALLERY_DEFS = {
 }
 
 
+def _extract_lake_key(path):
+    """Extract lake ID + alpha from path for pairing."""
+    # e.g. post/000000002/a0.01/plots/LAKE000000002_DINEOF_interp.png
+    # key = "000000002/a0.01"
+    m = re.search(r'post/(\d+)/(a[\d.]+)/plots/', path)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}"
+    return os.path.basename(path)
+
+
+def _embed_image(path):
+    """Read image and return base64-encoded PNG (no resize, full quality)."""
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    return b64
+
+
 # =========================================================================
-# HTML builder
+# HTML builders
 # =========================================================================
 
-def build_gallery(plots, out_dir, html_name, title, use_resize, resize_fn):
-    """Build a single HTML gallery from a list of plot paths."""
+def _gallery_style():
+    return ("<!DOCTYPE html><html><head><style>\n"
+            "body{font-family:sans-serif;background:#111;color:#eee;margin:20px}\n"
+            "h1{text-align:center}\n"
+            ".card{margin:30px auto;max-width:95%%;background:#222;padding:15px;border-radius:8px}\n"
+            ".card h2{margin:5px 0;font-size:16px}\n"
+            ".card img{width:100%%;height:auto}\n"
+            ".pair{display:flex;gap:10px;align-items:flex-start}\n"
+            ".pair .side{flex:1;min-width:0}\n"
+            ".pair .side h3{margin:5px 0;font-size:14px;text-align:center}\n"
+            ".pair .side img{width:100%%;height:auto}\n"
+            "</style></head><body>\n")
+
+
+def build_gallery(plots, out_dir, html_name, title):
+    """Build a single HTML gallery from a list of plot paths. Full resolution PNG."""
     html_path = os.path.join(out_dir, html_name)
     with open(html_path, "w") as f:
-        f.write("<!DOCTYPE html><html><head><style>\n"
-                "body{font-family:sans-serif;background:#111;color:#eee;margin:20px}\n"
-                "h1{text-align:center}\n"
-                ".card{margin:30px auto;max-width:1400px;background:#222;padding:15px;border-radius:8px}\n"
-                ".card h2{margin:5px 0;font-size:16px}\n"
-                ".card img{width:100%%;height:auto}\n"
-                "</style></head><body>\n"
-                "<h1>%s (%d plots)</h1>\n" % (title, len(plots)))
+        f.write(_gallery_style())
+        f.write(f"<h1>{title} ({len(plots)} plots)</h1>\n")
 
         for p_path in plots:
             label = os.path.basename(p_path).replace(".png", "")
-            if use_resize and resize_fn is not None:
-                b64, fmt = resize_fn(p_path)
-            else:
-                with open(p_path, "rb") as img:
-                    b64 = base64.b64encode(img.read()).decode()
-                fmt = "png"
+            b64 = _embed_image(p_path)
             f.write(f'<div class="card"><h2>{label}</h2>\n')
-            f.write(f'<img src="data:image/{fmt};base64,{b64}"/></div>\n')
+            f.write(f'<img src="data:image/png;base64,{b64}"/></div>\n')
+
+        f.write("</body></html>")
+    size_mb = os.path.getsize(html_path) / 1e6
+    print(f"  Wrote {html_path} ({size_mb:.1f} MB)")
+
+
+def build_paired_gallery(pairs, out_dir, html_name, title, label_left, label_right):
+    """Build side-by-side HTML gallery from paired plot paths. Full resolution PNG."""
+    html_path = os.path.join(out_dir, html_name)
+    with open(html_path, "w") as f:
+        f.write(_gallery_style())
+        f.write(f"<h1>{title} ({len(pairs)} pairs)</h1>\n")
+
+        for key, left_path, right_path in pairs:
+            lake_label = re.search(r'LAKE(\d+)', os.path.basename(left_path))
+            lake_str = f"Lake {lake_label.group(1)}" if lake_label else key
+            f.write(f'<div class="card"><h2>{lake_str} ({key})</h2>\n')
+            f.write('<div class="pair">\n')
+
+            # Left
+            b64_l = _embed_image(left_path)
+            f.write(f'<div class="side"><h3>{label_left}</h3>\n')
+            f.write(f'<img src="data:image/png;base64,{b64_l}"/></div>\n')
+
+            # Right
+            b64_r = _embed_image(right_path)
+            f.write(f'<div class="side"><h3>{label_right}</h3>\n')
+            f.write(f'<img src="data:image/png;base64,{b64_r}"/></div>\n')
+
+            f.write('</div></div>\n')
 
         f.write("</body></html>")
     size_mb = os.path.getsize(html_path) / 1e6
@@ -129,65 +203,72 @@ def main():
     p.add_argument("--galleries", nargs="+", choices=list(GALLERY_DEFS.keys()),
                    help="Build only these galleries (default: all)")
     p.add_argument("--list", action="store_true", help="List available galleries and exit")
-    p.add_argument("--no-resize", action="store_true",
-                   help="Skip PIL resize, embed full-size PNGs")
     args = p.parse_args()
 
     if args.list:
         print("Available galleries:")
         for key, defn in GALLERY_DEFS.items():
-            print(f"  {key:25s} {defn['title']}")
+            print(f"  {key:45s} {defn['title']}")
         return
 
     exp = args.exp_dir.rstrip("/")
-
-    # Setup resize
-    resize_fn = None
-    use_resize = False
-    if not args.no_resize:
-        try:
-            from PIL import Image
-            import io
-
-            def resize_to_b64(path, max_width=900):
-                img = Image.open(path).convert("RGB")
-                if img.width > max_width:
-                    ratio = max_width / img.width
-                    img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=70)
-                return base64.b64encode(buf.getvalue()).decode(), "jpeg"
-
-            resize_fn = resize_to_b64
-            use_resize = True
-            print("PIL available -- resizing to max 900px width, JPEG q70")
-        except ImportError:
-            print("PIL not available -- embedding full-size images")
-
-    # Select galleries
     selected = args.galleries or list(GALLERY_DEFS.keys())
     total_built = 0
 
     for key in selected:
         defn = GALLERY_DEFS[key]
-        plots = sorted(glob.glob(os.path.join(exp, defn["glob"])))
-        print(f"\n{defn['title']}: found {len(plots)} plots")
-        if not plots:
-            continue
+        is_paired = defn.get("type") == "paired"
 
-        out_dir = os.path.join(exp, defn["folder"])
-        os.makedirs(out_dir, exist_ok=True)
+        if is_paired:
+            # Paired gallery: match left/right by lake+alpha key
+            left_plots = sorted(glob.glob(os.path.join(exp, defn["glob_left"])))
+            right_plots = sorted(glob.glob(os.path.join(exp, defn["glob_right"])))
+            print(f"\n{defn['title']}: found {len(left_plots)} left, {len(right_plots)} right")
 
-        # Symlink into flat dir
-        for p_path in plots:
-            dest = os.path.join(out_dir, os.path.basename(p_path))
-            if os.path.islink(dest) or os.path.exists(dest):
-                os.remove(dest)
-            os.symlink(p_path, dest)
-        print(f"  Symlinked {len(plots)} files to {out_dir}/")
+            # Index right plots by key
+            right_by_key = {}
+            for rp in right_plots:
+                right_by_key[_extract_lake_key(rp)] = rp
 
-        build_gallery(plots, out_dir, defn["html"], defn["title"], use_resize, resize_fn)
-        total_built += 1
+            pairs = []
+            for lp in left_plots:
+                lk = _extract_lake_key(lp)
+                if lk in right_by_key:
+                    pairs.append((lk, lp, right_by_key[lk]))
+
+            print(f"  Matched {len(pairs)} pairs")
+            if not pairs:
+                continue
+
+            out_dir = os.path.join(exp, defn["folder"])
+            os.makedirs(out_dir, exist_ok=True)
+
+            build_paired_gallery(
+                pairs, out_dir, defn["html"], defn["title"],
+                defn["label_left"], defn["label_right"],
+            )
+            total_built += 1
+
+        else:
+            # Standard single-image gallery
+            plots = sorted(glob.glob(os.path.join(exp, defn["glob"])))
+            print(f"\n{defn['title']}: found {len(plots)} plots")
+            if not plots:
+                continue
+
+            out_dir = os.path.join(exp, defn["folder"])
+            os.makedirs(out_dir, exist_ok=True)
+
+            # Symlink into flat dir
+            for p_path in plots:
+                dest = os.path.join(out_dir, os.path.basename(p_path))
+                if os.path.islink(dest) or os.path.exists(dest):
+                    os.remove(dest)
+                os.symlink(p_path, dest)
+            print(f"  Symlinked {len(plots)} files to {out_dir}/")
+
+            build_gallery(plots, out_dir, defn["html"], defn["title"])
+            total_built += 1
 
     print(f"\nDone. Built {total_built} galleries.")
 

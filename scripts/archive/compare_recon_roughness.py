@@ -206,7 +206,7 @@ def find_output_files(post_dir: str, lake_id: int) -> Dict[str, Optional[str]]:
 
 
 def extract_pixel_timeseries(nc_path: str, lat_idx: int, lon_idx: int,
-                              var_name: str = 'temp_filled') -> np.ndarray:
+                              var_name: str = 'lake_surface_water_temperature_reconstructed') -> np.ndarray:
     """Extract full timeseries at a pixel location."""
     with xr.open_dataset(nc_path) as ds:
         if var_name not in ds:

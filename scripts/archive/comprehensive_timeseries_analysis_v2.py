@@ -52,7 +52,7 @@ DEFAULT_SELECTION_CSVS = [
 FLAG_TRUE_GAP = 0        # Originally missing (true gap)
 FLAG_OBSERVED_SEEN = 1   # Observed and used in training
 FLAG_CV_WITHHELD = 2     # CV point (withheld observation)
-FLAG_NOT_RECONSTRUCTED = 255  # temp_filled is NaN
+FLAG_NOT_RECONSTRUCTED = 255  # lake_surface_water_temperature_reconstructed is NaN
 
 
 # =============================================================================
@@ -176,8 +176,8 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
         else:
             mask = np.isfinite(lakeid) & (lakeid != 0)
     else:
-        if 'temp_filled' in ds:
-            mask = np.any(np.isfinite(ds['temp_filled'].values), axis=0)
+        if 'lake_surface_water_temperature_reconstructed' in ds:
+            mask = np.any(np.isfinite(ds['lake_surface_water_temperature_reconstructed'].values), axis=0)
         else:
             return None
     return mask.astype(bool)
@@ -254,9 +254,9 @@ def extract_pixel_data_with_flag(ds_dineof: xr.Dataset, ds_dincae: xr.Dataset,
     """
     times = pd.to_datetime(ds_dineof['time'].values)
     
-    # Get reconstruction (temp_filled)
-    dineof_recon = ds_dineof['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values.copy()
-    dincae_recon = ds_dincae['temp_filled'].isel(lat=lat_idx, lon=lon_idx).values.copy()
+    # Get reconstruction (lake_surface_water_temperature_reconstructed)
+    dineof_recon = ds_dineof['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values.copy()
+    dincae_recon = ds_dincae['lake_surface_water_temperature_reconstructed'].isel(lat=lat_idx, lon=lon_idx).values.copy()
     
     # Get data_source flag - CRITICAL for proper validation
     data_source = None

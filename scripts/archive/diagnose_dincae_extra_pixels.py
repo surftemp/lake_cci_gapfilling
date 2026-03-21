@@ -51,8 +51,8 @@ def main():
     ds_dineof = xr.open_dataset(dineof_file)
     ds_dincae = xr.open_dataset(dincae_file)
     
-    tf_dineof = ds_dineof["temp_filled"].values
-    tf_dincae = ds_dincae["temp_filled"].values
+    tf_dineof = ds_dineof["lake_surface_water_temperature_reconstructed"].values
+    tf_dincae = ds_dincae["lake_surface_water_temperature_reconstructed"].values
     
     print(f"\nPost-processed files:")
     print(f"  DINEOF: {dineof_file.name}")
@@ -140,8 +140,8 @@ def main():
         ds_dineof_raw = xr.open_dataset(dineof_raw)
         ds_dincae_raw = xr.open_dataset(dincae_raw)
         
-        tf_dineof_raw = ds_dineof_raw["temp_filled"].values
-        tf_dincae_raw = ds_dincae_raw["temp_filled"].values
+        tf_dineof_raw = ds_dineof_raw["lake_surface_water_temperature_reconstructed"].values
+        tf_dincae_raw = ds_dincae_raw["lake_surface_water_temperature_reconstructed"].values
         
         print(f"\n  Raw DINEOF (dineof_results.nc):")
         print(f"    Shape: {tf_dineof_raw.shape}")

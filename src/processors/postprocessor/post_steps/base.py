@@ -43,7 +43,39 @@ class PostContext:
     time_units: str = "days since 1981-01-01 12:00:00"
     time_start_days: Optional[int] = None
     time_end_days: Optional[int] = None
-    full_days: Optional[np.ndarray] = None    
+    full_days: Optional[np.ndarray] = None
+
+    # Controls whether AddDataSourceFlagStep marks CV-withheld pixels (flag=2).
+    # False for Stage 2 outputs (CV points restored — only 0=gap, 1=observed).
+    # True for _for_cv outputs (CV points withheld — 0=gap, 1=observed, 2=CV).
+    mark_cv_points: bool = False
+
+    # Memory profiling: when True, log VmRSS before/after each step
+    profile_memory: bool = False
+
+
+def get_current_rss_mb() -> float:
+    """Read current VmRSS from /proc/self/status (Linux only). Returns MB."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024  # kB -> MB
+    except Exception:
+        pass
+    return -1.0
+
+
+def get_peak_rss_mb() -> float:
+    """Read peak RSS (VmHWM) from /proc/self/status (Linux only). Returns MB."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmHWM:"):
+                    return int(line.split()[1]) / 1024  # kB -> MB
+    except Exception:
+        pass
+    return -1.0
 
 
 class PostProcessingStep:

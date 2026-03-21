@@ -66,8 +66,8 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
         else:
             mask = np.isfinite(lakeid) & (lakeid != 0)
     else:
-        if 'temp_filled' in ds:
-            mask = np.any(np.isfinite(ds['temp_filled'].values), axis=0)
+        if 'lake_surface_water_temperature_reconstructed' in ds:
+            mask = np.any(np.isfinite(ds['lake_surface_water_temperature_reconstructed'].values), axis=0)
         else:
             return None
     return mask.astype(bool)
@@ -182,8 +182,8 @@ def analyze_lake(run_root: str, lake_id: int, alpha: str,
         buoy_distance = distance_map[buoy_idx] if distance_map is not None else np.nan
         
         # Extract timeseries at buoy pixel
-        dineof_ts = ds_dineof['temp_filled'].isel(lat=buoy_idx[0], lon=buoy_idx[1]).values
-        dincae_ts = ds_dincae['temp_filled'].isel(lat=buoy_idx[0], lon=buoy_idx[1]).values
+        dineof_ts = ds_dineof['lake_surface_water_temperature_reconstructed'].isel(lat=buoy_idx[0], lon=buoy_idx[1]).values
+        dincae_ts = ds_dincae['lake_surface_water_temperature_reconstructed'].isel(lat=buoy_idx[0], lon=buoy_idx[1]).values
         
         # Convert to Celsius if needed
         if np.nanmean(dineof_ts) > 100:
@@ -201,7 +201,7 @@ def analyze_lake(run_root: str, lake_id: int, alpha: str,
         # Compute satellite CV RMSE at buoy pixel
         if obs_mask.sum() >= 10:
             obs_temps = dineof_ts.copy()  # Original temps at observed times
-            # Note: temp_filled contains the reconstruction, but at observed times 
+            # Note: lake_surface_water_temperature_reconstructed contains the reconstruction, but at observed times 
             # it should match the original obs... Actually we need the original obs
             # Let's use the reconstruction error at observed points
             
@@ -211,7 +211,7 @@ def analyze_lake(run_root: str, lake_id: int, alpha: str,
             dincae_at_obs = dincae_ts[obs_mask]
             
             # We need the ORIGINAL satellite observation to compute error
-            # In the output file, temp_filled IS the reconstruction
+            # In the output file, lake_surface_water_temperature_reconstructed IS the reconstruction
             # The original obs would need to come from elsewhere or we use a proxy
             
             # Actually, for a proper satellite CV, we'd need the original obs

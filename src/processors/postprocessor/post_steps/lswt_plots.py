@@ -95,7 +95,7 @@ def get_lake_mask(ds: xr.Dataset) -> np.ndarray:
     """Get lake mask, handling both [0,1] and [lake_id, nan] conventions."""
     if "lakeid" not in ds:
         # Fallback: use any finite values
-        for var in ["temp_filled", "lake_surface_water_temperature", "lswt_mean_trimmed"]:
+        for var in ["lake_surface_water_temperature_reconstructed", "lake_surface_water_temperature", "lswt_mean_trimmed"]:
             if var in ds:
                 return np.any(np.isfinite(ds[var].values), axis=0)
         raise ValueError("No lakeid or data variable found")
@@ -215,9 +215,7 @@ def compute_year_ticks(time: pd.DatetimeIndex) -> tuple:
     positions, labels = [], []
     for y in range(y_start, y_end + 1):
         if y in years:
-            target = pd.Timestamp(y, 1, 1, 12)
-            idx = int(np.argmin(np.abs(time - target)))
-            positions.append(time[idx])
+            positions.append(pd.Timestamp(y, 1, 1))
             labels.append(str(y))
     
     return positions, labels
@@ -734,7 +732,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if dineof_path and os.path.exists(dineof_path):
             try:
                 with xr.open_dataset(dineof_path) as ds_file:
-                    dineof = extract_lake_series(ds_file, "temp_filled")
+                    dineof = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINEOF from: {os.path.basename(dineof_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF: {e}")
@@ -744,7 +742,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if filtered_path and os.path.exists(filtered_path):
             try:
                 with xr.open_dataset(filtered_path) as ds_file:
-                    dineof_filtered = extract_lake_series(ds_file, "temp_filled")
+                    dineof_filtered = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINEOF filtered from: {os.path.basename(filtered_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF filtered: {e}")
@@ -754,7 +752,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if interp_path and os.path.exists(interp_path):
             try:
                 with xr.open_dataset(interp_path) as ds_file:
-                    dineof_interp = extract_lake_series(ds_file, "temp_filled")
+                    dineof_interp = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINEOF interp from: {os.path.basename(interp_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF interp: {e}")
@@ -764,7 +762,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if filtered_interp_path and os.path.exists(filtered_interp_path):
             try:
                 with xr.open_dataset(filtered_interp_path) as ds_file:
-                    dineof_filtered_interp = extract_lake_series(ds_file, "temp_filled")
+                    dineof_filtered_interp = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINEOF filtered interp from: {os.path.basename(filtered_interp_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINEOF filtered interp: {e}")
@@ -774,7 +772,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if dincae_path and os.path.exists(dincae_path):
             try:
                 with xr.open_dataset(dincae_path) as ds_file:
-                    dincae = extract_lake_series(ds_file, "temp_filled")
+                    dincae = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINCAE from: {os.path.basename(dincae_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINCAE: {e}")
@@ -784,7 +782,7 @@ class LSWTPlotsStep(PostProcessingStep):
         if dincae_interp_path and os.path.exists(dincae_interp_path):
             try:
                 with xr.open_dataset(dincae_interp_path) as ds_file:
-                    dincae_interp = extract_lake_series(ds_file, "temp_filled")
+                    dincae_interp = extract_lake_series(ds_file, "lake_surface_water_temperature_reconstructed")
                 print(f"[LSWTPlots] Loaded DINCAE interp from: {os.path.basename(dincae_interp_path)}")
             except Exception as e:
                 print(f"[LSWTPlots] Could not load DINCAE interp: {e}")
