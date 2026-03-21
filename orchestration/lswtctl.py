@@ -396,6 +396,7 @@ def do_exec(conf_path:str, row:int, stage:str):
     keep_temps = bool(behavior.get("keep_temps", False))
     idempotent = bool(behavior.get("idempotent", True))
     profile_memory = bool(behavior.get("profile_memory", False))
+    production = bool(behavior.get("production", False))
 
     # --- PRE ---
     def run_pre():
@@ -644,6 +645,7 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             f"--climatology-file {paths['clim_nc']} "
             f"--units celsius"
             + (" --profile-memory" if profile_memory else "")
+            + (" --production" if production else "")
         )
         print("[POST_DINEOF] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)
@@ -669,6 +671,7 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
             f"--no-eof-meta "
             f"--no-log-meta"
             + (" --profile-memory" if profile_memory else "")
+            + (" --production" if production else "")
         )
         print("[POST_DINCAE] Exec:", cmd, flush=True)
         _bash_exec(cmd, stage_env)

@@ -1,8 +1,8 @@
 {
-  "experiment_name": "exp6_quick_test",
-  "description": "exp6: quick test of pipeline changes (memory refactor, profiling) on short QOS",
+  "experiment_name": "exp8_production_test",
+  "description": "exp8: test production mode + chunked writer on lake 1241",
   "mode": "anomaly",
-  "note": "exp6_quick_test",
+  "note": "exp8_production_test",
   "_note_engine_mode": "dineof | dincae | both ",
   "engine_mode": "dineof",
   "dataset_options": {
@@ -63,7 +63,8 @@
   "behavior": {
     "idempotent": false,
     "keep_temps": false,
-    "profile_memory": true
+    "profile_memory": true,
+    "production": true
   },
   "preprocessing_options": {
     "start_date": "2000-01-01",

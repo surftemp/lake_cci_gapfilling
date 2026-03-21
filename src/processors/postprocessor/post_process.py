@@ -39,6 +39,7 @@ import uuid
 from datetime import datetime, timezone
 import xarray as xr
 import numpy as np
+import netCDF4
 from dataclasses import dataclass
 from typing import Optional, List
 import glob
@@ -144,6 +145,7 @@ class PostOptions:
     add_data_source_flag: bool = True  # Add data_source flag (CV/observed/gap)
     clamp_subzero: bool = True         # Clamp sub-zero LSWT to freezing point
     dincae_temporal_interp: bool = True  # Linear temporal interpolation for DINCAE output
+    production: bool = False  # Production mode: only produce final FILLED.nc + eof_filtered _for_cv
 
 class PostProcessor:
     """
@@ -403,40 +405,29 @@ class PostProcessor:
 
         return ds
 
-    def _write_output(self, ds: xr.Dataset, path: str, extra_attrs: Optional[dict] = None) -> None:
-        """Write output dataset with proper encoding, coordinate attrs, and provenance."""
+    def _prepare_output_attrs(self, ds: xr.Dataset, extra_attrs: Optional[dict] = None) -> xr.Dataset:
+        """Apply CCI formatting, rename variables, set global attributes."""
         self._fix_output_attrs(ds)
 
-        # Ensure output variable has the standard name (fallback for any edge case)
         RECON_VAR = "lake_surface_water_temperature_reconstructed"
         if RECON_VAR not in ds and "temp_filled" in ds:
             ds = ds.rename({"temp_filled": RECON_VAR})
 
-        # --- CCI-required global attributes ---
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # Fresh UUID per output file (do NOT inherit from input)
         ds.attrs["tracking_id"] = str(uuid.uuid4())
-
-        # Production timestamp (overwrite inherited input date)
         ds.attrs["date_created"] = now_str
 
-        # Append gap-filling provenance to history
         old_history = ds.attrs.get("history", "")
         ds.attrs["history"] = (
             f"{old_history}; {now_str} gap-filled by robust-DINEOF "
             f"(lake_cci_gapfilling pipeline)"
         )
 
-        # CCI data standards compliance
         ds.attrs["format_version"] = "CCI Data Standards v2.3"
         ds.attrs["naming_authority"] = "lakes.esa-cci"
         ds.attrs["Conventions"] = "CF-1.8"
-
-        # Temporal resolution (daily for all products)
         ds.attrs["time_coverage_resolution"] = "P1D"
 
-        # Provenance paths
         try:
             with xr.open_dataset(self.dineof_input_path) as ds_in:
                 pcfg = ds_in.attrs.get("preprocess_config_path")
@@ -450,10 +441,114 @@ class PostProcessor:
         if extra_attrs:
             ds.attrs.update(extra_attrs)
 
+        return ds
+
+    def _write_output(self, ds: xr.Dataset, path: str, extra_attrs: Optional[dict] = None,
+                      time_chunk: int = 500) -> None:
+        """Write output dataset using chunked netCDF4 writes to minimize memory spikes."""
+        ds = self._prepare_output_attrs(ds, extra_attrs)
         enc = self._build_output_encoding(ds)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        ds.to_netcdf(path, encoding=enc, unlimited_dims=["time"])
-        print(f"[Post] Wrote: {path}")
+
+        n_time = ds.dims.get("time", 0)
+
+        # For small datasets, fall back to xarray (simpler, no benefit from chunking)
+        if n_time <= time_chunk:
+            ds.to_netcdf(path, encoding=enc, unlimited_dims=["time"])
+            print(f"[Post] Wrote: {path}")
+            return
+
+        # Chunked write via netCDF4 for large time dimensions
+        nc = netCDF4.Dataset(path, "w", format="NETCDF4")
+        try:
+            # --- Dimensions ---
+            nc.createDimension("time", None)  # unlimited
+            nc.createDimension("lat", ds.dims["lat"])
+            nc.createDimension("lon", ds.dims["lon"])
+            if "nv" in ds.dims:
+                nc.createDimension("nv", ds.dims["nv"])
+
+            # --- Global attributes ---
+            for k, v in ds.attrs.items():
+                try:
+                    nc.setncattr(k, v)
+                except TypeError:
+                    nc.setncattr(k, str(v))
+
+            # --- Coordinate variables ---
+            for coord_name in ("time", "lat", "lon"):
+                if coord_name not in ds.coords:
+                    continue
+                coord_enc = enc.get(coord_name, {})
+                dtype = coord_enc.pop("dtype", None)
+                arr = ds[coord_name].values
+
+                if coord_name == "time" and dtype:
+                    # Time needs special encoding (seconds since epoch)
+                    units = coord_enc.get("units", "seconds since 1970-01-01 00:00:00")
+                    calendar = coord_enc.get("calendar", "gregorian")
+                    nc_var = nc.createVariable(coord_name, dtype, ("time",),
+                                               fill_value=False)
+                    nc_var.units = units
+                    nc_var.calendar = calendar
+                    nc_var[:] = netCDF4.date2num(
+                        arr.astype("datetime64[us]").astype("object"),
+                        units=units, calendar=calendar)
+                else:
+                    out_dtype = np.dtype(dtype) if dtype else arr.dtype
+                    nc_var = nc.createVariable(coord_name, out_dtype, (coord_name,),
+                                               fill_value=False)
+                    nc_var[:] = arr.astype(out_dtype)
+
+                # Copy coordinate attributes
+                for k, v in ds[coord_name].attrs.items():
+                    if k != "_FillValue":
+                        nc_var.setncattr(k, v)
+
+            # --- Data variables (chunked in time) ---
+            for var_name in ds.data_vars:
+                var = ds[var_name]
+                var_enc = enc.get(var_name, {})
+                dtype = np.dtype(var_enc.get("dtype", var.dtype))
+                zlib = var_enc.get("zlib", False)
+                complevel = var_enc.get("complevel", 4)
+                fill_value = var_enc.get("_FillValue", None)
+
+                dims = tuple(str(d) for d in var.dims)
+
+                # Skip if dimension doesn't exist (e.g. scalar crs)
+                if not dims:
+                    nc_var = nc.createVariable(var_name, dtype, ())
+                    nc_var[:] = var.values
+                    for k, v in var.attrs.items():
+                        if k != "_FillValue":
+                            nc_var.setncattr(k, v)
+                    continue
+
+                kw = {"zlib": zlib, "complevel": complevel} if zlib else {}
+                if fill_value is not None:
+                    kw["fill_value"] = fill_value
+
+                nc_var = nc.createVariable(var_name, dtype, dims, **kw)
+
+                # Copy variable attributes
+                for k, v in var.attrs.items():
+                    if k != "_FillValue":
+                        nc_var.setncattr(k, v)
+
+                # Write in time chunks if 3D, otherwise all at once
+                if "time" in dims and len(dims) == 3:
+                    data = var.values
+                    for t0 in range(0, n_time, time_chunk):
+                        t1 = min(t0 + time_chunk, n_time)
+                        nc_var[t0:t1] = data[t0:t1].astype(dtype)
+                else:
+                    nc_var[:] = var.values.astype(dtype)
+
+        finally:
+            nc.close()
+
+        print(f"[Post] Wrote (chunked): {path}")
 
     # ==================== Memory-profiled step runner ====================
 
@@ -488,14 +583,19 @@ class PostProcessor:
 
     # ==================== Individual pass methods ====================
 
-    def _pass1_baseline(self) -> None:
-        """Pass 1: Baseline DINEOF reconstruction on original sparse timeline."""
+    def _pass1_baseline(self, skip_write: bool = False) -> None:
+        """Pass 1: Baseline DINEOF reconstruction on original sparse timeline.
+
+        In production mode, skip_write=True: runs pipeline steps to generate
+        EOF files on disk (filter, interpolate, reconstruct) but skips writing
+        the baseline output netCDF.
+        """
         ds = self._run_steps(None, pass_label="Pass1")
-        if ds is not None:
+        if ds is not None and not skip_write:
             self._write_output(ds, self.output_path)
         del ds
         gc.collect()
-        self._log_pass_memory("Pass 1 (baseline)")
+        self._log_pass_memory("Pass 1 (baseline)" + (" [skip_write]" if skip_write else ""))
 
     def _pass2_eof_filtered(self) -> None:
         """Pass 2: EOF-filtered reconstruction on original sparse timeline."""
@@ -661,8 +761,12 @@ class PostProcessor:
         gc.collect()
         self._log_pass_memory("Pass 4 (filtered_interp_full)")
 
-    def _pass_cv(self) -> None:
-        """CV passes: _for_cv baseline and eof_filtered variants for satellite CV."""
+    def _pass_cv(self, eof_filtered_only: bool = False) -> None:
+        """CV passes: _for_cv baseline and eof_filtered variants for satellite CV.
+
+        When eof_filtered_only=True (production mode), skip CV-1 (baseline) and
+        only produce the eof_filtered _for_cv output.
+        """
         base_dir = os.path.dirname(self.dineof_output_path)
         cv_results = os.path.join(base_dir, "dineof_results_for_cv.nc")
         cv_eofs = os.path.join(base_dir, "eofs_for_cv.nc")
@@ -716,24 +820,25 @@ class PostProcessor:
         # Enable CV point marking for _for_cv passes
         self.ctx.mark_cv_points = True
 
-        # --- CV-1: baseline _for_cv ---
-        orig_results = self.ctx.dineof_output_path
-        orig_output  = self.ctx.output_path
-        orig_html    = self.ctx.output_html_folder
+        # --- CV-1: baseline _for_cv (skipped in production mode) ---
+        if not eof_filtered_only:
+            orig_results = self.ctx.dineof_output_path
+            orig_output  = self.ctx.output_path
+            orig_html    = self.ctx.output_html_folder
 
-        self.ctx.dineof_output_path = cv_results
-        self.ctx.output_path        = _with_suffix(orig_output, "_for_cv")
+            self.ctx.dineof_output_path = cv_results
+            self.ctx.output_path        = _with_suffix(orig_output, "_for_cv")
 
-        ds = self._run_steps(None, skip_steps=skip_steps, pass_label="CV-1")
-        if ds is not None:
-            self._write_output(ds, self.ctx.output_path, {"cv_withheld": 1})
+            ds = self._run_steps(None, skip_steps=skip_steps, pass_label="CV-1")
+            if ds is not None:
+                self._write_output(ds, self.ctx.output_path, {"cv_withheld": 1})
 
-        self.ctx.dineof_output_path = orig_results
-        self.ctx.output_path        = orig_output
-        self.ctx.output_html_folder = orig_html
-        del ds
-        gc.collect()
-        self._log_pass_memory("CV-1 (baseline_for_cv)")
+            self.ctx.dineof_output_path = orig_results
+            self.ctx.output_path        = orig_output
+            self.ctx.output_html_folder = orig_html
+            del ds
+            gc.collect()
+            self._log_pass_memory("CV-1 (baseline_for_cv)")
 
         # --- CV-2: eof_filtered _for_cv ---
         cv_filtered_results = os.path.join(base_dir, "dineof_results_eof_filtered_for_cv.nc")
@@ -858,13 +963,24 @@ class PostProcessor:
             rss = get_current_rss_mb()
             print(f"[MEM] === Post-processing start: RSS={rss:.0f} MB ===")
 
+        production = self.options.production
+
         # Each pass runs in its own method scope, so the dataset is freed after each pass.
-        self._pass1_baseline()
-        self._pass2_eof_filtered()
-        self._pass3_interp_full()
-        self._pass4_filtered_interp_full()
-        self._pass_cv()
-        self._pass5_dincae_interp()
+        if production:
+            print("[Post] Production mode: only producing final FILLED.nc + eof_filtered _for_cv")
+            # Pass 1 still runs to generate EOF files on disk, but skips writing baseline output
+            self._pass1_baseline(skip_write=True)
+            # Skip passes 2, 3 (intermediate variants not needed for production)
+            self._pass4_filtered_interp_full()
+            self._pass_cv(eof_filtered_only=True)
+            # Skip pass 5 (DINCAE interp not needed)
+        else:
+            self._pass1_baseline()
+            self._pass2_eof_filtered()
+            self._pass3_interp_full()
+            self._pass4_filtered_interp_full()
+            self._pass_cv()
+            self._pass5_dincae_interp()
 
         if self.ctx.profile_memory:
             rss = get_current_rss_mb()
@@ -1067,6 +1183,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Disable DINCAE temporal interpolation to full daily")
     p.add_argument("--profile-memory", action="store_true",
                    help="Log VmRSS before/after each step and at pass boundaries")
+    p.add_argument("--production", action="store_true",
+                   help="Production mode: only produce final FILLED.nc + eof_filtered _for_cv")
 
     return p
 
@@ -1102,6 +1220,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         eof_interp_edge=args.eof_interp_edge,
         clamp_subzero=not args.no_clamp_subzero,
         dincae_temporal_interp=not args.no_dincae_interp,
+        production=args.production,
     )
 
     proc = PostProcessor(
