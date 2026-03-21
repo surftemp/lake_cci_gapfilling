@@ -51,12 +51,12 @@ class AddBackTrendStep(PostProcessingStep):
         else:
             x = days
 
-        trend = float(slope) * x + float(intercept)  # shape (time,)
-        # Broadcast to 3D
-        trend3d = xr.DataArray(trend, dims=("time",), coords={"time": ds["time"].values})
-        trend3d = trend3d.broadcast_like(ds["lake_surface_water_temperature_reconstructed"])
-
-        ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] + trend3d).astype("float32")
+        trend = (float(slope) * x + float(intercept)).astype(np.float32)  # shape (time,)
+        # Add trend in-place via broadcasting (time,) + (time, lat, lon) — no 3D copy needed
+        recon = ds["lake_surface_water_temperature_reconstructed"].values  # float32
+        recon += trend[:, np.newaxis, np.newaxis]  # broadcasts without creating 3D array
+        ds["lake_surface_water_temperature_reconstructed"].values = recon
+        del recon
         ds.attrs["trend_added_back"] = 1
         ds.attrs["trend_model"] = "linear"
         ds.attrs["trend_params"] = f"slope_per_day={slope}, intercept={intercept}, t0_days={t0}"

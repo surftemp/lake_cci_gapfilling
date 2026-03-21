@@ -62,6 +62,7 @@ from .post_steps.lswt_plots import LSWTPlotsStep
 from .post_steps.insitu_validation import InsituValidationStep
 from .post_steps.add_data_source_flag import AddDataSourceFlagStep
 from .post_steps.clamp_subzero import ClampSubZeroStep
+from .post_steps.lswt_production_plots import LSWTProductionPlotsStep
 
 
 # ===== helpers for finding climatology via prepared.nc =====
@@ -146,6 +147,7 @@ class PostOptions:
     clamp_subzero: bool = True         # Clamp sub-zero LSWT to freezing point
     dincae_temporal_interp: bool = True  # Linear temporal interpolation for DINCAE output
     production: bool = False  # Production mode: only produce final FILLED.nc + eof_filtered _for_cv
+    perpixel_plots: bool = False  # Generate per-pixel-per-line plots (slow, off by default)
 
 class PostProcessor:
     """
@@ -566,12 +568,16 @@ class PostProcessor:
                 continue
             if profiling:
                 rss_before = get_current_rss_mb()
+                hwm_before = get_peak_rss_mb()
             print(f"[Post]{' ' + pass_label + ' --' if pass_label else ''} Applying: {step.name}")
             ds = step.apply(self.ctx, ds)
             if profiling:
                 rss_after = get_current_rss_mb()
+                hwm_after = get_peak_rss_mb()
+                hwm_delta = hwm_after - hwm_before
+                hwm_str = f", HWM +{hwm_delta:.0f} MB -> {hwm_after:.0f}" if hwm_delta > 0 else ""
                 print(f"[MEM] {step.name}: RSS {rss_before:.0f} -> {rss_after:.0f} MB "
-                      f"(delta {rss_after - rss_before:+.0f} MB)")
+                      f"(delta {rss_after - rss_before:+.0f} MB{hwm_str})")
         return ds
 
     def _log_pass_memory(self, pass_name: str) -> None:
@@ -637,6 +643,10 @@ class PostProcessor:
 
     def _build_full_daily_dataset(self, interp_nc_path: str, comment: str) -> xr.Dataset:
         """Build an xr.Dataset on the full daily timeline from an interpolated results file."""
+        profiling = self.ctx.profile_memory
+        if profiling:
+            print(f"[MEM] _build_full_daily_dataset start: RSS={get_current_rss_mb():.0f} MB")
+
         base_time = np.datetime64("1981-01-01T12:00:00")
         full_time = base_time + self.ctx.full_days.astype('timedelta64[D]')
 
@@ -652,6 +662,8 @@ class PostProcessor:
                 lakeid_data = ds_in.get("lakeid")
 
             temp_data = ds_interp["lake_surface_water_temperature_reconstructed"].values
+            if profiling:
+                print(f"[MEM] _build_full_daily_dataset after load: RSS={get_current_rss_mb():.0f} MB")
 
         ds = xr.Dataset()
         ds = ds.assign_coords({
@@ -746,11 +758,17 @@ class PostProcessor:
         ds = self._run_steps(ds, skip_steps=self._FULL_DAILY_SKIP_STEPS, pass_label="Pass4")
 
         if ds is not None:
+            if self.ctx.profile_memory:
+                print(f"[MEM] Pass4 before write: RSS={get_current_rss_mb():.0f} MB")
             self._write_output(ds, self.ctx.output_path)
+            if self.ctx.profile_memory:
+                print(f"[MEM] Pass4 after first write: RSS={get_current_rss_mb():.0f} MB")
             # Also write the CCI-aligned final product file
             post_dir = os.path.dirname(self.ctx.output_path)
             final_path = _cci_product_filename(self.lake_path, post_dir)
             self._write_output(ds, final_path)
+            if self.ctx.profile_memory:
+                print(f"[MEM] Pass4 after second write: RSS={get_current_rss_mb():.0f} MB")
             print(f"[Post] Final CCI product: {final_path}")
 
         # restore
@@ -769,7 +787,7 @@ class PostProcessor:
         """
         base_dir = os.path.dirname(self.dineof_output_path)
         cv_results = os.path.join(base_dir, "dineof_results_for_cv.nc")
-        cv_eofs = os.path.join(base_dir, "eofs_for_cv.nc")
+        cv_eofs = os.path.join(base_dir, "eof_for_cv.nc")
 
         if not os.path.isfile(cv_results):
             return
@@ -778,6 +796,29 @@ class PostProcessor:
 
         # --- Filter _for_cv EOFs and reconstruct filtered _for_cv results ---
         if os.path.isfile(cv_eofs) and self.options.eof_filter_enable:
+            # Convert raw eof_for_cv.nc (Sigma/V/Usst) -> eofs_for_cv.nc (spatial_eof/temporal_eof/eigenvalues)
+            # NewReconstructor hardcodes reading "eof.nc", so we temporarily rename
+            eofs_for_cv_path = os.path.join(base_dir, "eofs_for_cv.nc")
+            if not os.path.isfile(eofs_for_cv_path):
+                try:
+                    import shutil
+                    eof_orig = os.path.join(base_dir, "eof.nc")
+                    eof_bak = os.path.join(base_dir, "eof_stage2.nc")
+                    # Swap: eof.nc (stage2) -> eof_stage2.nc, eof_for_cv.nc -> eof.nc
+                    shutil.move(eof_orig, eof_bak)
+                    shutil.copy2(cv_eofs, eof_orig)
+                    try:
+                        from .reconstruct_eofs import NewReconstructor
+                        NewReconstructor(
+                            self.dineof_input_path, "lakeid", base_dir, "eofs_for_cv.nc"
+                        ).run()
+                        print(f"[Post] Restructured eof_for_cv.nc -> eofs_for_cv.nc")
+                    finally:
+                        # Restore: eof_stage2.nc -> eof.nc
+                        shutil.move(eof_bak, eof_orig)
+                except Exception as e:
+                    print(f"[Post] Failed to restructure eof_for_cv.nc: {e}")
+
             cv_filter_step = FilterTemporalEOFsStep(
                 method=self.options.eof_filter_method,
                 k=self.options.eof_filter_k,
@@ -982,6 +1023,46 @@ class PostProcessor:
             self._pass_cv()
             self._pass5_dincae_interp()
 
+        # ==================== Post-pass: LSWT plots + insitu validation ====================
+        # These run after all passes complete, reading finished output files from disk.
+        # RAM is clean at this point (all pass datasets freed).
+
+        # Find the FILLED.nc product
+        post_dir = os.path.dirname(self.output_path)
+        filled_path = _cci_product_filename(self.lake_path, post_dir)
+
+        if os.path.isfile(filled_path):
+            # LSWT timeseries plots
+            try:
+                plots_dir = os.path.join(post_dir, "plots")
+                lake_centre_csv = os.path.join(
+                    os.path.expanduser("~"), "csv_files",
+                    "ESA_CCI_static_lake_mask_v2_1km_UoR_metadata_fv2.1.1_06Oct2021.csv")
+                plotter = LSWTProductionPlotsStep(
+                    lake_centre_csv=lake_centre_csv,
+                    perpixel_plots=self.options.perpixel_plots)
+                saved = plotter.generate(self.ctx, filled_path, plots_dir)
+                print(f"[Post] LSWT plots: {len(saved)} files saved to {plots_dir}")
+            except Exception as e:
+                print(f"[Post] LSWT plots failed: {e}")
+
+            # Insitu validation (if buoy data available for this lake)
+            try:
+                insitu_step = InsituValidationStep()
+                # InsituValidation reads from the output file path in ctx
+                orig_output = self.ctx.output_path
+                self.ctx.output_path = filled_path
+                if insitu_step.should_apply(self.ctx, None):
+                    # Load the FILLED.nc as a dataset for the step
+                    import xarray as _xr
+                    with _xr.open_dataset(filled_path) as ds_filled:
+                        insitu_step.apply(self.ctx, ds_filled)
+                self.ctx.output_path = orig_output
+            except Exception as e:
+                print(f"[Post] Insitu validation failed: {e}")
+        else:
+            print(f"[Post] No FILLED.nc found at {filled_path}; skipping plots/validation")
+
         if self.ctx.profile_memory:
             rss = get_current_rss_mb()
             peak = get_peak_rss_mb()
@@ -1185,6 +1266,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Log VmRSS before/after each step and at pass boundaries")
     p.add_argument("--production", action="store_true",
                    help="Production mode: only produce final FILLED.nc + eof_filtered _for_cv")
+    p.add_argument("--perpixel-plots", action="store_true",
+                   help="Generate per-pixel-per-line plots (slow, off by default)")
 
     return p
 
@@ -1221,6 +1304,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         clamp_subzero=not args.no_clamp_subzero,
         dincae_temporal_interp=not args.no_dincae_interp,
         production=args.production,
+        perpixel_plots=args.perpixel_plots,
     )
 
     proc = PostProcessor(

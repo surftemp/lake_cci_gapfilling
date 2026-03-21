@@ -1,10 +1,10 @@
 {
-  "experiment_name": "exp5_test_gws",
-  "description": "exp5: same as exp3 (lake 1241, full pipeline test) but on GWS storage",
+  "experiment_name": "test_lake1241",
+  "description": "End-to-end test: lake 1241, production mode, profiling",
   "mode": "anomaly",
-  "note": "exp5_test_gws",
+  "note": "test_lake1241",
   "_note_engine_mode": "dineof | dincae | both ",
-  "engine_mode": "both",
+  "engine_mode": "dineof",
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
@@ -20,7 +20,7 @@
   },
   "paths": {
     "_run_tag_note": "Leave empty to auto-generate: {mode}-{date}-{hash}-{note}",
-    "run_root_template": "/gws/ssde/j25b/cds_c3s_lakes/users/SHAERDAN/{run_tag}",
+    "run_root_template": "/work/scratch-nopw2/shaerdan_lake/{run_tag}",
     "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
     "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
     "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",
@@ -62,7 +62,9 @@
   },
   "behavior": {
     "idempotent": false,
-    "keep_temps": false
+    "keep_temps": false,
+    "profile_memory": true,
+    "production": true
   },
   "preprocessing_options": {
     "start_date": "2000-01-01",
@@ -196,11 +198,11 @@
     }
   },
   "submission": {
-    "partition": "standard",
-    "qos": "long",
+    "partition": "interactive",
+    "qos": "inter4h",
     "account": "eocis_chuk",
-    "time": "120:00:00",
-    "mem": "128G",
+    "time": "04:00:00",
+    "mem": "32G",
     "max_concurrent": 120,
     "per_index_chain": true
   },

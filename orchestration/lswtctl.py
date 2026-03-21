@@ -368,6 +368,75 @@ def do_submit(conf_path:str, single_stage:str=None):
             pc_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
             print(f"Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}  [prefix={job_prefix}]")
 
+def do_direct(conf_path: str):
+    """Run pipeline directly (no SLURM). For use with nohup on sci/interactive nodes."""
+    with open(conf_path) as f:
+        conf = json.load(f)
+    grid = _grid(conf)
+    if not grid:
+        print("No tasks.", file=sys.stderr); sys.exit(1)
+
+    # Generate run_tag and save manifest (same as do_submit)
+    P = conf.get("paths", {})
+    if not P.get("run_tag"):
+        run_tag = _auto_run_tag(conf)
+        if "paths" not in conf:
+            conf["paths"] = {}
+        conf["paths"]["run_tag"] = run_tag
+        print(f"[INFO] Auto-generated run_tag: {run_tag}")
+
+    paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
+    logd = paths0["logs_dir"]
+    pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
+    _ensure_dir(paths0["run_root"])
+
+    manifest_path = os.path.join(paths0["run_root"], "manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(conf, f, indent=2)
+
+    # Set OMP_NUM_THREADS
+    sub = conf.get("submission", {})
+    cpus = sub.get("cpus_per_task", 1)
+    omp = sub.get("omp_num_threads", cpus)
+    os.environ["OMP_NUM_THREADS"] = str(omp)
+
+    # Tee stdout/stderr to a log file in the run directory
+    import sys as _sys
+    log_path = os.path.join(logd, "direct_run.out")
+
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+        def write(self, data):
+            for s in self.streams:
+                s.write(data)
+                s.flush()
+        def flush(self):
+            for s in self.streams:
+                s.flush()
+
+    _log_fh = open(log_path, "w")
+    _sys.stdout = _Tee(_sys.stdout, _log_fh)
+    _sys.stderr = _Tee(_sys.stderr, _log_fh)
+
+    print(f"[DIRECT] Running {len(grid)} lake(s) sequentially (no SLURM)")
+    print(f"[DIRECT] OMP_NUM_THREADS={omp}")
+    print(f"[DIRECT] Run root: {paths0['run_root']}")
+    print(f"[DIRECT] Log file: {log_path}")
+
+    for row in range(len(grid)):
+        lake_id = grid[row][0]
+        print(f"\n{'='*60}")
+        print(f"[DIRECT] Lake {lake_id} (row {row}/{len(grid)-1})")
+        print(f"{'='*60}", flush=True)
+        try:
+            do_exec(manifest_path, row, "chain")
+        except Exception as e:
+            print(f"[DIRECT] Lake {lake_id} FAILED: {e}", flush=True)
+
+    print(f"\n[DIRECT] All {len(grid)} lake(s) completed.")
+
+
 def _env_for(conf: dict, stage: str) -> str:
     envs = conf.get("env", {})
     # map post variants
@@ -558,7 +627,10 @@ EOF.Sigma = '{paths["dineof_dir"]}/eof.nc#Sigma'
                 pathlib.Path(init_path).unlink(missing_ok=True); pathlib.Path(tmpdir).rmdir()
             return
 
-        cmd = f"{dineof_bin} {init_path}"
+        if profile_memory:
+            cmd = f"/usr/bin/time -v {dineof_bin} {init_path}"
+        else:
+            cmd = f"{dineof_bin} {init_path}"
         print("[DINEOF] Exec:", cmd, flush=True)
         try:
             _bash_exec(cmd, stage_env)
@@ -717,7 +789,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     p1 = sub.add_parser("plan");   p1.add_argument("config")
-    p2 = sub.add_parser("submit"); p2.add_argument("config"); p2.add_argument("--stage", choices=["pre","dineof","dincae","post_dineof","post_dincae"], default=None, help="Submit only this stage (skip dependency chain)")
+    p2 = sub.add_parser("submit"); p2.add_argument("config"); p2.add_argument("--stage", choices=["pre","dineof","dincae","post_dineof","post_dincae"], default=None, help="Submit only this stage (skip dependency chain)"); p2.add_argument("--direct", action="store_true", help="Run directly (no SLURM), suitable for nohup on sci/interactive nodes")
     p3 = sub.add_parser("exec")
     p3.add_argument("--config", required=True)
     p3.add_argument("--row", required=True, type=int)
@@ -730,7 +802,10 @@ def main():
     if args.cmd == "plan":
         do_plan(args.config)
     elif args.cmd == "submit":
-        do_submit(args.config, args.stage)
+        if args.direct:
+            do_direct(args.config)
+        else:
+            do_submit(args.config, args.stage)
     elif args.cmd == "exec":
         do_exec(args.config, args.row, args.stage)
     elif args.cmd == "paths":

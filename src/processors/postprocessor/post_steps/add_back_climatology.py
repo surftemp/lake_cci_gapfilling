@@ -58,36 +58,40 @@ class AddBackClimatologyStep(PostProcessingStep):
 
         # Compute DOY for ds.time
         time_npdt = ds["time"].values
-        # if already datetime64, convert to doy; else convert from days to dt then doy
         doys = self.doy_from_npdatetime(time_npdt)
 
-        # Expand to (time, lat, lon)
-        clim_t = clim.sel(doy=xr.DataArray(doys, dims=("time",)), method="nearest")
-        # Align to grid of ds
-        clim_t = clim_t.transpose(...)
+        # Align climatology grid to output grid (they may differ in size)
+        # Reindex clim to match ds lat/lon, then extract as float32 numpy
+        clim_aligned = clim.reindex(
+            lat=ds["lat"].values, lon=ds["lon"].values, method="nearest"
+        )
+        clim_np = clim_aligned.values.astype(np.float32)  # (366, nlat, nlon) — small, ~few MB
+        del clim_aligned
 
-        # Reindex lat/lon like ds (assumes same names)
-        if (clim_t.dims[-2:] != ("lat", "lon")) and all(n in clim_t.dims for n in ("lat", "lon")):
-            clim_t = clim_t.transpose("doy", "lat", "lon")
-            clim_t = clim_t.drop_vars("doy", errors="ignore")
-        # Ensure lat/lon match
-        clim_t = clim_t.reindex_like(ds["lake_surface_water_temperature_reconstructed"], method=None)
+        # Map DOY [1..366] to 0-based index, clamp to valid range
+        doy_idx = np.clip(doys - 1, 0, clim_np.shape[0] - 1).astype(np.intp)
 
-        # Broadcast time dimension if needed
-        if "doy" in clim_t.coords:
-            clim_t = clim_t.drop_vars("doy")
-
-        # Add back
-        ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] + clim_t).astype("float32")
+        # Add back — index directly into float32 climatology array, no 3D expansion needed
+        recon = ds["lake_surface_water_temperature_reconstructed"].values  # float32
+        # Process in time chunks to avoid creating a full (T, lat, lon) clim array
+        chunk_size = 500
+        n_time = len(doy_idx)
+        for t0 in range(0, n_time, chunk_size):
+            t1 = min(t0 + chunk_size, n_time)
+            recon[t0:t1] += clim_np[doy_idx[t0:t1]]  # fancy index: (chunk, lat, lon)
+        del clim_np
+        ds["lake_surface_water_temperature_reconstructed"].values = recon
         ds.attrs["climatology_added_back"] = 1
         ds.attrs["climatology_file"] = clim_path
 
-        # Units handling
+        # Units handling — in-place
         if ctx.output_units == "celsius":
-            ds["lake_surface_water_temperature_reconstructed"] = (ds["lake_surface_water_temperature_reconstructed"] - 273.15).astype("float32")
+            recon -= np.float32(273.15)
+            ds["lake_surface_water_temperature_reconstructed"].values = recon
             ds["lake_surface_water_temperature_reconstructed"].attrs["units"] = "degree_Celsius"
         else:
             ds["lake_surface_water_temperature_reconstructed"].attrs["units"] = "kelvin"
 
+        del recon
         clim_ds.close()
         return ds

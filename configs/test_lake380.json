@@ -1,15 +1,15 @@
 {
-  "experiment_name": "exp3_test_pipeline",
-  "description": "exp3: test all pipeline changes (two-stage DINEOF, _for_cv CV, variable rename, CCI formatting) on lake 1241",
+  "experiment_name": "test_lake380",
+  "description": "End-to-end test: lake 380 (insitu data), production mode",
   "mode": "anomaly",
-  "note": "exp3_test_pipeline",
+  "note": "test_lake380",
   "_note_engine_mode": "dineof | dincae | both ",
-  "engine_mode": "both",
+  "engine_mode": "dineof",
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
     "custom_lake_ids": [
-      1241
+      380
     ],
     "versions_to_process": [
       "v2"
@@ -63,7 +63,8 @@
   "behavior": {
     "idempotent": false,
     "keep_temps": false,
-    "profile_memory": true
+    "profile_memory": true,
+    "production": true
   },
   "preprocessing_options": {
     "start_date": "2000-01-01",
@@ -197,11 +198,11 @@
     }
   },
   "submission": {
-    "partition": "standard",
-    "qos": "standard",
+    "partition": "interactive",
+    "qos": "inter4h",
     "account": "eocis_chuk",
-    "time": "24:00:00",
-    "mem": "128G",
+    "time": "04:00:00",
+    "mem": "32G",
     "max_concurrent": 120,
     "per_index_chain": true
   },

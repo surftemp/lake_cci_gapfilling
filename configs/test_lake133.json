@@ -1,15 +1,15 @@
 {
-  "experiment_name": "exp6_quick_test",
-  "description": "exp6: quick test of pipeline changes (memory refactor, profiling) on short QOS",
+  "experiment_name": "test_lake133",
+  "description": "End-to-end test: lake 133, production mode, profiling",
   "mode": "anomaly",
-  "note": "exp6_quick_test",
+  "note": "test_lake133",
   "_note_engine_mode": "dineof | dincae | both ",
   "engine_mode": "dineof",
   "dataset_options": {
     "use_temporal_experiment": false,
     "use_custom_lake_ids": true,
     "custom_lake_ids": [
-      1241
+      133
     ],
     "versions_to_process": [
       "v2"
@@ -63,7 +63,8 @@
   "behavior": {
     "idempotent": false,
     "keep_temps": false,
-    "profile_memory": true
+    "profile_memory": true,
+    "production": true
   },
   "preprocessing_options": {
     "start_date": "2000-01-01",
@@ -197,13 +198,14 @@
     }
   },
   "submission": {
-    "partition": "interactive",
-    "qos": "inter4h",
+    "partition": "standard",
+    "qos": "standard",
     "account": "eocis_chuk",
-    "time": "04:00:00",
-    "mem": "32G",
+    "time": "24:00:00",
+    "mem": "48G",
     "max_concurrent": 120,
-    "per_index_chain": true
+    "per_index_chain": true,
+    "cpus_per_task": 8
   },
   "system_settings": {
     "qos_choice": "long",

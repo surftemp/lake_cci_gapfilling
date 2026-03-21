@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import glob
 import numpy as np
+import netCDF4
 import xarray as xr
 from typing import Optional, List, Tuple, Dict, Any
-from .base import PostProcessingStep, PostContext
+from .base import PostProcessingStep, PostContext, get_current_rss_mb
 
 
 class ReconstructFromEOFsStep(PostProcessingStep):
@@ -54,29 +55,27 @@ class ReconstructFromEOFsStep(PostProcessingStep):
         return eofs_path is not None
 
     def apply(self, ctx: PostContext, ds: Optional[xr.Dataset]) -> xr.Dataset:
+        profiling = ctx.profile_memory
         base_dir = os.path.dirname(ctx.dineof_output_path)
         eofs_path = self._get_eofs_source(base_dir)
         target_path = os.path.join(base_dir, self._get_output_filename())
-        
+
         print(f"[{self.name}] source_mode={self.source_mode}, eofs_path={eofs_path}")
-            
+
         if eofs_path is None:
             print(f"[{self.name}] No EOFs file found for source_mode={self.source_mode}; skipping.")
             return ds if ds is not None else xr.Dataset()
 
-        # --- Compute mean offset from original DINEOF output ---
         mean_offset = self._compute_mean_offset(ctx, base_dir)
         if mean_offset is not None:
             print(f"[{self.name}] Mean offset to add back: {mean_offset:.6f}")
 
-        # --- open EOFs
         try:
             eofs = xr.open_dataset(eofs_path)
         except Exception as e:
             print(f"[{self.name}] Failed to open EOFs: {eofs_path}: {e}")
             return ds if ds is not None else xr.Dataset()
 
-        # detect available modes
         temporal_vars = [v for v in eofs.data_vars
                          if v.startswith("temporal_eof") and ("t" in eofs[v].dims)]
         spatial_vars  = [v for v in eofs.data_vars
@@ -87,15 +86,13 @@ class ReconstructFromEOFsStep(PostProcessingStep):
             eofs.close()
             return ds if ds is not None else xr.Dataset()
 
-        # sort by suffix index to maintain consistent pairing
         def _mode_id(name: str) -> int:
             return int(name.split("eof")[-1])
 
         temporal_vars.sort(key=_mode_id)
         spatial_vars.sort(key=_mode_id)
 
-        modes = [ _mode_id(v) for v in temporal_vars ]
-        # align lists in case of partial overlap
+        modes = [_mode_id(v) for v in temporal_vars]
         spatial_vars = [f"spatial_eof{m}" for m in modes if f"spatial_eof{m}" in spatial_vars]
         temporal_vars = [f"temporal_eof{m}" for m in modes if f"temporal_eof{m}" in temporal_vars]
         modes = [m for m in modes if (f"temporal_eof{m}" in temporal_vars and f"spatial_eof{m}" in spatial_vars)]
@@ -105,74 +102,105 @@ class ReconstructFromEOFsStep(PostProcessingStep):
             eofs.close()
             return ds if ds is not None else xr.Dataset()
 
-        # --- build temporal (time x mode)
-        # Prefer real time coord if present; fall back to t index
         if "time" in eofs.coords and ("t" in eofs["time"].dims or eofs["time"].sizes.get("time") == eofs.sizes.get("t")):
             time_coord = eofs["time"].values
         else:
             time_coord = np.arange(eofs.dims["t"], dtype=np.int64)
 
-        T = np.stack([eofs[v].values for v in temporal_vars], axis=1)  # (t, K)
-
-        # --- build spatial (mode x y x x)
-        S_list = [eofs[v].values for v in spatial_vars]                # each (y, x)
-        S = np.stack(S_list, axis=0)                                   # (K, y, x)
-
-        # --- singular values from eigenvalues
+        T_mat = np.stack([eofs[v].values for v in temporal_vars], axis=1)  # (t, K)
+        S = np.stack([eofs[v].values for v in spatial_vars], axis=0)       # (K, y, x)
         eig = eofs["eigenvalues"].values
-        # guard length
-        K = T.shape[1]
-        # sigma = np.sqrt(eig[:K])
+        K = T_mat.shape[1]
         sigma = eig[:K]
-        # scale temporal by sigma
-        T_scaled = T * sigma[np.newaxis, :]
+        T_scaled = T_mat * sigma[np.newaxis, :]
 
-        # --- reconstruct via tensordot: (t,K) · (K,y,x) -> (t,y,x)
-        recon = np.tensordot(T_scaled, S, axes=([1], [0]))             # (t, y, x)
-
-        # --- ADD BACK MEAN OFFSET ---
-        if mean_offset is not None:
-            recon = recon + mean_offset
-
-        # --- wrap in DataArray with coords
         y_name, x_name = self._infer_yx_names(eofs)
-        da_recon = xr.DataArray(
-            data=recon.astype("float32"),
-            dims=["time", y_name, x_name],
-            coords={
-                "time": time_coord,
-                y_name: eofs[y_name].values if y_name in eofs.coords else np.arange(recon.shape[1]),
-                x_name: eofs[x_name].values if x_name in eofs.coords else np.arange(recon.shape[2]),
-            },
-            name="lake_surface_water_temperature_reconstructed",
-        )
-
+        y_vals = eofs[y_name].values if y_name in eofs.coords else np.arange(S.shape[1])
+        x_vals = eofs[x_name].values if x_name in eofs.coords else np.arange(S.shape[2])
         eofs.close()
+        del T_mat
 
-        # --- mirror original dineof_results.nc structure
+        if profiling:
+            print(f"[{self.name}][MEM] after EOF load: RSS={get_current_rss_mb():.0f} MB")
+
+        # --- reconstruct via tensordot: (t,K) . (K,y,x) -> (t,y,x)
+        recon = np.tensordot(T_scaled, S, axes=([1], [0]))  # (t, y, x)
+        del T_scaled, S
+
+        if mean_offset is not None:
+            recon += mean_offset
+
+        recon = recon.astype("float32")
+
+        if profiling:
+            print(f"[{self.name}][MEM] after reconstruct: RSS={get_current_rss_mb():.0f} MB")
+
+        # --- Get global/var attrs from original dineof_results.nc ---
+        global_attrs = {}
+        var_attrs = {}
         try:
             with xr.open_dataset(ctx.dineof_output_path) as orig:
-                # align to template using 'lake_surface_water_temperature_reconstructed' (if orig doesn't have it, this still works)
-                da_recon = self._align_to_template(da_recon, orig, "lake_surface_water_temperature_reconstructed")
-            
-                ds_out = xr.Dataset({"lake_surface_water_temperature_reconstructed": da_recon})
-            
-                # copy global attrs
-                ds_out.attrs = dict(orig.attrs)
-                # copy var attrs if present on the original
+                global_attrs = dict(orig.attrs)
                 if "lake_surface_water_temperature_reconstructed" in orig:
-                    ds_out["lake_surface_water_temperature_reconstructed"].attrs = dict(orig["lake_surface_water_temperature_reconstructed"].attrs)
-                
-                # Add attr to track mean offset correction
-                if mean_offset is not None:
-                    ds_out.attrs["mean_offset_applied"] = float(mean_offset)
-            
-                enc = {"lake_surface_water_temperature_reconstructed": {"dtype": "float32", "zlib": True, "complevel": 4}}
-                ds_out.to_netcdf(target_path, encoding=enc)
-                print(f"[{self.name}] Wrote {target_path} (var='lake_surface_water_temperature_reconstructed')")
-        except Exception as e:
-            print(f"[{self.name}] Failed to mirror/write result: {e}")
+                    var_attrs = dict(orig["lake_surface_water_temperature_reconstructed"].attrs)
+        except Exception:
+            pass
 
+        if mean_offset is not None:
+            global_attrs["mean_offset_applied"] = float(mean_offset)
+
+        # --- Write using chunked netCDF4 to avoid xarray memory spike ---
+        n_time = recon.shape[0]
+        n_y = recon.shape[1]
+        n_x = recon.shape[2]
+        chunk_size = 500
+
+        try:
+            nc = netCDF4.Dataset(target_path, "w", format="NETCDF4")
+            nc.createDimension("time", None)  # unlimited
+            nc.createDimension(y_name, n_y)
+            nc.createDimension(x_name, n_x)
+
+            # Global attrs
+            for k, v in global_attrs.items():
+                try:
+                    nc.setncattr(k, v)
+                except TypeError:
+                    nc.setncattr(k, str(v))
+
+            # Time coordinate
+            nc_time = nc.createVariable("time", time_coord.dtype, ("time",), fill_value=False)
+            nc_time[:] = time_coord
+
+            # Spatial coordinates
+            nc_y = nc.createVariable(y_name, y_vals.dtype, (y_name,), fill_value=False)
+            nc_y[:] = y_vals
+            nc_x = nc.createVariable(x_name, x_vals.dtype, (x_name,), fill_value=False)
+            nc_x[:] = x_vals
+
+            # Main variable — chunked write
+            nc_var = nc.createVariable(
+                "lake_surface_water_temperature_reconstructed",
+                "f4", ("time", y_name, x_name),
+                zlib=True, complevel=4)
+            for k, v in var_attrs.items():
+                if k != "_FillValue":
+                    nc_var.setncattr(k, v)
+
+            for t0 in range(0, n_time, chunk_size):
+                t1 = min(t0 + chunk_size, n_time)
+                nc_var[t0:t1] = recon[t0:t1]
+
+            nc.close()
+
+            if profiling:
+                print(f"[{self.name}][MEM] after chunked write: RSS={get_current_rss_mb():.0f} MB")
+
+            print(f"[{self.name}] Wrote {target_path} (var='lake_surface_water_temperature_reconstructed')")
+        except Exception as e:
+            print(f"[{self.name}] Failed to write result: {e}")
+
+        del recon
         return ds if ds is not None else xr.Dataset()
 
     # ---------- helpers ----------
