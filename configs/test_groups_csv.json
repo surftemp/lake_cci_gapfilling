@@ -1,0 +1,64 @@
+{
+  "experiment_name": "test_groups_csv",
+  "description": "Test lake_groups with CSV file reference",
+  "mode": "anomaly",
+  "note": "test_groups_csv",
+  "engine_mode": "dineof",
+
+  "lake_groups": [
+    {
+      "name": "standard_lakes",
+      "lake_ids_csv": "~/csv_files/lake_list_standard_1897.csv",
+      "submission": {
+        "qos": "short",
+        "mem": "32G",
+        "cpus_per_task": 1
+      }
+    },
+    {
+      "name": "large_lakes",
+      "lake_ids_csv": "~/csv_files/lake_list_large_7.csv",
+      "submission": {
+        "qos": "high",
+        "mem": "128G",
+        "cpus_per_task": 16,
+        "time": "24:00:00"
+      }
+    }
+  ],
+
+  "dataset_options": {
+    "use_temporal_experiment": false,
+    "use_custom_lake_ids": true,
+    "custom_lake_ids": [],
+    "versions_to_process": ["v2"],
+    "alpha_values": [0.1]
+  },
+
+  "paths": {
+    "run_root_template": "/work/scratch-nopw2/shaerdan_lake/{run_tag}",
+    "prepared_dir_template": "{run_root}/prepared/{lake_id9}",
+    "output_dir_template": "{run_root}/dineof/{lake_id9}/{alpha_slug}",
+    "dincae_dir_template": "{run_root}/dincae/{lake_id9}/{alpha_slug}",
+    "post_dir_template": "{run_root}/post/{lake_id9}/{alpha_slug}",
+    "html_dir_template": "{run_root}/html/{lake_id9}/{alpha_slug}",
+    "logs_dir_template": "{run_root}/logs",
+    "prepared_filename": "prepared.nc",
+    "lake_ts_template": "/gws/smf/j04/cds_c3s_lakes/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_TIME_SERIES/LAKE_TS/v2.6.1-146-gfe50b81_RES120_CCIv2.1/LAKE{lake_id9}-CCI-L3S-LSWT-CDR-4.5-fv01.0.nc",
+    "climatology_template": "/gws/ssde/j25b/cds_c3s_lakes/users/LAURA/TIME_SERIES_PL_L3C/PER_LAKE_CLIM_REC/LAKE_CLIM_REC/v2.6.1-146-gfe50b81_RES120_CCIv2.1_1995_2020/LAKE{lake_id9}_REC.nc"
+  },
+
+  "submission": {
+    "partition": "standard",
+    "account": "eocis_chuk",
+    "time": "04:00:00",
+    "mem": "16G",
+    "max_concurrent": 50,
+    "per_index_chain": true
+  },
+
+  "behavior": {
+    "profile_memory": false,
+    "production": true
+  }
+}

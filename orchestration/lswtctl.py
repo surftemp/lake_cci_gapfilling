@@ -122,6 +122,57 @@ def _idempotent_skip(path:str, label:str):
     return False
 
 
+# ---------- lake_groups support ----------
+
+def _resolve_lake_groups(conf):
+    """Parse lake_groups from config. Returns list of group dicts or None if not using groups."""
+    groups_cfg = conf.get("lake_groups")
+    if not groups_cfg:
+        return None
+
+    import csv as csv_mod
+    base_sub = conf.get("submission", {})
+    groups = []
+
+    for g in groups_cfg:
+        name = g["name"]
+
+        # Read lake IDs: inline list takes precedence over CSV
+        if "lake_ids" in g:
+            lake_ids = list(g["lake_ids"])
+        elif "lake_ids_csv" in g:
+            csv_path = os.path.expanduser(g["lake_ids_csv"])
+            lake_ids = []
+            with open(csv_path, newline="") as f:
+                reader = csv_mod.DictReader(f)
+                for row in reader:
+                    lake_ids.append(int(row["CCI_ID"].strip()))
+        else:
+            raise ValueError(f"lake_group '{name}' must have 'lake_ids' or 'lake_ids_csv'")
+
+        if not lake_ids:
+            print(f"[WARN] lake_group '{name}' has 0 lakes, skipping", file=sys.stderr)
+            continue
+
+        # Shallow merge: group submission overrides base submission
+        merged_sub = {**base_sub, **g.get("submission", {})}
+
+        groups.append({"name": name, "lake_ids": lake_ids, "submission": merged_sub})
+
+    return groups if groups else None
+
+
+def _make_group_config(conf, group):
+    """Build a virtual config copy with a group's lake_ids and submission injected."""
+    import copy
+    vcfg = copy.deepcopy(conf)
+    vcfg["dataset_options"]["custom_lake_ids"] = group["lake_ids"]
+    vcfg["submission"] = group["submission"]
+    # Remove lake_groups from virtual config so downstream code uses custom_lake_ids
+    vcfg.pop("lake_groups", None)
+    return vcfg
+
+
 # ----- helper for cv percentage control ------
 def _count_valid_pixels(prepared_nc: str, var_name: str, mask_var: str) -> int:
     """
@@ -240,6 +291,32 @@ echo "[$(date)] Completed ${STAGE} for lake_id=${LAKE_ID}, row=${SLURM_ARRAY_TAS
 
 def do_plan(conf_path:str):
     with open(conf_path) as f: conf = json.load(f)
+
+    groups = _resolve_lake_groups(conf)
+    if groups:
+        # Show per-group summary
+        total = sum(len(g["lake_ids"]) for g in groups)
+        print(f"Lake groups: {len(groups)}  (total lakes: {total})")
+        print(f"Engine mode: {conf.get('engine_mode','dineof')}")
+        # Use first group's first lake to show run_tag
+        vcfg0 = _make_group_config(conf, groups[0])
+        grid0 = _grid(vcfg0)
+        paths0 = _resolve_paths(vcfg0, grid0[0][0], grid0[0][2])
+        print(f"Proposed run_tag: {paths0['run_tag']}")
+        print(f"Run root: {paths0['run_root']}")
+        print()
+        for g in groups:
+            sub = g["submission"]
+            print(f"  Group '{g['name']}': {len(g['lake_ids'])} lakes")
+            print(f"    partition={sub.get('partition','—')}  qos={sub.get('qos','—')}  "
+                  f"mem={sub.get('mem','—')}  cpus={sub.get('cpus_per_task',1)}  "
+                  f"time={sub.get('time','—')}")
+            ids = g["lake_ids"]
+            preview = ids[:5]
+            suffix = f" ... +{len(ids)-5} more" if len(ids) > 5 else ""
+            print(f"    lake_ids: {preview}{suffix}")
+        return
+
     grid = _grid(conf)
     print(f"Tasks: {len(grid)}  (rows 0..{len(grid)-1})")
     if not grid:
@@ -259,48 +336,15 @@ def _job_prefix(conf_path: str) -> str:
     # Truncate to reasonable length for SLURM job names (max ~64 chars typically)
     return name[:20] if len(name) > 20 else name
 
-def do_submit(conf_path:str, single_stage:str=None):
-    _ensure_stage_slurm()
-    with open(conf_path) as f: conf = json.load(f)
-    grid = _grid(conf)
-    if not grid:
-        print("No tasks. Check dataset_options.custom_lake_ids.", file=sys.stderr); sys.exit(1)
-
-    # Generate run_tag ONCE at submission time (not at job execution time)
-    P = conf.get("paths", {})
-    if not P.get("run_tag"):
-        # Auto-generate and inject into config so all jobs use the same tag
-        run_tag = _auto_run_tag(conf)
-        if "paths" not in conf:
-            conf["paths"] = {}
-        conf["paths"]["run_tag"] = run_tag
-        print(f"[INFO] Auto-generated run_tag at submission time: {run_tag}")
-
-    paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
-    logd = paths0["logs_dir"]; pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
-
-    _ensure_dir(paths0["run_root"])
-    
-    # Save manifest with the locked-in run_tag
-    manifest_path = os.path.join(paths0["run_root"], "manifest.json")
-    with open(manifest_path, "w") as f:
-        json.dump(conf, f, indent=2)
-    with open(os.path.join(paths0["run_root"], "README.txt"), "w") as f:
-        f.write(f"Run tag: {paths0['run_tag']}\nGenerated: {datetime.now(timezone.utc).isoformat()}\n")
-    
-    # Jobs will read from manifest.json which has the locked run_tag
-    conf_to_use = manifest_path
-
+def _submit_single_group(conf, conf_to_use, grid, logd, job_prefix, single_stage, group_label=None):
+    """Submit SLURM jobs for a single set of lakes (one group or legacy mode)."""
     sub = conf.get("submission", {})
     maxc = str(sub.get("max_concurrent", 50))
-    part = sub.get("partition"); qos  = sub.get("qos"); acc  = sub.get("account")
-    tim  = sub.get("time", "12:00:00"); mem  = sub.get("mem", "8G")
+    part = sub.get("partition"); qos = sub.get("qos"); acc = sub.get("account")
+    tim = sub.get("time", "12:00:00"); mem = sub.get("mem", "8G")
     cpus = sub.get("cpus_per_task", 1)
     omp_threads = sub.get("omp_num_threads", cpus)
     per_index = bool(sub.get("per_index_chain", False))
-
-    # Get job prefix from config filename for easy identification/cancellation
-    job_prefix = _job_prefix(conf_path)
 
     nmax = len(grid) - 1
     base = ["sbatch", "--parsable",
@@ -317,7 +361,6 @@ def do_submit(conf_path:str, single_stage:str=None):
 
     def submit_stage(stage, dep=None, name=None):
         env = os.environ.copy()
-        # Use manifest.json which has the locked run_tag from submission time
         env.update({"CONF": os.path.abspath(conf_to_use), "STAGE": stage, "LOGS_DIR": logd,
                      "OMP_NUM_THREADS": str(omp_threads)})
         job_name = name or f"{job_prefix}_{stage}"
@@ -327,56 +370,164 @@ def do_submit(conf_path:str, single_stage:str=None):
         job = subprocess.check_output(cmd, env=env, cwd=here).decode().strip()
         return job
 
-    # Single-stage submission (no dependency chain)
+    label = f"  [{group_label}]" if group_label else ""
+
     if single_stage:
         job = submit_stage(single_stage)
-        print(f"Submitted single stage: {single_stage}={job}  [prefix={job_prefix}]")
+        print(f"{label} Submitted single stage: {single_stage}={job}  [prefix={job_prefix}]")
         return
 
     emode = conf.get("engine_mode", "dineof").lower()
     if per_index:
         chain_job = submit_stage("chain")
-        print(f"Submitted (per-index inline chain): chain={chain_job}  [mode={emode}]  [prefix={job_prefix}]")
+        print(f"{label} Submitted (per-index chain): chain={chain_job}  [{len(grid)} lakes, mode={emode}]  [prefix={job_prefix}]")
     else:
-        # Stage-wide chaining
         if emode == "dincae_only":
-            # Skip pre, just run dincae → post_dincae
             c_job = submit_stage("dincae")
             p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
-            print(f"Submitted: dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
+            print(f"{label} Submitted: dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
         elif emode == "dineof_only":
-            # Skip pre, just run dineof → post_dineof
             d_job = submit_stage("dineof")
             p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
-            print(f"Submitted: dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
+            print(f"{label} Submitted: dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
         elif emode == "dineof":
-            pre_job  = submit_stage("pre")
+            pre_job = submit_stage("pre")
             d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
             p_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
-            print(f"Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
+            print(f"{label} Submitted: pre={pre_job} → dineof={d_job} → post_dineof={p_job}  [prefix={job_prefix}]")
         elif emode == "dincae":
-            pre_job  = submit_stage("pre")
+            pre_job = submit_stage("pre")
             c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
             p_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
-            print(f"Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
+            print(f"{label} Submitted: pre={pre_job} → dincae={c_job} → post_dincae={p_job}  [prefix={job_prefix}]")
         else:
-            # both: run dineof and dincae after pre (in parallel), then their posts
-            pre_job  = submit_stage("pre")
+            pre_job = submit_stage("pre")
             d_job = submit_stage("dineof", dep=f"afterok:{pre_job}")
             c_job = submit_stage("dincae", dep=f"afterok:{pre_job}")
             pd_job = submit_stage("post_dineof", dep=f"afterok:{d_job}")
             pc_job = submit_stage("post_dincae", dep=f"afterok:{c_job}")
-            print(f"Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}  [prefix={job_prefix}]")
+            print(f"{label} Submitted: pre={pre_job} → dineof={d_job} & dincae={c_job} → post_dineof={pd_job} & post_dincae={pc_job}  [prefix={job_prefix}]")
+
+
+def do_submit(conf_path:str, single_stage:str=None):
+    _ensure_stage_slurm()
+    with open(conf_path) as f: conf = json.load(f)
+
+    # Generate run_tag ONCE at submission time (not at job execution time)
+    P = conf.get("paths", {})
+    if not P.get("run_tag"):
+        run_tag = _auto_run_tag(conf)
+        if "paths" not in conf:
+            conf["paths"] = {}
+        conf["paths"]["run_tag"] = run_tag
+        print(f"[INFO] Auto-generated run_tag at submission time: {run_tag}")
+
+    groups = _resolve_lake_groups(conf)
+
+    if groups:
+        # --- lake_groups mode ---
+        # Use first group to derive shared run_root
+        vcfg0 = _make_group_config(conf, groups[0])
+        grid0 = _grid(vcfg0)
+        paths0 = _resolve_paths(vcfg0, grid0[0][0], grid0[0][2])
+        run_root = paths0["run_root"]
+        logd = paths0["logs_dir"]
+        pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
+        _ensure_dir(run_root)
+
+        # Save base manifest for reference
+        base_manifest = os.path.join(run_root, "manifest.json")
+        with open(base_manifest, "w") as f:
+            json.dump(conf, f, indent=2)
+        with open(os.path.join(run_root, "README.txt"), "w") as f:
+            f.write(f"Run tag: {paths0['run_tag']}\nGenerated: {datetime.now(timezone.utc).isoformat()}\n")
+            f.write(f"Lake groups: {len(groups)}\n")
+            for g in groups:
+                f.write(f"  {g['name']}: {len(g['lake_ids'])} lakes\n")
+
+        job_prefix = _job_prefix(conf_path)
+        total = sum(len(g["lake_ids"]) for g in groups)
+        print(f"[INFO] Submitting {len(groups)} lake group(s), {total} lakes total")
+        print(f"[INFO] Run root: {run_root}")
+
+        for g in groups:
+            vcfg = _make_group_config(conf, g)
+            vgrid = _grid(vcfg)
+            if not vgrid:
+                print(f"[WARN] Group '{g['name']}' has 0 tasks, skipping", file=sys.stderr)
+                continue
+
+            # Save per-group manifest
+            group_manifest = os.path.join(run_root, f"manifest_{g['name']}.json")
+            with open(group_manifest, "w") as f:
+                json.dump(vcfg, f, indent=2)
+
+            group_prefix = f"{job_prefix}_{g['name']}"
+            sub = g["submission"]
+            print(f"\n[GROUP] '{g['name']}': {len(vgrid)} lakes  "
+                  f"(qos={sub.get('qos','—')} mem={sub.get('mem','—')} cpus={sub.get('cpus_per_task',1)})")
+
+            _submit_single_group(vcfg, group_manifest, vgrid, logd, group_prefix, single_stage, group_label=g["name"])
+
+        return
+
+    # --- legacy mode (no lake_groups) ---
+    grid = _grid(conf)
+    if not grid:
+        print("No tasks. Check dataset_options.custom_lake_ids.", file=sys.stderr); sys.exit(1)
+
+    paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
+    logd = paths0["logs_dir"]; pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
+
+    _ensure_dir(paths0["run_root"])
+
+    # Save manifest with the locked-in run_tag
+    manifest_path = os.path.join(paths0["run_root"], "manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(conf, f, indent=2)
+    with open(os.path.join(paths0["run_root"], "README.txt"), "w") as f:
+        f.write(f"Run tag: {paths0['run_tag']}\nGenerated: {datetime.now(timezone.utc).isoformat()}\n")
+
+    conf_to_use = manifest_path
+    job_prefix = _job_prefix(conf_path)
+
+    _submit_single_group(conf, conf_to_use, grid, logd, job_prefix, single_stage)
+
+def _run_direct_for_config(conf, manifest_path, logd, group_label=None):
+    """Run pipeline directly for a single config (one group or legacy)."""
+    grid = _grid(conf)
+    if not grid:
+        print("No tasks.", file=sys.stderr)
+        return
+
+    sub = conf.get("submission", {})
+    cpus = sub.get("cpus_per_task", 1)
+    omp = sub.get("omp_num_threads", cpus)
+    os.environ["OMP_NUM_THREADS"] = str(omp)
+
+    prefix = f"[DIRECT:{group_label}]" if group_label else "[DIRECT]"
+    print(f"\n{prefix} Running {len(grid)} lake(s) sequentially (no SLURM)")
+    print(f"{prefix} OMP_NUM_THREADS={omp}")
+
+    for row in range(len(grid)):
+        lake_id = grid[row][0]
+        print(f"\n{'='*60}")
+        print(f"{prefix} Lake {lake_id} (row {row}/{len(grid)-1})")
+        print(f"{'='*60}", flush=True)
+        try:
+            do_exec(manifest_path, row, "chain")
+        except Exception as e:
+            print(f"{prefix} Lake {lake_id} FAILED: {e}", flush=True)
+
+    print(f"\n{prefix} All {len(grid)} lake(s) completed.")
+
 
 def do_direct(conf_path: str):
     """Run pipeline directly (no SLURM). For use with nohup on sci/interactive nodes."""
     with open(conf_path) as f:
         conf = json.load(f)
-    grid = _grid(conf)
-    if not grid:
-        print("No tasks.", file=sys.stderr); sys.exit(1)
 
-    # Generate run_tag and save manifest (same as do_submit)
+    # Generate run_tag
     P = conf.get("paths", {})
     if not P.get("run_tag"):
         run_tag = _auto_run_tag(conf)
@@ -385,22 +536,29 @@ def do_direct(conf_path: str):
         conf["paths"]["run_tag"] = run_tag
         print(f"[INFO] Auto-generated run_tag: {run_tag}")
 
-    paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
+    groups = _resolve_lake_groups(conf)
+
+    # Derive run_root from first group or legacy config
+    if groups:
+        vcfg0 = _make_group_config(conf, groups[0])
+        grid0 = _grid(vcfg0)
+        paths0 = _resolve_paths(vcfg0, grid0[0][0], grid0[0][2])
+    else:
+        grid = _grid(conf)
+        if not grid:
+            print("No tasks.", file=sys.stderr); sys.exit(1)
+        paths0 = _resolve_paths(conf, grid[0][0], grid[0][2])
+
     logd = paths0["logs_dir"]
     pathlib.Path(logd).mkdir(parents=True, exist_ok=True)
     _ensure_dir(paths0["run_root"])
 
+    # Save base manifest
     manifest_path = os.path.join(paths0["run_root"], "manifest.json")
     with open(manifest_path, "w") as f:
         json.dump(conf, f, indent=2)
 
-    # Set OMP_NUM_THREADS
-    sub = conf.get("submission", {})
-    cpus = sub.get("cpus_per_task", 1)
-    omp = sub.get("omp_num_threads", cpus)
-    os.environ["OMP_NUM_THREADS"] = str(omp)
-
-    # Tee stdout/stderr to a log file in the run directory
+    # Tee stdout/stderr to a log file
     import sys as _sys
     log_path = os.path.join(logd, "direct_run.out")
 
@@ -419,22 +577,21 @@ def do_direct(conf_path: str):
     _sys.stdout = _Tee(_sys.stdout, _log_fh)
     _sys.stderr = _Tee(_sys.stderr, _log_fh)
 
-    print(f"[DIRECT] Running {len(grid)} lake(s) sequentially (no SLURM)")
-    print(f"[DIRECT] OMP_NUM_THREADS={omp}")
     print(f"[DIRECT] Run root: {paths0['run_root']}")
     print(f"[DIRECT] Log file: {log_path}")
 
-    for row in range(len(grid)):
-        lake_id = grid[row][0]
-        print(f"\n{'='*60}")
-        print(f"[DIRECT] Lake {lake_id} (row {row}/{len(grid)-1})")
-        print(f"{'='*60}", flush=True)
-        try:
-            do_exec(manifest_path, row, "chain")
-        except Exception as e:
-            print(f"[DIRECT] Lake {lake_id} FAILED: {e}", flush=True)
+    if groups:
+        total = sum(len(g["lake_ids"]) for g in groups)
+        print(f"[DIRECT] {len(groups)} group(s), {total} lakes total")
 
-    print(f"\n[DIRECT] All {len(grid)} lake(s) completed.")
+        for g in groups:
+            vcfg = _make_group_config(conf, g)
+            group_manifest = os.path.join(paths0["run_root"], f"manifest_{g['name']}.json")
+            with open(group_manifest, "w") as f:
+                json.dump(vcfg, f, indent=2)
+            _run_direct_for_config(vcfg, group_manifest, logd, group_label=g["name"])
+    else:
+        _run_direct_for_config(conf, manifest_path, logd)
 
 
 def _env_for(conf: dict, stage: str) -> str:
