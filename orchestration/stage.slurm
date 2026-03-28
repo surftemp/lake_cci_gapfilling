@@ -35,6 +35,8 @@ echo "STDOUT: $OUTFILE"
 echo "STDERR: $ERRFILE"
 echo ""
 
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
+echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
 python lswtctl.py exec --config "$CONF" --row "$SLURM_ARRAY_TASK_ID" --stage "${STAGE}"
 
 echo ""
